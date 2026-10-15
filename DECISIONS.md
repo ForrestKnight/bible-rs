@@ -126,7 +126,26 @@ disk. Export to JSON (round-trips via import) and Markdown.
 - Native menu bar via `muda` (`cfg(target_os = "macos")`). Menu items with key equivalents are
   routed into the same actions as keyboard shortcuts; there is deliberately no Edit menu because
   AppKit's predefined copy/paste items would swallow ⌘C/⌘V before text fields see them.
-- Full-size content view: the toolbar is the title bar.
+- Full-size content view: the toolbar is the title bar. An empty `NSToolbar` in the *unified*
+  style makes AppKit lay the title bar out 52 pt tall with the traffic lights centred in it — the
+  same geometry as Safari or Notes — and keeps them there through resizing, full screen and theme
+  changes. The egui toolbar reads the buttons' real frames back every frame (a handful of
+  Objective-C calls, ~5 µs): its height is twice their centre line and its first item starts 16 pt
+  after them, so the two can't drift apart. Measured at 2×: traffic lights and every toolbar icon
+  centre on the same pixel row. The alternative — moving the standard buttons by hand, as Tauri's
+  `trafficLightPosition` does — costs nothing at launch but has to be re-applied after every
+  AppKit layout pass and can flicker during live resize; the toolbar costs ~2 ms at launch
+  (`setToolbar:` building its views).
+- In full screen the (empty) toolbar is hidden, since AppKit would otherwise show it as an opaque
+  strip over the app's own.
+- A 52 pt title bar makes the toolbar's buttons part of the window-drag area: a double-click on
+  Back would zoom the window. macOS collects that area from views' `mouseDownCanMoveWindow` ahead
+  of time and hands it to the window server, so answering per click doesn't work; instead
+  invisible, click-through `NSView`s sit over the button groups (and any egui popup reaching into
+  the bar) and answer "no".
+- The sidebar runs the window's full height like a source list, with the traffic lights and the
+  sidebar/back/forward buttons in its top strip; the toolbar over the reading area takes the page
+  colour, as in Books.
 - `scripts/bundle-macos.sh` builds `bible-rs.app` (icon, Info.plist, ad-hoc or Developer ID
   signature) and a DMG; CI does this on `macos-latest` and uploads the DMG.
 
