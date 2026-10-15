@@ -1,8 +1,11 @@
 //! Small custom widgets shared across the UI, drawn to the design's component sheets
 //! (`ds-06` title bar, `ds-07` buttons, `ds-10` search field in the Paper file).
 
+use std::sync::Arc;
+
 use eframe::egui::{
-    self, Color32, CornerRadius, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
+    self, Color32, CornerRadius, Galley, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2,
+    vec2,
 };
 
 use crate::theme::{self, Palette, metrics, text};
@@ -459,4 +462,135 @@ pub fn segmented_fit(
         x += w;
     }
     out
+}
+
+/// A checkbox (`ds-14`): 16 pt, radius 4; off, the field colour with a hairline; on, the accent
+/// with a check. The label follows 8 pt after.
+pub fn checkbox(ui: &mut Ui, p: &Palette, b: Rect, on: bool, label: &str) -> Response {
+    let g = ui.painter().layout_no_wrap(label.to_string(), text::UI.font(), p.ink);
+    let hit = Rect::from_min_size(b.min, vec2(16.0 + 8.0 + g.size().x, 16.0)).expand(4.0);
+    let resp = ui.interact(hit, ui.id().with(("check", label)), Sense::click());
+    let painter = ui.painter();
+    if on {
+        painter.rect_filled(b, 4.0, p.accent);
+        let s = Stroke::new(1.75, p.on_accent);
+        painter.add(egui::Shape::line(
+            vec![b.min + vec2(4.0, 8.25), b.min + vec2(7.0, 11.0), b.min + vec2(12.0, 5.25)],
+            s,
+        ));
+    } else {
+        painter.rect_filled(b, 4.0, p.field);
+        let border = if resp.hovered() { p.ink_3 } else { p.border };
+        painter.rect_stroke(b, 4.0, Stroke::new(1.0, border), StrokeKind::Inside);
+    }
+    let size = g.size();
+    painter.galley(pos2(b.right() + 8.0, b.center().y - size.y / 2.0), g, p.ink);
+    resp
+}
+
+/// A radio button (`ds-14`): 16 pt; off, the field colour with a hairline; on, a 5 pt accent ring
+/// around a `raised` centre.
+pub fn radio(painter: &Painter, p: &Palette, center: egui::Pos2, on: bool, hovered: bool) {
+    if on {
+        painter.circle_filled(center, 8.0, p.accent);
+        painter.circle_filled(center, 3.0, p.raised);
+    } else {
+        painter.circle_filled(center, 8.0, p.field);
+        let border = if hovered { p.ink_3 } else { p.border };
+        painter.circle_stroke(center, 7.5, Stroke::new(1.0, border));
+    }
+}
+
+/// A primary button (`ds-07`): a 32 pt accent capsule, 13 pt semibold on-accent, with an optional
+/// trailing 16 pt glyph 6 pt after the label.
+pub fn primary_button(
+    ui: &mut Ui,
+    p: &Palette,
+    rect: Rect,
+    label: &str,
+    trailing: Option<fn(&Painter, Rect, Color32)>,
+    id: egui::Id,
+) -> Response {
+    let resp = ui.interact(rect, id, Sense::click());
+    let r = rect.height() / 2.0;
+    let painter = ui.painter();
+    painter.rect_filled(rect, r, p.accent);
+    if resp.is_pointer_button_down_on() {
+        painter.rect_filled(rect, r, Color32::from_black_alpha(40));
+    } else if resp.hovered() {
+        painter.rect_filled(rect, r, Color32::from_black_alpha(20));
+    }
+    let galley = painter.layout_no_wrap(label.into(), theme::ui_semibold(text::UI.size), p.on_accent);
+    let x = rect.left() + 14.0;
+    painter.galley(pos2(x, rect.center().y - galley.size().y / 2.0), galley.clone(), p.on_accent);
+    if let Some(icon) = trailing {
+        let r = Rect::from_min_size(pos2(x + galley.size().x + 6.0, rect.center().y - 8.0), vec2(16.0, 16.0));
+        crate::icons::heavy(|| icon(painter, r, p.on_accent));
+    }
+    resp
+}
+
+/// Width of a [`primary_button`]: 14 pt either side, plus the trailing glyph.
+pub fn primary_button_width(ui: &Ui, label: &str, trailing: bool) -> f32 {
+    let w = ui
+        .painter()
+        .layout_no_wrap(label.into(), theme::ui_semibold(text::UI.size), Color32::PLACEHOLDER)
+        .size()
+        .x;
+    w + 28.0 + if trailing { 6.0 + 16.0 } else { 0.0 }
+}
+
+/// A plain button (`ds-07`): a 32 pt capsule in `fill`, 13 pt medium ink; `fill_strong` on hover.
+pub fn plain_button(ui: &mut Ui, p: &Palette, rect: Rect, label: &str, id: egui::Id) -> Response {
+    let resp = ui.interact(rect, id, Sense::click());
+    let r = rect.height() / 2.0;
+    let fill = if resp.hovered() || resp.is_pointer_button_down_on() { p.fill_strong } else { p.fill };
+    ui.painter().rect_filled(rect, r, fill);
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        theme::ui_medium(text::UI.size),
+        p.ink,
+    );
+    resp
+}
+
+/// Width of a [`plain_button`] for `label`.
+pub fn plain_button_width(ui: &Ui, label: &str) -> f32 {
+    secondary_button_width(ui, label)
+}
+
+/// One line of text in `font` with `tracking` (in ems) and no wrapping.
+pub fn line(painter: &Painter, text: &str, font: egui::FontId, color: Color32, tracking: f32) -> Arc<Galley> {
+    let size = font.size;
+    let mut job = egui::text::LayoutJob::single_section(
+        text.into(),
+        egui::TextFormat {
+            font_id: font,
+            color,
+            extra_letter_spacing: tracking * size,
+            ..Default::default()
+        },
+    );
+    job.wrap.max_width = f32::INFINITY;
+    painter.layout_job(job)
+}
+
+/// Where CSS puts the baseline of `size` pt text in a line box `lh` tall whose top is `top`
+/// (Literata when `reading`, else Inter).
+pub fn css_baseline(top: f32, lh: f32, size: f32, reading: bool) -> f32 {
+    use crate::reader::layout::{INTER_BASELINE, LITERATA_BASELINE};
+    top + lh / 2.0 + size * if reading { LITERATA_BASELINE } else { INTER_BASELINE }
+}
+
+/// The baseline of a galley's first row, from its top.
+pub fn galley_baseline(g: &Galley) -> f32 {
+    g.rows.first().and_then(|r| r.glyphs.first()).map_or(g.size().y * 0.8, |gl| gl.pos.y)
+}
+
+/// Paints `galley` with its left edge at `x` and its first baseline at `baseline`.
+pub fn paint_on_baseline(painter: &Painter, x: f32, baseline: f32, galley: Arc<Galley>, color: Color32) {
+    let y = baseline - galley_baseline(&galley);
+    painter.galley(pos2(x, y), galley, color);
 }

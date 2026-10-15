@@ -39,6 +39,13 @@ pub struct Settings {
     pub chapter: u16,
     pub verse: u8,
     pub whole_words: bool,
+    /// The first-launch screens are done. Settings saved before they existed count as done.
+    #[serde(default = "yes")]
+    pub onboarded: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -56,6 +63,7 @@ impl Default for Settings {
             chapter: ChapterIdx::new(BookId(42), 1).unwrap().0,
             verse: 1,
             whole_words: false,
+            onboarded: false,
         }
     }
 }
@@ -224,6 +232,8 @@ pub struct BibleApp {
     reading: crate::reading::Tracker,
     verse_menu: Option<crate::verse_menu::VerseMenu>,
     note_popover: Option<NotePopover>,
+    /// The first-launch screens, until they are done.
+    onboarding: Option<crate::onboarding::Onboarding>,
     /// `BIBLE_RS_DEMO`: steps that put the window into a given state (screenshots), one per frame.
     demo: std::collections::VecDeque<String>,
     chrome: Chrome,
@@ -288,6 +298,11 @@ impl BibleApp {
         let reader = Reader::new(chapter, settings.verse);
         let (task_tx, task_rx) = channel();
         let sidebar = Sidebar::new(settings.sidebar_tab);
+        let onboarding = (!settings.onboarded && !crate::probing()).then(|| {
+            // A window opened at the reader's size (onboarding left unfinished) shrinks to fit.
+            cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(crate::onboarding::SIZE));
+            crate::onboarding::Onboarding::new(&cc.egui_ctx)
+        });
         Self {
             data_dir,
             library,
@@ -317,6 +332,7 @@ impl BibleApp {
             reading: Default::default(),
             verse_menu: None,
             note_popover: None,
+            onboarding,
             demo: std::env::var("BIBLE_RS_DEMO")
                 .map(|s| s.split(';').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
                 .unwrap_or_default(),
@@ -769,6 +785,11 @@ impl BibleApp {
                 self.reader.set_selection(bible_core::reference::parse(r).map(|r| r.verse_ref()));
                 let pos = egui::pos2(x.parse().unwrap_or(600.0), y.parse().unwrap_or(352.0));
                 self.verse_menu = Some(crate::verse_menu::VerseMenu::new(pos).with_first_highlighted());
+            }
+            "onboarding" => {
+                if let Some(o) = &mut self.onboarding {
+                    o.step = arg.parse::<usize>().unwrap_or(1).saturating_sub(1);
+                }
             }
             "settings" => actions.push(Action::OpenSettings(match arg {
                 "translations" => SettingsTab::Translations,
@@ -1285,6 +1306,109 @@ fn translation_menu(ui: &mut Ui, library: &Library, settings: &Settings, actions
     }
 }
 
+impl BibleApp {
+    /// The end of every frame: window drag areas, actions, persistence and startup bookkeeping.
+    fn end_frame(
+        &mut self,
+        ctx: &egui::Context,
+        frame: &eframe::Frame,
+        frame_start: Instant,
+        actions: Vec<Action>,
+    ) {
+        #[cfg(not(target_os = "macos"))]
+        let _ = frame;
+        #[cfg(target_os = "macos")]
+        {
+            // Popups over the title bar aren't drag handles either.
+            let bar = egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                vec2(ctx.content_rect().width(), self.chrome.height),
+            );
+            let mut rects = self.toolbar_items.clone();
+            ctx.memory(|m| {
+                for layer in m.areas().visible_layer_ids() {
+                    if layer.order != egui::Order::Background
+                        && let Some(r) = m.area_rect(layer.id)
+                        && r.intersects(bar)
+                    {
+                        rects.push(r.intersect(bar));
+                    }
+                }
+            });
+            rects.sort_by(|a, b| a.left().total_cmp(&b.left()));
+            self.no_drag.set(frame, &rects, ctx.zoom_factor());
+        }
+
+        let had_actions = !actions.is_empty();
+        self.apply(ctx, actions);
+        if had_actions {
+            ctx.request_repaint();
+        }
+        self.persist(ctx, false);
+
+        // Startup bookkeeping: warm other translations once the first frame is up.
+        if self.startup.frames < 2 {
+            crate::trace(self.startup.t0, &format!("frame {} built", self.startup.frames));
+        }
+        self.startup.frames += 1;
+        let Some(first_ui) = self.startup.first_ui else {
+            self.startup.first_ui = Some(self.startup.t0.elapsed());
+            ctx.request_repaint();
+            return;
+        };
+        if !self.warmed {
+            self.warmed = true;
+            let mut ids = self.columns();
+            ids.extend(
+                self.library.entries().iter().filter(|e| e.is_local()).map(|e| e.meta.id.clone()).take(3),
+            );
+            self.library.warm(&ids);
+            if self.startup.probe {
+                let presented = self.startup.t0.elapsed();
+                let epoch_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs_f64() * 1000.0)
+                    .unwrap_or(0.0);
+                println!(
+                    "{{\"init_ms\":{:.2},\"first_frame_built_ms\":{:.2},\"first_frame_presented_ms\":{:.2},\"epoch_ms\":{:.3}}}",
+                    self.startup.init.as_secs_f64() * 1000.0,
+                    first_ui.as_secs_f64() * 1000.0,
+                    presented.as_secs_f64() * 1000.0,
+                    epoch_ms
+                );
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+        if let Some(sp) = &mut self.scroll_probe {
+            if self.startup.frames > 3 {
+                sp.frames.push(frame_start.elapsed().as_secs_f64() * 1000.0);
+            }
+            if sp.frames.len() >= 900 {
+                let stats = |v: &mut Vec<f64>| {
+                    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    let pct = |p: f64| v[((v.len() as f64 - 1.0) * p).round() as usize];
+                    (
+                        v.iter().sum::<f64>() / v.len() as f64,
+                        pct(0.5),
+                        pct(0.95),
+                        pct(0.99),
+                        *v.last().unwrap(),
+                    )
+                };
+                let (mean, p50, p95, p99, max) = stats(&mut sp.frames);
+                let (imean, ip50, ip95, _, imax) = stats(&mut sp.intervals);
+                let chapters = self.reader.anchor.chapter.0 as i32 - sp.start_chapter.0 as i32;
+                println!(
+                    "{{\"frames\":{},\"chapters_crossed\":{chapters},\"ui_ms\":{{\"mean\":{mean:.3},\"p50\":{p50:.3},\"p95\":{p95:.3},\"p99\":{p99:.3},\"max\":{max:.3}}},\"frame_interval_ms\":{{\"mean\":{imean:.3},\"p50\":{ip50:.3},\"p95\":{ip95:.3},\"max\":{imax:.3}}}}}",
+                    sp.frames.len()
+                );
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                self.scroll_probe = None;
+            }
+        }
+    }
+}
+
 impl eframe::App for BibleApp {
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let frame_start = Instant::now();
@@ -1306,7 +1430,9 @@ impl eframe::App for BibleApp {
         }
         self.poll_tasks(&ctx);
         let mut actions = Vec::new();
-        self.shortcuts(&ctx, &mut actions);
+        if self.onboarding.is_none() {
+            self.shortcuts(&ctx, &mut actions);
+        }
         #[cfg(target_os = "macos")]
         if let Some(menu) = &self.menu {
             menu.poll(&mut actions);
@@ -1332,6 +1458,19 @@ impl eframe::App for BibleApp {
         let p = self.settings.theme.palette();
 
         self.chrome = chrome(frame, &ctx);
+        if let Some(onboarding) = &mut self.onboarding {
+            let done = egui::CentralPanel::default()
+                .frame(Frame::NONE)
+                .show(ui, |ui| onboarding.show(ui, &self.library, &mut self.settings, &mut actions))
+                .inner;
+            if done {
+                self.onboarding = None;
+                self.settings.onboarded = true;
+                open_reader_window(&ctx);
+            }
+            self.end_frame(&ctx, frame, frame_start, actions);
+            return;
+        }
         #[cfg(target_os = "macos")]
         self.toolbar_items.clear();
         if self.settings.sidebar_open {
@@ -1521,95 +1660,7 @@ impl eframe::App for BibleApp {
         }
         self.shortcuts_help(&ctx);
         self.toasts(&ctx);
-        #[cfg(target_os = "macos")]
-        {
-            // Popups over the title bar aren't drag handles either.
-            let bar = egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                vec2(ctx.content_rect().width(), self.chrome.height),
-            );
-            let mut rects = self.toolbar_items.clone();
-            ctx.memory(|m| {
-                for layer in m.areas().visible_layer_ids() {
-                    if layer.order != egui::Order::Background
-                        && let Some(r) = m.area_rect(layer.id)
-                        && r.intersects(bar)
-                    {
-                        rects.push(r.intersect(bar));
-                    }
-                }
-            });
-            rects.sort_by(|a, b| a.left().total_cmp(&b.left()));
-            self.no_drag.set(frame, &rects, ctx.zoom_factor());
-        }
-
-        let had_actions = !actions.is_empty();
-        self.apply(&ctx, actions);
-        if had_actions {
-            ctx.request_repaint();
-        }
-        self.persist(&ctx, false);
-
-        // Startup bookkeeping: warm other translations once the first frame is up.
-        if self.startup.frames < 2 {
-            crate::trace(self.startup.t0, &format!("frame {} built", self.startup.frames));
-        }
-        self.startup.frames += 1;
-        let Some(first_ui) = self.startup.first_ui else {
-            self.startup.first_ui = Some(self.startup.t0.elapsed());
-            ctx.request_repaint();
-            return;
-        };
-        if !self.warmed {
-            self.warmed = true;
-            let mut ids = self.columns();
-            ids.extend(
-                self.library.entries().iter().filter(|e| e.is_local()).map(|e| e.meta.id.clone()).take(3),
-            );
-            self.library.warm(&ids);
-            if self.startup.probe {
-                let presented = self.startup.t0.elapsed();
-                let epoch_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs_f64() * 1000.0)
-                    .unwrap_or(0.0);
-                println!(
-                    "{{\"init_ms\":{:.2},\"first_frame_built_ms\":{:.2},\"first_frame_presented_ms\":{:.2},\"epoch_ms\":{:.3}}}",
-                    self.startup.init.as_secs_f64() * 1000.0,
-                    first_ui.as_secs_f64() * 1000.0,
-                    presented.as_secs_f64() * 1000.0,
-                    epoch_ms
-                );
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-        }
-        if let Some(sp) = &mut self.scroll_probe {
-            if self.startup.frames > 3 {
-                sp.frames.push(frame_start.elapsed().as_secs_f64() * 1000.0);
-            }
-            if sp.frames.len() >= 900 {
-                let stats = |v: &mut Vec<f64>| {
-                    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                    let pct = |p: f64| v[((v.len() as f64 - 1.0) * p).round() as usize];
-                    (
-                        v.iter().sum::<f64>() / v.len() as f64,
-                        pct(0.5),
-                        pct(0.95),
-                        pct(0.99),
-                        *v.last().unwrap(),
-                    )
-                };
-                let (mean, p50, p95, p99, max) = stats(&mut sp.frames);
-                let (imean, ip50, ip95, _, imax) = stats(&mut sp.intervals);
-                let chapters = self.reader.anchor.chapter.0 as i32 - sp.start_chapter.0 as i32;
-                println!(
-                    "{{\"frames\":{},\"chapters_crossed\":{chapters},\"ui_ms\":{{\"mean\":{mean:.3},\"p50\":{p50:.3},\"p95\":{p95:.3},\"p99\":{p99:.3},\"max\":{max:.3}}},\"frame_interval_ms\":{{\"mean\":{imean:.3},\"p50\":{ip50:.3},\"p95\":{ip95:.3},\"max\":{imax:.3}}}}}",
-                    sp.frames.len()
-                );
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                self.scroll_probe = None;
-            }
-        }
+        self.end_frame(&ctx, frame, frame_start, actions);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1617,6 +1668,18 @@ impl eframe::App for BibleApp {
         self.settings.chapter = self.reader.location.0.0;
         self.settings.verse = self.reader.location.1;
         self.settings.save(&self.study);
+    }
+}
+
+/// After onboarding: the reader's 1280 × 800 window, centred on the screen.
+fn open_reader_window(ctx: &egui::Context) {
+    let size = vec2(1280.0, 800.0);
+    ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+    let (outer, monitor) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().monitor_size));
+    if let (Some(outer), Some(monitor)) = (outer, monitor) {
+        let pos = ((monitor - size) / 2.0).max(egui::Vec2::ZERO);
+        let _ = outer;
+        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos.to_pos2()));
     }
 }
 

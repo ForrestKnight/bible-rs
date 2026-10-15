@@ -233,8 +233,8 @@ fn baseline(fonts: &mut FontsView<'_>, format: &TextFormat) -> f32 {
 
 /// CSS centres a font's content area (ascender + descender) in its line box, so its baseline lies
 /// this many ems below the box's centre: (ascender − descender) / 2, from the fonts' hhea tables.
-const LITERATA_BASELINE: f32 = (1.177 - 0.308) / 2.0;
-const INTER_BASELINE: f32 = (1984.0 - 494.0) / 2048.0 / 2.0;
+pub const LITERATA_BASELINE: f32 = (1.177 - 0.308) / 2.0;
+pub const INTER_BASELINE: f32 = (1984.0 - 494.0) / 2048.0 / 2.0;
 
 /// egui places a baseline at the font's ascent from the top of its row, whatever the line height,
 /// and nudges it to centre the font in its family's tallest fallback. This is how far to move a
@@ -399,7 +399,7 @@ fn push_styled_lead(
 
 /// Words printed in capitals (LORD where a text has no divine-name markup, GOD, JESUS OF
 /// NAZARETH…): two or more letters, all upper case. Set in small capitals, as printed Bibles do.
-fn caps_words(text: &str) -> Vec<Range<usize>> {
+pub(crate) fn caps_words(text: &str) -> Vec<Range<usize>> {
     let mut out = Vec::new();
     let mut word: Option<(usize, bool, usize)> = None;
     for (i, c) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {

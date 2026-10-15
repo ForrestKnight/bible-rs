@@ -24,6 +24,20 @@ pub static BUNDLED: &[(&str, &[u8])] =
 
 pub const DEFAULT_ID: &str = "kjv";
 
+/// The year of the edition a bundled text follows, shown beside its abbreviation.
+pub fn year(id: &str) -> Option<u16> {
+    Some(match id {
+        "kjv" => 1769,
+        "web" => 2020,
+        "bsb" => 2023,
+        "asv" => 1901,
+        "ylt" => 1898,
+        "dby" => 1890,
+        "wbs" => 1833,
+        _ => return None,
+    })
+}
+
 pub fn bytes(id: &str) -> Option<&'static [u8]> {
     BUNDLED.iter().find(|(i, _)| *i == id).map(|(_, b)| *b)
 }

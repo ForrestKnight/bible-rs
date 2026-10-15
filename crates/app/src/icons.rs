@@ -377,6 +377,32 @@ pub fn tray(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(2.75, 11.25), (6.75, 11.25), (7.75, 13.25), (12.25, 13.25), (13.25, 11.25), (17.25, 11.25)]);
 }
 
+/// A check mark, drawn heavier (2.5 units) as on the design's selected radios and done steps.
+pub fn check(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::with(p, r, c, 20.0, 2.5);
+    g.line(&[(4.75, 10.5), (8.25, 14.0), (15.25, 6.0)]);
+}
+
+/// An arrow pointing right (Continue).
+pub fn arrow_right(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(3.75, 10.0), (16.25, 10.0)]);
+    g.line(&[(11.75, 5.5), (16.25, 10.0), (11.75, 14.5)]);
+}
+
+/// An arrow down into a tray (import, download).
+pub fn download(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(10.0, 2.75), (10.0, 12.25)]);
+    g.line(&[(6.5, 8.75), (10.0, 12.25), (13.5, 8.75)]);
+    let mut pts = vec![(3.25, 12.0), (3.25, 14.75)];
+    pts.extend(Grid::arc(5.25, 14.75, 2.0, PI, FRAC_PI_2));
+    pts.extend(Grid::arc(14.75, 14.75, 2.0, FRAC_PI_2, 0.0));
+    pts.push((16.75, 12.0));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, false);
+}
+
 /// An "i" in a circle (about).
 pub fn info(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);

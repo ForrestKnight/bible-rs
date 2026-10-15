@@ -246,6 +246,7 @@ pub const SERIF_MEDIUM: &str = "serif-medium";
 pub const SERIF_DISPLAY: &str = "serif-display";
 pub const SERIF_HEADING: &str = "serif-heading";
 pub const UI_SEMIBOLD: &str = "ui-semibold";
+pub const UI_BOLD: &str = "ui-bold";
 pub const UI_MEDIUM: &str = "ui-medium";
 pub const UI: &str = "ui";
 
@@ -263,6 +264,11 @@ pub fn ui_medium(size: f32) -> FontId {
 
 pub fn ui_semibold(size: f32) -> FontId {
     FontId::new(size, family(UI_SEMIBOLD))
+}
+
+/// Inter Bold, for the few abbreviations the design sets in it (pinned like the headings).
+pub fn ui_bold(size: f32) -> FontId {
+    FontId::new(size, family(UI_BOLD))
 }
 
 static LITERATA: &[u8] = include_bytes!("../assets/fonts/Literata.ttf");
@@ -298,6 +304,7 @@ pub fn font_definitions() -> FontDefinitions {
         ("inter", Arc::new(FontData::from_static(INTER))),
         ("inter-medium", Arc::new(FontData::from_static(INTER_MEDIUM))),
         ("inter-semibold", Arc::new(FontData::from_static(INTER_SEMIBOLD))),
+        ("inter-bold", variable(INTER, &[(b"wght", 700.0)])),
     ];
     for (name, d) in data {
         fonts.font_data.insert(name.into(), d);
@@ -311,6 +318,7 @@ pub fn font_definitions() -> FontDefinitions {
     fonts.families.insert(family(UI), with_fallbacks("inter"));
     fonts.families.insert(family(UI_MEDIUM), with_fallbacks("inter-medium"));
     fonts.families.insert(family(UI_SEMIBOLD), with_fallbacks("inter-semibold"));
+    fonts.families.insert(family(UI_BOLD), with_fallbacks("inter-bold"));
     fonts.families.insert(family(SERIF), with_fallbacks("literata"));
     fonts.families.insert(family(SERIF_ITALIC), with_fallbacks("literata-italic"));
     fonts.families.insert(family(SERIF_SEMIBOLD), with_fallbacks("literata-semibold"));

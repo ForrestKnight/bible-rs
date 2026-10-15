@@ -621,7 +621,7 @@ impl Sidebar {
                 });
                 let check =
                     Rect::from_min_size(pos2(select.right() + 16.0, row.center().y - 8.0), vec2(16.0, 16.0));
-                if checkbox(ui, p, check, *whole_words, "Whole words").clicked() {
+                if widgets::checkbox(ui, p, check, *whole_words, "Whole words").clicked() {
                     *whole_words = !*whole_words;
                 }
 
@@ -1300,30 +1300,6 @@ fn select_field(ui: &mut Ui, p: &Palette, r: Rect, value: &str, id: &str) -> Res
             p.ink_2,
         )
     });
-    resp
-}
-
-/// A checkbox (`ds-14`): 16 pt, radius 4; off, the field colour with a hairline; on, the accent
-/// with a check. The label follows 8 pt after.
-fn checkbox(ui: &mut Ui, p: &Palette, b: Rect, on: bool, label: &str) -> Response {
-    let g = ui.painter().layout_no_wrap(label.to_string(), text::UI.font(), p.ink);
-    let hit = Rect::from_min_size(b.min, vec2(16.0 + 8.0 + g.size().x, 16.0)).expand(4.0);
-    let resp = ui.interact(hit, ui.id().with(("check", label)), Sense::click());
-    let painter = ui.painter();
-    if on {
-        painter.rect_filled(b, 4.0, p.accent);
-        let s = egui::Stroke::new(1.75, p.on_accent);
-        painter.add(egui::Shape::line(
-            vec![b.min + vec2(4.0, 8.25), b.min + vec2(7.0, 11.0), b.min + vec2(12.0, 5.25)],
-            s,
-        ));
-    } else {
-        painter.rect_filled(b, 4.0, p.field);
-        let border = if resp.hovered() { p.ink_3 } else { p.border };
-        painter.rect_stroke(b, 4.0, egui::Stroke::new(1.0, border), egui::StrokeKind::Inside);
-    }
-    let size = g.size();
-    painter.galley(pos2(b.right() + 8.0, b.center().y - size.y / 2.0), g, p.ink);
     resp
 }
 

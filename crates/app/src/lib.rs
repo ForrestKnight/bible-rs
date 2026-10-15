@@ -12,6 +12,7 @@ pub mod macos_menu;
 #[cfg(target_os = "macos")]
 pub mod macos_window;
 pub mod note_popover;
+pub mod onboarding;
 pub mod palette;
 pub mod panel;
 pub mod reader;
@@ -38,6 +39,13 @@ pub fn data_dir() -> PathBuf {
 /// `BIBLE_RS_OFFSCREEN=1`: the app is rendered without a window (`examples/shot.rs`).
 pub fn offscreen() -> bool {
     std::env::var_os("BIBLE_RS_OFFSCREEN").is_some()
+}
+
+/// The startup and scroll probes (`scripts/bench-startup.sh`) measure the reader, so they skip
+/// the first-launch screens.
+pub fn probing() -> bool {
+    std::env::var_os("BIBLE_RS_STARTUP_PROBE").is_some()
+        || std::env::var_os("BIBLE_RS_SCROLL_PROBE").is_some()
 }
 
 /// `BIBLE_RS_TRACE_STARTUP=1` prints the time of each startup phase to stderr.
@@ -103,6 +111,8 @@ pub fn run() -> eframe::Result {
     let t0 = Instant::now();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let dir = data_dir();
+    // First launch (no study database yet) opens at the onboarding screens' size.
+    let first_run = !dir.join("study.sqlite").exists() && !probing();
     if let Some(result) = cli::run(&args, &dir) {
         if let Err(e) = result {
             eprintln!("error: {e:#}");
@@ -133,7 +143,7 @@ pub fn run() -> eframe::Result {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("bible-rs")
         .with_app_id("bible-rs")
-        .with_inner_size([1280.0, 800.0])
+        .with_inner_size(if first_run { onboarding::SIZE } else { egui::vec2(1280.0, 800.0) })
         .with_min_inner_size([620.0, 420.0]);
     if in_app_bundle() {
         // The bundle's .icns is already the Dock icon; an empty icon stops eframe from decoding
