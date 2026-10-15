@@ -226,7 +226,7 @@ fn ascent(fonts: &mut FontsView<'_>, font: FontId) -> f32 {
 }
 
 /// Where egui puts the baseline of a one-line galley in `format`, from the top of its row.
-fn baseline(fonts: &mut FontsView<'_>, format: &TextFormat) -> f32 {
+pub(crate) fn baseline(fonts: &mut FontsView<'_>, format: &TextFormat) -> f32 {
     let g = fonts.layout_job(LayoutJob::single_section("H".into(), format.clone()));
     g.rows.first().and_then(|r| r.glyphs.first()).map_or(0.0, |gl| gl.pos.y)
 }

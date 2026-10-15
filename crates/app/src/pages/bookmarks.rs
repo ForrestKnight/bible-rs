@@ -164,9 +164,10 @@ pub(super) fn empty_page(
     actions: &mut Vec<Action>,
 ) -> f32 {
     let h = empty.height(ui.painter());
-    let area_top = content.top() + 58.0;
-    let area_bottom = ui.clip_rect().bottom() - 40.0;
-    let top = (area_top + ((area_bottom - area_top) - h) / 2.0).max(area_top + 24.0);
+    // Centred in the space under the header, less 80 pt at the bottom.
+    let area_top = content.top() + 58.0 + 20.0;
+    let area_bottom = ui.clip_rect().bottom() - 80.0;
+    let top = (area_top + ((area_bottom - area_top) - h) / 2.0).max(area_top);
     let (primary, ghost) = empty.show(ui, p, content.center().x, top);
     if primary.is_some_and(|r| r.clicked()) {
         let john = bible_core::ChapterIdx::new(bible_core::BookId(42), 1).expect("John 1");

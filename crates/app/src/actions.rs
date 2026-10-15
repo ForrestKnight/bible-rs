@@ -38,6 +38,10 @@ pub enum Action {
     RemoveBookmark(VerseRef),
     RemoveHighlight(VerseRef),
     RemoveNote(VerseRef),
+    /// Save a note's text (an empty text removes it).
+    SaveNote(VerseRef, String),
+    /// Bookmark a verse, or remove its bookmark.
+    ToggleBookmarkAt(VerseRef),
     /// Copy the selected verses' text; `Copy` adds the reference.
     CopyText,
     Copy,

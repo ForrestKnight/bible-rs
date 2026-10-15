@@ -744,6 +744,16 @@ impl BibleApp {
                 Err(e) => self.toast(ctx, format!("{e:#}")),
             },
             Action::OpenPage(page) => self.pages.open(page),
+            Action::SaveNote(v, body) => {
+                if let Err(e) = self.study.set_note(v, &body) {
+                    self.toast(ctx, format!("Couldn't save note: {e:#}"));
+                }
+            }
+            Action::ToggleBookmarkAt(v) => {
+                if let Err(e) = self.study.toggle_bookmark(v) {
+                    self.toast(ctx, format!("{e:#}"));
+                }
+            }
             Action::ShowShortcuts => self.shortcuts_open = !self.shortcuts_open,
             Action::ScrollLines(n) => {
                 let lh = self.settings.typo.size * self.settings.typo.line_height;
@@ -798,6 +808,11 @@ impl BibleApp {
                 }
             }
             "pick" => self.pages.translations.selected = Some(arg.to_string()),
+            "note-select" => {
+                if let Some(r) = bible_core::reference::parse(arg) {
+                    self.pages.notes.select(r.verse_ref());
+                }
+            }
             // `import`, `import:<path>`, then `import-progress:<books>` or
             // `import-review:<error>|<key tried>` (empty error: import the file for real).
             "import" => {

@@ -4,6 +4,7 @@
 
 pub mod bookmarks;
 pub mod highlights;
+pub mod notes;
 pub mod translations;
 
 use eframe::egui::{self, Color32, FontId, Painter, Rect, ScrollArea, Ui, pos2, vec2};
@@ -75,6 +76,7 @@ pub struct Pages {
     pub translations: translations::State,
     pub bookmarks: bookmarks::State,
     pub highlights: highlights::State,
+    pub notes: notes::State,
     /// Whether the page is scrolled (the toolbar then takes its material).
     pub scrolled: bool,
 }
@@ -98,6 +100,11 @@ impl Pages {
         ui.painter().rect_filled(rect, 0.0, p.paper);
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
         child.set_clip_rect(rect);
+        if self.page.has_panes() {
+            self.notes.show(&mut child, rect, env, actions);
+            self.scrolled = false;
+            return;
+        }
         let out = ScrollArea::vertical().id_salt(("page", self.page as u8)).auto_shrink(false).show(
             &mut child,
             |ui| {
@@ -208,9 +215,9 @@ pub struct Empty<'a> {
 impl Empty<'_> {
     pub fn height(&self, painter: &Painter) -> f32 {
         let body = self.body_galley(painter, Color32::PLACEHOLDER).size().y;
-        let buttons = if self.primary.is_some() || self.ghost.is_some() { 24.0 + 32.0 } else { 0.0 };
-        let hints = if self.hints.is_empty() { 0.0 } else { 32.0 + 20.0 };
-        56.0 + 16.0 + 28.0 + 8.0 + body + buttons + hints
+        let buttons = if self.primary.is_some() || self.ghost.is_some() { 12.0 + 4.0 + 32.0 } else { 0.0 };
+        let hints = if self.hints.is_empty() { 0.0 } else { 24.0 + 20.0 };
+        56.0 + 12.0 + 28.0 + 4.0 + body + buttons + hints
     }
 
     fn body_galley(&self, painter: &Painter, color: Color32) -> std::sync::Arc<egui::Galley> {
@@ -233,18 +240,18 @@ impl Empty<'_> {
         let c = pos2(cx, top + 28.0);
         painter.circle_filled(c, 28.0, p.accent.gamma_multiply(0.12));
         crate::icons::heavy(|| (self.glyph)(&painter, Rect::from_center_size(c, vec2(28.0, 28.0)), p.accent));
-        let mut y = top + 56.0 + 16.0;
+        let mut y = top + 56.0 + 12.0;
         let g = line(&painter, self.title, FontId::new(20.0, theme::family(theme::SERIF)), p.ink, 0.0);
         let gx = cx - g.size().x / 2.0;
         paint_on_baseline(&painter, gx, css_baseline(y, 28.0, 20.0, true), g, p.ink);
-        y += 28.0 + 8.0;
+        y += 28.0 + 4.0;
         let body = self.body_galley(&painter, p.ink_2);
         let h = body.size().y;
         painter.galley(pos2(cx - self.width / 2.0, y), body, p.ink_2);
         y += h;
         let (mut primary, mut ghost) = (None, None);
         if self.primary.is_some() || self.ghost.is_some() {
-            y += 24.0;
+            y += 12.0 + 4.0;
             let a = self.primary.map(|l| crate::widgets::Button::new(crate::widgets::Kind::Primary, l));
             let b = self.ghost.map(|l| crate::widgets::Button::new(crate::widgets::Kind::Ghost, l));
             let wa = a.map_or(0.0, |b| b.width(&painter));
@@ -261,7 +268,7 @@ impl Empty<'_> {
             y += 32.0;
         }
         if !self.hints.is_empty() {
-            y += 32.0;
+            y += 24.0;
             let cy = y + 10.0;
             let gap = 24.0;
             let widths: Vec<f32> = self

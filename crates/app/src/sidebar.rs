@@ -342,7 +342,7 @@ impl Sidebar {
                                 crate::icons::highlighter,
                                 Some(Page::Highlights),
                             ),
-                            (StudyKind::Notes, "Notes", nn, crate::icons::note, None),
+                            (StudyKind::Notes, "Notes", nn, crate::icons::note, Some(Page::Notes)),
                         ]
                         .into_iter()
                         .enumerate()
@@ -918,14 +918,14 @@ fn row(ui: &mut Ui, p: &Palette, r: &Row<'_>) -> Response {
 
 /// A bookmark, highlight, note or search hit in a list (`ds-09`): reference and translation,
 /// then the note (13/18) and a serif snippet (14/20, two lines, or one under a note).
-struct ListItem {
-    reference: String,
-    trailing: String,
+pub(crate) struct ListItem {
+    pub reference: String,
+    pub trailing: String,
     /// A highlight's 3 pt colour bar.
-    bar: Option<Color32>,
-    note: Option<String>,
-    snippet: String,
-    selected: bool,
+    pub bar: Option<Color32>,
+    pub note: Option<String>,
+    pub snippet: String,
+    pub selected: bool,
 }
 
 const ITEM_PAD: egui::Vec2 = vec2(12.0, 10.0);
@@ -944,7 +944,7 @@ fn wrapped(text: &str, font: FontId, line_height: f32, color: Color32, width: f3
     job
 }
 
-fn list_item(ui: &mut Ui, p: &Palette, item: &ListItem) -> Response {
+pub(crate) fn list_item(ui: &mut Ui, p: &Palette, item: &ListItem) -> Response {
     let width = ui.available_width();
     let mut text_left = ITEM_PAD.x;
     if item.bar.is_some() {

@@ -911,6 +911,19 @@ pub fn flow(
     width: f32,
     rows: usize,
 ) -> Vec<Vec<Run>> {
+    flow_indented(painter, text, font, small, width, width, rows)
+}
+
+/// [`flow`] with a narrower first line (`first` wide), as after a verse number.
+pub fn flow_indented(
+    painter: &Painter,
+    text: &str,
+    font: &egui::FontId,
+    small: f32,
+    width: f32,
+    first: f32,
+    rows: usize,
+) -> Vec<Vec<Run>> {
     let space = line(painter, " ", font.clone(), Color32::PLACEHOLDER, 0.0).size().x;
     let ellipsis = line(painter, "…", font.clone(), Color32::PLACEHOLDER, 0.0).size().x;
     // A word followed by a line break ends its line.
@@ -934,6 +947,7 @@ pub fn flow(
             let gap = if l.is_empty() { 0.0 } else { space };
             // On the last row, keep room for the ellipsis unless this is the final word.
             let tail = if last_row && i + 1 < words.len() { ellipsis } else { 0.0 };
+            let width = if lines.is_empty() { first } else { width };
             if !l.is_empty() && used + gap + w + tail > width {
                 break;
             }
