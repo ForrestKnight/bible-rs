@@ -356,7 +356,10 @@ pub fn toggle(ui: &mut Ui, p: &Palette, right_center: egui::Pos2, id: egui::Id, 
     }
     let knob = Rect::from_center_size(pos2(r.left() + 12.0 + t * 16.0, r.center().y), vec2(20.0, 20.0));
     p.shadows.knob.paint(ui.painter(), knob, 10.0);
-    ui.painter().circle_filled(knob.center(), 10.0, Color32::WHITE);
+    // In dark, an off switch's knob is grey rather than white.
+    let dark = p.paper.r() < 64;
+    let off_knob = if dark { Color32::from_rgb(0xC9, 0xC9, 0xCE) } else { Color32::WHITE };
+    ui.painter().circle_filled(knob.center(), 10.0, Color32::WHITE.lerp_to_gamma(off_knob, 1.0 - t));
     resp
 }
 
@@ -1028,8 +1031,10 @@ pub fn text_field(
     }
     let edit = Rect::from_min_max(pos2(x, rect.top()), pos2(rect.right() - 10.0, rect.bottom()));
     let font = if mono && !value.is_empty() { egui::FontId::monospace(13.0) } else { text::UI.font() };
-    ui.put(
-        edit,
+    // A detached child: `ui.put` would move the parent's cursor back up to the field.
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(edit));
+    child.add_sized(
+        edit.size(),
         egui::TextEdit::singleline(value)
             .id(id)
             .hint_text(egui::RichText::new(placeholder).color(p.ink_3).font(text::UI.font()))

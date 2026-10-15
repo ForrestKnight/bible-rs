@@ -114,17 +114,21 @@ impl State {
         // Colour tabs.
         let y = top + 58.0 + 20.0;
         let mut x = left;
-        let mut tabs: Vec<(Option<HighlightColor>, &str, usize)> = vec![(None, "All", scoped.len())];
+        let mut tabs: Vec<(Option<HighlightColor>, String, usize)> = vec![(None, "All".into(), scoped.len())];
         for c in HighlightColor::ALL {
-            tabs.push((Some(c), label(c), scoped.iter().filter(|(_, hc, _, _)| *hc == c).count()));
+            tabs.push((
+                Some(c),
+                env.settings.highlight_name(c),
+                scoped.iter().filter(|(_, hc, _, _)| *hc == c).count(),
+            ));
         }
         for (c, label, n) in tabs {
             let n = n.to_string();
             let on = self.color == c;
-            let w = widgets::pill_tab_width(&painter, label, Some(&n), on, c.is_some());
+            let w = widgets::pill_tab_width(&painter, &label, Some(&n), on, c.is_some());
             let r = Rect::from_min_size(pos2(x, y), vec2(w, 28.0));
             let dot = c.map(|c| p.swatch(c));
-            if widgets::pill_tab(ui, p, r, label, Some(&n), dot, on, ui.id().with(("colour", label)))
+            if widgets::pill_tab(ui, p, r, &label, Some(&n), dot, on, ui.id().with(("colour", &label)))
                 .clicked()
             {
                 self.color = c;
@@ -212,16 +216,5 @@ impl State {
             });
         }
         bottoms.into_iter().fold(body, f32::max)
-    }
-}
-
-fn label(c: HighlightColor) -> &'static str {
-    match c {
-        HighlightColor::Yellow => "Yellow",
-        HighlightColor::Green => "Green",
-        HighlightColor::Blue => "Blue",
-        HighlightColor::Pink => "Pink",
-        HighlightColor::Purple => "Purple",
-        HighlightColor::Orange => "Orange",
     }
 }

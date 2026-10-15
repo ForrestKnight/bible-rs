@@ -80,6 +80,7 @@ impl VerseMenu {
         p: &Palette,
         study: &StudyStore,
         refs: &[VerseRef],
+        settings: &crate::app::Settings,
         actions: &mut Vec<Action>,
     ) -> bool {
         if refs.is_empty() {
@@ -171,7 +172,7 @@ impl VerseMenu {
                         ui.painter().line_segment([center + vec2(-4.0, 0.25), center + vec2(-1.25, 3.0)], s);
                         ui.painter().line_segment([center + vec2(-1.25, 3.0), center + vec2(4.0, -2.75)], s);
                     }
-                    if resp.on_hover_text(format!("{} ({})", c.name(), k + 1)).clicked() {
+                    if resp.on_hover_text(format!("{} ({})", settings.highlight_name(c), k + 1)).clicked() {
                         actions.push(Action::Highlight(if current == Some(c) { None } else { Some(c) }));
                         close = true;
                     }

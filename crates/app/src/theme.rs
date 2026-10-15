@@ -49,16 +49,115 @@ impl Theme {
         self == Theme::Dark
     }
 
+    /// The theme's colours, with the accent colour chosen in Settings.
     pub fn palette(self) -> &'static Palette {
-        match self {
+        let base = match self {
             Theme::Light => &LIGHT,
             Theme::Sepia => &SEPIA,
             Theme::Dark => &DARK,
+        };
+        match accent() {
+            Accent::Ink => base,
+            a => &accented()[self as usize * 4 + (a as usize - 1)],
         }
     }
 }
 
+/// Accent colours (Settings › Appearance): Ink is the design's own; the others replace the accent
+/// roles (accent, its soft tint, selection and focus) in every theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum Accent {
+    #[default]
+    Ink,
+    Oxblood,
+    Forest,
+    Plum,
+    Graphite,
+}
+
+impl Accent {
+    pub const ALL: [Accent; 5] =
+        [Accent::Ink, Accent::Oxblood, Accent::Forest, Accent::Plum, Accent::Graphite];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Accent::Ink => "Ink",
+            Accent::Oxblood => "Oxblood",
+            Accent::Forest => "Forest",
+            Accent::Plum => "Plum",
+            Accent::Graphite => "Graphite",
+        }
+    }
+
+    /// The swatch (the light theme's accent).
+    pub fn swatch(self) -> Color32 {
+        match self {
+            Accent::Ink => LIGHT.accent,
+            Accent::Oxblood => Color32::from_rgb(0x8E, 0x2B, 0x2B),
+            Accent::Forest => Color32::from_rgb(0x2F, 0x6B, 0x4F),
+            Accent::Plum => Color32::from_rgb(0x6B, 0x3F, 0x7A),
+            Accent::Graphite => Color32::from_rgb(0x4A, 0x4D, 0x55),
+        }
+    }
+}
+
+static ACCENT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+pub fn accent() -> Accent {
+    Accent::ALL[ACCENT.load(std::sync::atomic::Ordering::Relaxed) as usize % Accent::ALL.len()]
+}
+
+pub fn set_accent(a: Accent) {
+    ACCENT.store(a as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    Color32::from_rgb(f(a.r(), b.r()), f(a.g(), b.g()), f(a.b(), b.b()))
+}
+
+/// Each theme with each non-Ink accent, derived as the design's Ink is: in light and sepia the
+/// swatch itself with a tint 88 % toward the paper; in dark a lighter accent (half way to white)
+/// with a tint 80 % toward the paper; selection and focus are the accent at 14 % / 40 % (20 % /
+/// 50 % in dark).
+fn accented() -> &'static [Palette] {
+    static PALETTES: std::sync::OnceLock<Vec<Palette>> = std::sync::OnceLock::new();
+    PALETTES.get_or_init(|| {
+        let mut out = Vec::new();
+        for theme in Theme::ALL {
+            let base = match theme {
+                Theme::Light => &LIGHT,
+                Theme::Sepia => &SEPIA,
+                Theme::Dark => &DARK,
+            };
+            for a in &Accent::ALL[1..] {
+                let mut p = base.clone();
+                let swatch = a.swatch();
+                let (accent, soft, sel, focus) = if theme.is_dark() {
+                    let accent = mix(swatch, Color32::WHITE, 0.5);
+                    (accent, mix(accent, base.paper, 0.8), 0.20, 0.50)
+                } else {
+                    (swatch, mix(swatch, base.paper, 0.88), 0.14, 0.40)
+                };
+                p.accent = accent;
+                p.accent_soft = soft;
+                p.selection =
+                    Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), (sel * 255.0) as u8);
+                p.focus = Color32::from_rgba_unmultiplied(
+                    accent.r(),
+                    accent.g(),
+                    accent.b(),
+                    (focus * 255.0) as u8,
+                );
+                out.push(p);
+            }
+        }
+        out
+    })
+}
+
 /// One theme's colours. Field names are the design's colour roles.
+#[derive(Clone)]
 pub struct Palette {
     /// Window and reading background.
     pub paper: Color32,
@@ -120,6 +219,7 @@ impl Palette {
     }
 }
 
+#[derive(Clone)]
 pub struct Shadows {
     /// Toolbar capsules, secondary buttons.
     pub control: Elevation,

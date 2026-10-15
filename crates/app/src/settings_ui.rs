@@ -845,12 +845,203 @@ fn theme_cards(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) 
         }
     }
 }
-
-/// Appearance (frame 24 refines it): the theme.
+/// Appearance (frame 24): theme, accent colour, the toolbar's translation, the sidebar; names
+/// for the highlight colours; motion.
 fn appearance(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
     let p = settings.theme.palette();
-    group_title(ui, p, "Theme");
-    theme_cards(ui, settings, actions);
+    group_title(ui, p, "Appearance");
+    rows_card(ui, p, &[44.0, 64.0, 44.0, 44.0], |ui, i, r| match i {
+        0 => {
+            row_label(ui, p, r, "Theme", None);
+            let items: [(IconFn, &str); 4] =
+                [(icons::sun, "Light"), (icons::page, "Sepia"), (icons::moon, "Dark"), (icons::auto, "Auto")];
+            let selected = if settings.theme_system { 3 } else { settings.theme as usize };
+            let right = pos2(r.right() - 16.0, r.center().y);
+            if let Some(k) = icon_segmented(ui, p, right, ui.id().with("theme-seg"), &items, selected) {
+                if k == 3 {
+                    settings.theme_system = true;
+                } else {
+                    settings.theme_system = false;
+                    actions.push(Action::SetTheme(Theme::ALL[k]));
+                }
+            }
+        }
+        1 => {
+            row_label(ui, p, r, "Accent colour", Some("Tints selection, links and primary buttons"));
+            let x0 = r.right() - 16.0 - (5.0 * 52.0 + 4.0 * 4.0);
+            for (k, a) in theme::Accent::ALL.into_iter().enumerate() {
+                let col = Rect::from_min_size(pos2(x0 + 56.0 * k as f32, r.top() + 10.0), vec2(52.0, 44.0));
+                let resp = ui.interact(col, ui.id().with(("accent", k)), Sense::click());
+                let c = pos2(col.center().x, col.top() + 11.0);
+                let on = settings.accent == a;
+                let painter = ui.painter();
+                if on {
+                    painter.circle_filled(c, 14.5, p.ink);
+                    painter.circle_filled(c, 13.0, p.surface);
+                } else if resp.hovered() {
+                    painter.circle_filled(c, 14.0, p.fill_strong);
+                }
+                painter.circle_filled(c, 11.0, a.swatch());
+                if on {
+                    icons::check(painter, Rect::from_center_size(c, vec2(12.0, 12.0)), Color32::WHITE);
+                } else {
+                    painter.circle_stroke(c, 10.75, Stroke::new(0.5, Color32::from_white_alpha(51)));
+                }
+                let (font, ink) =
+                    if on { (theme::ui_semibold(11.0), p.ink) } else { (theme::ui_medium(11.0), p.ink_3) };
+                painter.text(
+                    pos2(col.center().x, col.top() + 28.0 + 8.0),
+                    Align2::CENTER_CENTER,
+                    a.label(),
+                    font,
+                    ink,
+                );
+                if resp.clicked() && !on {
+                    actions.push(Action::SetAccent(a));
+                }
+            }
+        }
+        2 => {
+            row_label(ui, p, r, "Show translation in toolbar", None);
+            let right = pos2(r.right() - 16.0, r.center().y);
+            widgets::toggle(
+                ui,
+                p,
+                right,
+                ui.id().with("toolbar-translation"),
+                &mut settings.toolbar_translation,
+            );
+        }
+        _ => {
+            row_label(ui, p, r, "Sidebar", None);
+            let right = pos2(r.right() - 16.0, r.center().y);
+            let (_, pick) = widgets::segmented_tight(
+                ui,
+                p,
+                right,
+                ui.id().with("sidebar-style"),
+                &["Floating", "Attached"],
+                usize::from(settings.sidebar_attached),
+            );
+            if let Some(k) = pick {
+                settings.sidebar_attached = k == 1;
+            }
+        }
+    });
+    ui.add_space(24.0);
+
+    group_title(ui, p, "Highlight colours");
+    settings.highlight_names.resize(6, String::new());
+    let colours = bible_core::study::HighlightColor::ALL;
+    rows_card(ui, p, &[48.0; 6], |ui, i, r| {
+        let c = colours[i];
+        let dot = pos2(r.left() + 16.0 + 9.0, r.center().y);
+        ui.painter().circle_filled(dot, 9.0, p.swatch(c));
+        ui.painter().circle_stroke(dot, 8.75, Stroke::new(0.5, Color32::from_black_alpha(46)));
+        let field = Rect::from_min_size(pos2(r.left() + 46.0, r.top() + 8.0), vec2(280.0, 32.0));
+        let name = c.name();
+        let placeholder = name[..1].to_uppercase() + &name[1..];
+        widgets::text_field(
+            ui,
+            p,
+            field,
+            &mut settings.highlight_names[i],
+            &placeholder,
+            None,
+            false,
+            false,
+            egui::Id::new(("highlight-name", i)),
+        );
+        let key = (i + 1).to_string();
+        let kw = widgets::keycap_width(ui.painter(), &key);
+        let cap = widgets::keycap(ui.painter(), p, r.right() - 16.0 - kw, r.center().y, &key);
+        ui.painter().text(
+            pos2(cap.left() - 12.0, r.center().y),
+            Align2::RIGHT_CENTER,
+            "Key",
+            text::SMALL.font(),
+            p.ink_3,
+        );
+    });
+    ui.add_space(8.0);
+    footnote(ui, p, "Names appear in the highlight menu and the Highlights filter.");
+    ui.add_space(24.0);
+
+    group_title(ui, p, "Motion");
+    rows_card(ui, p, &[48.0, 44.0], |ui, i, r| {
+        let right = pos2(r.right() - 16.0, r.center().y);
+        if i == 0 {
+            row_label(ui, p, r, "Reduce motion", Some("Follows the system setting by default"));
+            let mut on = settings.reduce_motion;
+            if widgets::toggle(ui, p, right, ui.id().with("reduce-motion"), &mut on).clicked() {
+                actions.push(Action::SetReduceMotion(on));
+            }
+        } else {
+            row_label(ui, p, r, "Flash a verse after jumping to it", None);
+            widgets::toggle(ui, p, right, ui.id().with("flash-jumps"), &mut settings.flash_jumps);
+        }
+    });
+}
+
+/// A note under a group: 12 pt tertiary, aligned with the group's caption.
+fn footnote(ui: &mut Ui, p: &Palette, note: &str) {
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
+    ui.painter().text(
+        pos2(r.left() + 4.0, r.center().y),
+        Align2::LEFT_CENTER,
+        note,
+        text::SMALL.font(),
+        p.ink_3,
+    );
+}
+
+/// A segmented control of icon-and-label segments, drawn with its right edge at `right_center`.
+fn icon_segmented(
+    ui: &mut Ui,
+    p: &Palette,
+    right_center: egui::Pos2,
+    id: egui::Id,
+    items: &[(IconFn, &str)],
+    selected: usize,
+) -> Option<usize> {
+    let widths: Vec<f32> = items
+        .iter()
+        .enumerate()
+        .map(|(i, (_, l))| {
+            let font = if i == selected { theme::ui_semibold(13.0) } else { theme::ui_medium(13.0) };
+            ui.painter().layout_no_wrap(l.to_string(), font, Color32::PLACEHOLDER).size().x
+                + 10.0
+                + 16.0
+                + 6.0
+                + 10.0
+        })
+        .collect();
+    let total = widths.iter().sum::<f32>() + 2.0 * (items.len() as f32 - 1.0) + 4.0;
+    let track = Rect::from_min_size(pos2(right_center.x - total, right_center.y - 16.0), vec2(total, 32.0));
+    ui.painter().rect_filled(track, 16.0, p.fill);
+    let mut x = track.left() + 2.0;
+    let mut out = None;
+    for (i, ((icon, label), w)) in items.iter().zip(widths).enumerate() {
+        let seg = Rect::from_min_size(pos2(x, track.top() + 2.0), vec2(w, 28.0));
+        let resp = ui.interact(seg, id.with(i), Sense::click());
+        let on = i == selected;
+        if on {
+            p.shadows.knob.paint(ui.painter(), seg, 14.0);
+            ui.painter().rect_filled(seg, 14.0, p.raised);
+        } else if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+            ui.painter().rect_filled(seg, 14.0, fill);
+        }
+        let ink = if on { p.ink } else { p.ink_2 };
+        let r = Rect::from_min_size(pos2(seg.left() + 10.0, seg.center().y - 8.0), vec2(16.0, 16.0));
+        icons::heavy(|| icon(ui.painter(), r, ink));
+        let font = if on { theme::ui_semibold(13.0) } else { theme::ui_medium(13.0) };
+        ui.painter().text(pos2(r.right() + 6.0, seg.center().y), Align2::LEFT_CENTER, *label, font, ink);
+        if resp.clicked() && !on {
+            out = Some(i);
+        }
+        x += w + 2.0;
+    }
+    out
 }
 
 /// Every keyboard shortcut, by group.

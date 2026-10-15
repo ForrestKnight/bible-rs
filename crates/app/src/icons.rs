@@ -497,6 +497,32 @@ pub fn flame(p: &Painter, r: Rect, c: Color32) {
     g.polyline(pts, true);
 }
 
+/// A crescent moon (the dark theme).
+pub fn moon(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    let mut pts: Vec<(f32, f32)> = Grid::arc(13.94, 6.06, 6.75, 1.22, 3.49).collect();
+    pts.extend(Grid::arc(9.91, 10.09, 6.75, 4.36, 0.35));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, true);
+}
+
+/// A circle half filled (following the system's appearance).
+pub fn auto(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.circle(10.0, 10.0, 7.25);
+    g.line(&[(10.0, 2.75), (10.0, 17.25)]);
+    let half: Vec<(f32, f32)> = Grid::arc(10.0, 10.0, 5.5, -FRAC_PI_2, FRAC_PI_2).collect();
+    g.fill(&half);
+}
+
+/// A page with lines of text (the sepia theme).
+pub fn page(p: &Painter, r: Rect, c: Color32) {
+    doc(p, r, c);
+    let g = Grid::new(p, r, c);
+    g.line(&[(7.75, 10.0), (12.25, 10.0)]);
+    g.line(&[(7.75, 13.0), (12.25, 13.0)]);
+}
+
 /// A page with a folded corner (a file).
 pub fn doc(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);

@@ -39,6 +39,15 @@ pub struct Settings {
     pub chapter: u16,
     pub verse: u8,
     pub whole_words: bool,
+    /// Appearance: the accent colour, the translation picker in the toolbar, the sidebar
+    /// attached to the window's edge rather than floating, names for the highlight colours
+    /// (empty for the colour's own), less motion, and the flash on a verse jumped to.
+    pub accent: theme::Accent,
+    pub toolbar_translation: bool,
+    pub sidebar_attached: bool,
+    pub highlight_names: Vec<String>,
+    pub reduce_motion: bool,
+    pub flash_jumps: bool,
     /// The share sheet's style and options, as last used.
     pub share: crate::share_sheet::ShareOptions,
     /// Remind about the day's plan reading at 7:00 while the app is open.
@@ -68,6 +77,12 @@ impl Default for Settings {
             verse: 1,
             whole_words: false,
             plan_reminder: false,
+            accent: theme::Accent::Ink,
+            toolbar_translation: true,
+            sidebar_attached: false,
+            highlight_names: Vec::new(),
+            reduce_motion: false,
+            flash_jumps: true,
             share: Default::default(),
             onboarded: false,
         }
@@ -75,6 +90,18 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// A highlight colour's name: the one given in Settings, else the colour's.
+    pub fn highlight_name(&self, c: bible_core::study::HighlightColor) -> String {
+        let i = bible_core::study::HighlightColor::ALL.iter().position(|x| *x == c).unwrap_or(0);
+        match self.highlight_names.get(i).map(|n| n.trim()).filter(|n| !n.is_empty()) {
+            Some(n) => n.to_string(),
+            None => {
+                let name = c.name();
+                name[..1].to_uppercase() + &name[1..]
+            }
+        }
+    }
+
     pub fn load(study: &StudyStore) -> Self {
         study.setting("app").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }
@@ -306,7 +333,11 @@ impl BibleApp {
         startup: Startup,
     ) -> Self {
         let Init { data_dir, study, library, settings, elapsed } = init;
+        theme::set_accent(settings.accent);
         theme::apply(&cc.egui_ctx, settings.theme);
+        if settings.reduce_motion {
+            cc.egui_ctx.all_styles_mut(|s| s.animation_time = 0.0);
+        }
         #[cfg(target_os = "macos")]
         crate::macos_window::install_unified_toolbar(cc);
         let chapter = ChapterIdx(settings.chapter.min(ChapterIdx::LAST.0));
@@ -396,6 +427,7 @@ impl BibleApp {
     fn jump(&mut self, chapter: ChapterIdx, verse: Option<u8>, flash: bool) {
         let here = self.here();
         self.history.push(here);
+        let flash = flash && self.settings.flash_jumps && !self.settings.reduce_motion;
         self.reader.jump(chapter, verse, flash);
     }
 
@@ -791,6 +823,16 @@ impl BibleApp {
                 }
             }
             Action::SetPlanReminder(on) => self.settings.plan_reminder = on,
+            Action::SetAccent(a) => {
+                self.settings.accent = a;
+                theme::set_accent(a);
+                theme::apply(ctx, self.settings.theme);
+            }
+            Action::SetReduceMotion(on) => {
+                self.settings.reduce_motion = on;
+                let t = if on { 0.0 } else { egui::Style::default().animation_time };
+                ctx.all_styles_mut(|s| s.animation_time = t);
+            }
             Action::ClearReading(since) => {
                 if let Err(e) = self.study.clear_reading(since) {
                     self.toast(ctx, format!("{e:#}"));
@@ -899,6 +941,9 @@ impl BibleApp {
             "settings" => actions.push(Action::OpenSettings(match arg {
                 "translations" => SettingsTab::Translations,
                 "data" => SettingsTab::Data,
+                "appearance" => SettingsTab::Appearance,
+                "shortcuts" => SettingsTab::Shortcuts,
+                "about" => SettingsTab::About,
                 _ => SettingsTab::Reading,
             })),
             _ => eprintln!("BIBLE_RS_DEMO: unknown step {step:?}"),
@@ -1170,9 +1215,10 @@ impl BibleApp {
         } else {
             tmeta.as_ref().map(|m| m.abbrev.clone()).unwrap_or_default()
         };
-        let book = widgets::Picker::new(ui, &title, 14.0, 10.0);
+        let show_translation = self.settings.toolbar_translation;
+        let book = widgets::Picker::new(ui, &title, 14.0, if show_translation { 10.0 } else { 12.0 });
         let translation = widgets::Picker::new(ui, &abbrev, 10.0, 12.0);
-        let width = book.width() + 1.0 + translation.width();
+        let width = book.width() + if show_translation { 1.0 + translation.width() } else { 0.0 };
         let pad_left = if sidebar { GROUP_GAP } else { LEADING_INSET };
         let centre = (bar.left() + pad_left + bar.right() - TRAILING_INSET) / 2.0;
         let lo = nav_rect.right() + GROUP_GAP;
@@ -1188,14 +1234,16 @@ impl BibleApp {
             egui::pos2(book_rect.right() + 1.0, pickers.top()),
             vec2(translation.width(), CAPSULE_HEIGHT),
         );
-        widgets::capsule_divider(ui.painter(), book_rect.right(), cy, p);
         let loc = book.show(ui, book_rect, p, "book", "Jump to a book or chapter (⌘K)");
         crate::sidebar::book_picker_popup(ui, &loc, &self.library, &self.settings.translation, actions);
-        let tr = translation.show(ui, tr_rect, p, "translation", "Translation (⌘1…⌘9)");
-        egui::Popup::menu(&tr).show(|ui| {
-            ui.set_min_width(300.0);
-            translation_menu(ui, &self.library, &self.settings, actions);
-        });
+        if show_translation {
+            widgets::capsule_divider(ui.painter(), book_rect.right(), cy, p);
+            let tr = translation.show(ui, tr_rect, p, "translation", "Translation (⌘1…⌘9)");
+            egui::Popup::menu(&tr).show(|ui| {
+                ui.set_min_width(300.0);
+                translation_menu(ui, &self.library, &self.settings, actions);
+            });
+        }
         items.push(pickers);
 
         // Empty toolbar space moves the window and double-clicks to zoom, like a title bar;
@@ -1629,20 +1677,32 @@ impl eframe::App for BibleApp {
             // in its header.
             use theme::metrics::{SIDEBAR_INSET, SIDEBAR_WIDTH};
             let width = if self.sidebar.searching() { SEARCH_SIDEBAR_WIDTH } else { SIDEBAR_WIDTH };
+            let attached = self.settings.sidebar_attached;
+            let inset = if attached { 0.0 } else { SIDEBAR_INSET };
             egui::Panel::left("sidebar")
                 .resizable(false)
-                .exact_size(SIDEBAR_INSET + width)
+                .exact_size(inset + width)
                 .frame(Frame::NONE.fill(p.paper))
                 .show_separator_line(false)
                 .show(ui, |ui| {
                     let full = ui.max_rect();
                     let panel = egui::Rect::from_min_max(
-                        full.min + vec2(SIDEBAR_INSET, SIDEBAR_INSET),
-                        egui::pos2(full.right(), full.bottom() - SIDEBAR_INSET),
+                        full.min + vec2(inset, inset),
+                        egui::pos2(full.right(), full.bottom() - inset),
                     );
-                    let radius = theme::radius::LG;
-                    p.shadows.panel.paint(ui.painter(), panel, radius);
-                    ui.painter().rect_filled(panel, radius, p.sidebar);
+                    if attached {
+                        // Attached: the window's own edge, with a hairline beside the content.
+                        ui.painter().rect_filled(panel, 0.0, p.sidebar);
+                        ui.painter().vline(
+                            panel.right() - 0.5,
+                            panel.y_range(),
+                            Stroke::new(1.0, p.separator),
+                        );
+                    } else {
+                        let radius = theme::radius::LG;
+                        p.shadows.panel.paint(ui.painter(), panel, radius);
+                        ui.painter().rect_filled(panel, radius, p.sidebar);
+                    }
                     // The toggle, 4 pt from the panel's edge, on the traffic lights' line.
                     let toggle = egui::Rect::from_center_size(
                         egui::pos2(panel.right() - 4.0 - 16.0, self.chrome.height / 2.0),
@@ -1814,7 +1874,7 @@ impl eframe::App for BibleApp {
         }
         if let Some(menu) = &mut self.verse_menu {
             let refs = self.reader.selected_refs();
-            if menu.show(&ctx, p, &self.study, &refs, &mut actions) {
+            if menu.show(&ctx, p, &self.study, &refs, &self.settings, &mut actions) {
                 self.verse_menu = None;
             }
         }

@@ -51,6 +51,8 @@ pub enum Action {
         read: bool,
     },
     SetPlanReminder(bool),
+    SetAccent(crate::theme::Accent),
+    SetReduceMotion(bool),
     /// Forget the reading history from this time (Unix seconds) on.
     ClearReading(i64),
     /// Bookmark a verse, or remove its bookmark.
