@@ -13,6 +13,13 @@ use bible_core::online::apibible::{ApiBible, list_bibles};
 use bible_core::online::esv::Esv;
 use bible_core::online::{OnlineConfig, ProviderKind};
 
+/// Keeps these tests out of the user's own Keychain entries (macOS stores API keys there).
+fn isolate_keychain() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    // SAFETY: every test calls this first, and `call_once` blocks the others until it is set.
+    ONCE.call_once(|| unsafe { std::env::set_var("BIBLE_RS_KEYCHAIN_SERVICE", "bible-rs-tests") });
+}
+
 #[derive(Debug, Clone)]
 struct Req {
     path: String,
@@ -90,6 +97,7 @@ const ESV_BODY: &str = r#"{"query":"John 3","canonical":"John 3","passages":["Fo
 
 #[test]
 fn esv_fetches_with_token_and_caches_on_disk() {
+    isolate_keychain();
     let (base, log) = serve(Arc::new(|path: &str| {
         if path.starts_with("/v3/passage/text/") { (200, ESV_BODY.to_string()) } else { (404, "{}".into()) }
     }));
@@ -121,6 +129,7 @@ fn esv_fetches_with_token_and_caches_on_disk() {
     lib2.add_online_with_source(cfg, Arc::new(Esv::with_base(&base)));
     assert!(matches!(wait_ready(&lib2, "esv", jn3, &rx2), Chapter::Ready(_)));
     assert_eq!(log.lock().unwrap().len(), 1);
+    lib.set_api_key("esv-api-key", "").unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -133,6 +142,7 @@ const API_BIBLE_BODY: &str = r#"{"data":{"id":"JHN.3","copyright":"PUBLIC DOMAIN
 
 #[test]
 fn api_bible_fetches_reports_fums_and_lists_bibles() {
+    isolate_keychain();
     let (base, log) = serve(Arc::new(|path: &str| {
         if path.starts_with("/v1/bibles/abc-01/chapters/JHN.3") {
             (200, API_BIBLE_BODY.to_string())
@@ -196,5 +206,6 @@ fn api_bible_fetches_reports_fums_and_lists_bibles() {
         Chapter::Failed(m) => assert!(m.contains("rejected"), "{m}"),
         _ => panic!("expected failure"),
     }
+    lib.set_api_key("api-bible-key", "").unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }

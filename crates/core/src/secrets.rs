@@ -33,20 +33,26 @@ impl SecretStore {
 mod backend {
     use super::*;
 
-    const SERVICE: &str = "bible-rs";
+    /// The Keychain service. Tests must never see or overwrite the user's keys: unit tests use
+    /// their own service, and `BIBLE_RS_KEYCHAIN_SERVICE` (set by the integration tests)
+    /// overrides it.
+    fn service() -> String {
+        std::env::var("BIBLE_RS_KEYCHAIN_SERVICE")
+            .unwrap_or_else(|_| if cfg!(test) { "bible-rs-tests" } else { "bible-rs" }.into())
+    }
 
     impl SecretStore {
         pub fn get(&self, key: &str) -> Option<String> {
-            keyring::Entry::new(SERVICE, key).ok()?.get_password().ok()
+            keyring::Entry::new(&service(), key).ok()?.get_password().ok()
         }
 
         pub fn set(&self, key: &str, value: &str) -> Result<()> {
-            keyring::Entry::new(SERVICE, key)?.set_password(value)?;
+            keyring::Entry::new(&service(), key)?.set_password(value)?;
             Ok(())
         }
 
         pub fn delete(&self, key: &str) -> Result<()> {
-            match keyring::Entry::new(SERVICE, key)?.delete_credential() {
+            match keyring::Entry::new(&service(), key)?.delete_credential() {
                 Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
                 Err(e) => Err(e.into()),
             }
