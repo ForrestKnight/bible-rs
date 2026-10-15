@@ -14,9 +14,11 @@ pub mod macos_window;
 pub mod palette;
 pub mod panel;
 pub mod reader;
+pub mod reading;
 pub mod settings_ui;
 pub mod sidebar;
 pub mod theme;
+pub mod time;
 pub mod widgets;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -29,6 +31,11 @@ pub fn data_dir() -> PathBuf {
         return PathBuf::from(d);
     }
     dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("bible-rs")
+}
+
+/// `BIBLE_RS_OFFSCREEN=1`: the app is rendered without a window (`examples/shot.rs`).
+pub fn offscreen() -> bool {
+    std::env::var_os("BIBLE_RS_OFFSCREEN").is_some()
 }
 
 /// `BIBLE_RS_TRACE_STARTUP=1` prints the time of each startup phase to stderr.

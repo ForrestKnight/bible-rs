@@ -72,6 +72,8 @@ pub struct Reader {
     scrolled_at: f64,
     /// Chapter/verse currently at the reading line (for the toolbar and saved position).
     pub location: (ChapterIdx, u8),
+    /// The furthest verse of the location's chapter that is in view (reading progress).
+    pub furthest_in_view: u8,
     frames: u64,
 }
 
@@ -93,6 +95,7 @@ impl Reader {
             under_toolbar: false,
             scrolled_at: f64::NEG_INFINITY,
             location: (chapter, verse.max(1)),
+            furthest_in_view: verse.max(1),
             frames: 0,
         };
         if verse > 1 {
@@ -388,6 +391,8 @@ impl Reader {
         let reading_line = rect.top() + rect.height() * 0.22;
         let toolbar_bottom = rect.top() + env.toolbar;
         let mut under_toolbar = false;
+        // The furthest verse in view, per chapter painted.
+        let mut in_view: Vec<(ChapterIdx, u8)> = Vec::new();
         while let Some(ch) = c {
             if y > rect.bottom() {
                 break;
@@ -468,6 +473,12 @@ impl Reader {
                 if first_visible.is_none() && top + (a.bottom - a.top) > reading_line {
                     first_visible = Some((ch, a.number));
                 }
+                if top < rect.bottom() - self.em {
+                    match in_view.last_mut() {
+                        Some((c, n)) if *c == ch => *n = (*n).max(a.number),
+                        _ => in_view.push((ch, a.number)),
+                    }
+                }
                 // 16 pt glyphs in 20 pt boxes, centred on the first line.
                 let mut x = right;
                 let lh = (self.em * env.typo.line_height).round();
@@ -504,6 +515,9 @@ impl Reader {
             self.location = fv;
         }
         self.under_toolbar = under_toolbar;
+        if let Some((_, n)) = in_view.iter().find(|(c, _)| *c == self.location.0) {
+            self.furthest_in_view = *n;
+        }
         let last_visible = c.and_then(|n| n.prev()).unwrap_or(ChapterIdx::LAST);
         // While idle, typeset the neighbouring chapters (one per frame) so that scrolling or
         // turning the page into them never has to lay out text first.

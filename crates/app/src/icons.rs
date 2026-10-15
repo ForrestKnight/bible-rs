@@ -13,6 +13,19 @@ use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, vec2
 /// Stroke width in grid units.
 const STROKE: f32 = 1.5;
 
+thread_local! {
+    static WEIGHT: std::cell::Cell<f32> = const { std::cell::Cell::new(STROKE) };
+}
+
+/// Paints icons inside `f` with heavier 1.75-unit strokes, as the design does for 16 pt glyphs
+/// in tiles, menus and fields.
+pub fn heavy<R>(f: impl FnOnce() -> R) -> R {
+    WEIGHT.with(|w| w.set(1.75));
+    let r = f();
+    WEIGHT.with(|w| w.set(STROKE));
+    r
+}
+
 /// An `units`-square design grid mapped onto the centre of a box.
 struct Grid<'a> {
     painter: &'a Painter,
@@ -24,7 +37,7 @@ struct Grid<'a> {
 
 impl<'a> Grid<'a> {
     fn new(painter: &'a Painter, r: Rect, color: Color32) -> Self {
-        Self::with(painter, r, color, 20.0, STROKE)
+        Self::with(painter, r, color, 20.0, WEIGHT.with(|w| w.get()))
     }
 
     fn with(painter: &'a Painter, r: Rect, color: Color32, units: f32, stroke: f32) -> Self {
@@ -93,7 +106,7 @@ impl<'a> Grid<'a> {
 
     /// Points along a circular arc around `(cx, cy)` from angle `a0` to `a1` (radians, y down).
     fn arc(cx: f32, cy: f32, r: f32, a0: f32, a1: f32) -> impl Iterator<Item = (f32, f32)> {
-        let n = 8;
+        let n = ((a1 - a0).abs() / 0.2).ceil().max(4.0) as usize;
         (0..=n).map(move |i| {
             let a = a0 + (a1 - a0) * i as f32 / n as f32;
             (cx + r * a.cos(), cy + r * a.sin())
@@ -219,6 +232,36 @@ pub fn clear(p: &Painter, r: Rect, circle: Color32, cross: Color32) {
     let g = Grid::with(p, r, cross, 16.0, 1.5);
     g.line(&[(5.75, 5.75), (10.25, 10.25)]);
     g.line(&[(10.25, 5.75), (5.75, 10.25)]);
+}
+
+/// Three lines with bullets (a chapter, a list).
+pub fn list(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    for y in [5.5, 10.0, 14.5] {
+        g.line(&[(7.75, y), (16.75, y)]);
+        g.circle(4.0, y, 0.75);
+    }
+}
+
+/// Opposing arrows (compare across translations).
+pub fn compare(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(3.25, 7.0), (15.75, 7.0)]);
+    g.line(&[(12.75, 4.0), (15.75, 7.0), (12.75, 10.0)]);
+    g.line(&[(16.75, 13.0), (4.25, 13.0)]);
+    g.line(&[(7.25, 10.0), (4.25, 13.0), (7.25, 16.0)]);
+}
+
+/// A clock with an arrow running back round it (reading history).
+pub fn history(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    // The arc of "M3.6 8.2A6.75 6.75 0 1 1 3.25 10": round the face from just above 9 o'clock.
+    // Clockwise (y down) from its start angle round to 9 o'clock.
+    let a0 = (8.2f32 - 10.0).atan2(3.6 - 10.0).rem_euclid(2.0 * PI);
+    let pts: Vec<Pos2> = Grid::arc(10.0, 10.0, 6.75, a0, 3.0 * PI).map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, false);
+    g.line(&[(2.75, 4.75), (2.75, 8.5), (6.5, 8.5)]);
+    g.line(&[(10.0, 6.5), (10.0, 10.25), (12.5, 11.75)]);
 }
 
 pub fn ellipsis(p: &Painter, r: Rect, c: Color32) {

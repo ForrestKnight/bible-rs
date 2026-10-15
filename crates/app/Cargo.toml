@@ -29,6 +29,9 @@ eframe = { version = "0.36", default-features = false, features = [
 rfd = "0.17"
 dirs = "6"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Native menu bar and window chrome (macOS only).
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = { version = "0.21", default-features = false }
@@ -50,6 +53,8 @@ winit = { version = "0.30", default-features = false }
 serde_json.workspace = true
 
 [dev-dependencies]
+egui_kittest = { version = "0.36", features = ["eframe", "wgpu"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
 [[bench]]

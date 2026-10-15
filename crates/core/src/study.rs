@@ -12,7 +12,7 @@ use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use crate::books::{BookId, VerseRef};
+use crate::books::{BookId, ChapterIdx, VerseRef};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -92,7 +92,42 @@ CREATE TABLE IF NOT EXISTS bookmarks(
     label TEXT NOT NULL, created INTEGER NOT NULL,
     PRIMARY KEY(book, chapter, verse));
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS reading(
+    started INTEGER PRIMARY KEY, book TEXT NOT NULL, chapter INTEGER NOT NULL,
+    translation TEXT NOT NULL, seconds INTEGER NOT NULL, furthest INTEGER NOT NULL,
+    verses INTEGER NOT NULL);
 ";
+
+/// A stretch of reading one chapter: when it started, for how long, and how far it got.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadingSession {
+    /// Unix seconds; also the session's identity.
+    pub started: i64,
+    pub book: BookId,
+    pub chapter: u8,
+    pub translation: String,
+    /// Time actually spent reading (idle time is not counted).
+    pub seconds: u32,
+    /// The furthest verse reached, and how many verses the chapter has.
+    pub furthest: u8,
+    pub verses: u8,
+}
+
+impl ReadingSession {
+    pub fn chapter_idx(&self) -> Option<ChapterIdx> {
+        ChapterIdx::new(self.book, self.chapter)
+    }
+
+    /// Reached the chapter's last verse.
+    pub fn finished(&self) -> bool {
+        self.verses > 0 && self.furthest >= self.verses
+    }
+
+    /// How much of the chapter was read, 0–1.
+    pub fn progress(&self) -> f32 {
+        if self.verses == 0 { 0.0 } else { (self.furthest as f32 / self.verses as f32).min(1.0) }
+    }
+}
 
 pub fn now() -> i64 {
     std::time::SystemTime::now()
@@ -322,6 +357,59 @@ impl StudyStore {
 
     pub fn counts(&self) -> (usize, usize, usize) {
         (self.highlights.len(), self.notes.len(), self.bookmarks.len())
+    }
+
+    /// Saves a reading session, replacing an earlier save of the same session.
+    pub fn record_reading(&self, s: &ReadingSession) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO reading(started, book, chapter, translation, seconds, furthest, verses)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(started) DO UPDATE SET seconds = excluded.seconds, furthest = excluded.furthest,
+               verses = excluded.verses, translation = excluded.translation",
+            params![s.started, s.book.info().code, s.chapter, s.translation, s.seconds, s.furthest, s.verses],
+        )?;
+        Ok(())
+    }
+
+    /// Reading sessions that started at or after `since` (Unix seconds), newest first.
+    pub fn reading_since(&self, since: i64) -> Vec<ReadingSession> {
+        let Ok(mut st) = self.conn.prepare_cached(
+            "SELECT started, book, chapter, translation, seconds, furthest, verses FROM reading
+             WHERE started >= ?1 ORDER BY started DESC",
+        ) else {
+            return Vec::new();
+        };
+        let rows = st.query_map([since], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, i64>(5)?,
+                r.get::<_, i64>(6)?,
+            ))
+        });
+        let Ok(rows) = rows else { return Vec::new() };
+        rows.filter_map(|r| r.ok())
+            .filter_map(|(started, book, chapter, translation, seconds, furthest, verses)| {
+                Some(ReadingSession {
+                    started,
+                    book: BookId::from_code(&book)?,
+                    chapter: u8::try_from(chapter).ok()?,
+                    translation,
+                    seconds: u32::try_from(seconds).ok()?,
+                    furthest: u8::try_from(furthest).ok()?,
+                    verses: u8::try_from(verses).ok()?,
+                })
+            })
+            .collect()
+    }
+
+    /// Forgets reading history from `since` on (all of it for 0).
+    pub fn clear_reading(&self, since: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM reading WHERE started >= ?1", [since])?;
+        Ok(())
     }
 
     pub fn setting(&self, key: &str) -> Option<String> {
@@ -590,6 +678,34 @@ mod tests {
 
     fn jn316() -> VerseRef {
         VerseRef::new(BookId(42), 3, 16)
+    }
+
+    #[test]
+    fn reading_sessions() {
+        let s = StudyStore::open_in_memory().unwrap();
+        let mut session = ReadingSession {
+            started: 1_000,
+            book: BookId(42),
+            chapter: 3,
+            translation: "kjv".into(),
+            seconds: 30,
+            furthest: 10,
+            verses: 36,
+        };
+        s.record_reading(&session).unwrap();
+        session.seconds = 400;
+        session.furthest = 36;
+        s.record_reading(&session).unwrap();
+        s.record_reading(&ReadingSession { started: 2_000, chapter: 4, furthest: 3, ..session.clone() })
+            .unwrap();
+        let all = s.reading_since(0);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].chapter, 4, "newest first");
+        assert_eq!(all[1].seconds, 400, "a session is saved in place");
+        assert!(all[1].finished() && !all[0].finished());
+        assert_eq!(s.reading_since(1_500).len(), 1);
+        s.clear_reading(1_500).unwrap();
+        assert_eq!(s.reading_since(0).len(), 1);
     }
 
     #[test]

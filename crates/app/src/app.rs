@@ -177,6 +177,7 @@ pub struct BibleApp {
     saved: (String, f64),
     warmed: bool,
     scroll_probe: Option<ScrollProbe>,
+    reading: crate::reading::Tracker,
     /// `BIBLE_RS_DEMO`: steps that put the window into a given state (screenshots), one per frame.
     demo: std::collections::VecDeque<String>,
     chrome: Chrome,
@@ -209,6 +210,14 @@ fn chrome(frame: &eframe::Frame, ctx: &egui::Context) -> Chrome {
             height: (2.0 * r.center().y / zoom).clamp(28.0, 2.0 * TOOLBAR_HEIGHT),
             leading: r.right() / zoom + AFTER_TRAFFIC_LIGHTS,
         },
+        // Rendering offscreen (`examples/shot.rs`): lay out as if AppKit's lights were there.
+        None if crate::offscreen() => {
+            let lights = theme::titlebar::TRAFFIC_LIGHT_FIRST_CENTER_X
+                - theme::titlebar::TRAFFIC_LIGHT_DIAMETER / 2.0
+                + 3.0 * theme::titlebar::TRAFFIC_LIGHT_DIAMETER
+                + 2.0 * theme::titlebar::TRAFFIC_LIGHT_GAP;
+            Chrome { height: TOOLBAR_HEIGHT, leading: lights + AFTER_TRAFFIC_LIGHTS }
+        }
         None => Chrome { height: TOOLBAR_HEIGHT, leading: LEADING_INSET },
     }
 }
@@ -259,6 +268,7 @@ impl BibleApp {
                 start_chapter: chapter,
                 started: None,
             }),
+            reading: Default::default(),
             demo: std::env::var("BIBLE_RS_DEMO")
                 .map(|s| s.split(';').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
                 .unwrap_or_default(),
@@ -269,7 +279,7 @@ impl BibleApp {
             no_drag: Default::default(),
             settings,
             #[cfg(target_os = "macos")]
-            menu: crate::macos_menu::AppMenu::install(),
+            menu: if crate::offscreen() { None } else { crate::macos_menu::AppMenu::install() },
         }
     }
 
@@ -491,6 +501,16 @@ impl BibleApp {
                     let cols = self.columns();
                     self.library.warm(&cols);
                 }
+            }
+            Action::OpenInParallel(a) => {
+                self.apply_one(ctx, *a);
+                if !self.settings.parallel_on {
+                    self.apply_one(ctx, Action::ToggleParallel);
+                }
+            }
+            Action::CompareVerse(v) => {
+                self.reader.set_selection(Some(v));
+                self.apply_one(ctx, Action::Compare);
             }
             Action::AddParallel(id) => {
                 if id != self.settings.translation && !self.settings.parallel.contains(&id) {
@@ -1276,6 +1296,18 @@ impl eframe::App for BibleApp {
             if first {
                 crate::trace(self.startup.t0, "reader laid out and painted");
             }
+            // Not while the first frames are being raced to the screen.
+            if self.startup.frames > 2 {
+                self.reading.tick(
+                    ctx.input(|i| i.time),
+                    ctx.input(|i| i.focused),
+                    self.reader.location.0,
+                    self.reader.furthest_in_view,
+                    &self.settings.translation,
+                    &self.library,
+                    &self.study,
+                );
+            }
             let material = ctx.animate_bool_with_time(
                 Id::new("toolbar-material"),
                 self.reader.under_toolbar,
@@ -1289,7 +1321,7 @@ impl eframe::App for BibleApp {
         self.selection_bar(ui, reader_rect, &mut actions);
 
         if let Some(pal) = &mut self.palette {
-            let close = pal.show(&ctx, &self.library, &self.history, &self.settings, &mut actions);
+            let close = pal.show(&ctx, &self.library, &self.study, &self.settings, &mut actions);
             if close {
                 self.palette = None;
             }
@@ -1407,6 +1439,7 @@ impl eframe::App for BibleApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.reading.finish(&self.study);
         self.settings.chapter = self.reader.location.0.0;
         self.settings.verse = self.reader.location.1;
         self.settings.save(&self.study);

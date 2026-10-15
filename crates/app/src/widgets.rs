@@ -258,3 +258,24 @@ pub fn segmented(ui: &mut Ui, p: &Palette, labels: &[&str], selected: usize) -> 
 pub fn caption(ui: &mut Ui, label: &str) {
     ui.label(egui::RichText::new(label).font(text::CAPTION.font()).color(ui.visuals().weak_text_color()));
 }
+
+/// A keycap (`ds-15`): 20 pt high, radius 5, `fill` with a hairline and a heavier bottom edge,
+/// 11 pt medium secondary ink. Drawn with its left edge at `left`, centred on `center_y`;
+/// returns its rectangle.
+pub fn keycap(painter: &Painter, p: &Palette, left: f32, center_y: f32, label: &str) -> Rect {
+    let galley = painter.layout_no_wrap(label.to_string(), theme::ui_medium(11.0), p.ink_2);
+    let w = (galley.size().x + 10.0).max(20.0).round();
+    let r = Rect::from_min_size(pos2(left, center_y - 10.0), vec2(w, 20.0));
+    painter.rect_filled(r, 5.0, p.fill);
+    painter.rect_stroke(r, 5.0, Stroke::new(0.5, p.border), StrokeKind::Outside);
+    painter.hline(r.x_range().shrink(2.0), r.bottom() - 0.25, Stroke::new(0.5, p.border));
+    let size = galley.size();
+    painter.galley(pos2(r.center().x - size.x / 2.0, r.center().y - size.y / 2.0), galley, p.ink_2);
+    r
+}
+
+/// Width of [`keycap`] for `label`.
+pub fn keycap_width(painter: &Painter, label: &str) -> f32 {
+    let w = painter.layout_no_wrap(label.to_string(), theme::ui_medium(11.0), Color32::PLACEHOLDER).size().x;
+    (w + 10.0).max(20.0).round()
+}
