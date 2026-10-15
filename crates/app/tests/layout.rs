@@ -125,8 +125,13 @@ fn parallel_rows_align_across_translations() {
         assert_eq!(tops.len(), 2, "verse {n} in both columns");
         assert!((tops[0] - tops[1]).abs() < 0.5, "verse {n} rows align: {tops:?}");
     }
-    let xs: Vec<f32> = l.blocks.iter().map(|b| b.pos.x).collect();
-    assert!(xs.contains(&0.0) && xs.contains(&450.0));
+    // Text starts after each column's verse-number lane; columns are a column and a gutter apart.
+    let mut xs: Vec<f32> = l.blocks.iter().map(|b| b.pos.x).collect();
+    xs.sort_by(f32::total_cmp);
+    xs.dedup();
+    assert_eq!(xs.len(), 2);
+    assert!((xs[1] - xs[0] - 450.0).abs() < 0.5, "{xs:?}");
+    assert!(l.blocks.iter().all(|b| b.gutter.is_some()), "every cell has its verse number");
 }
 
 #[test]
@@ -147,8 +152,9 @@ fn every_chapter_of_every_bundled_translation_lays_out() {
 }
 
 #[test]
-fn parallel_cells_keep_poetry_indentation() {
-    // BSB Psalm 1:1 is a q1 line followed by q2 lines; the q2 lines are indented in the cell.
+fn parallel_cells_flow_poetry_as_prose() {
+    // BSB Psalm 1:1 is a q1 line followed by q2 lines; in a parallel column the verse flows as
+    // one paragraph, as the design shows, so rows break only where the text wraps.
     let bsb = bible_core::bundled::load("bsb").unwrap();
     let c = ChapterIdx::new(BookId::PSALMS, 1).unwrap();
     let typo = Typography::default();
@@ -159,13 +165,6 @@ fn parallel_cells_keep_poetry_indentation() {
     });
     let v1 = bsb.find(bible_core::VerseRef::new(BookId::PSALMS, 1, 1)).unwrap();
     let cell = l.blocks.iter().find(|b| b.verse_chars(v1.index).is_some()).unwrap();
-    let rows = &cell.galley.rows;
-    assert!(rows.len() >= 3);
-    let first_glyph_x = |r: usize| rows[r].pos.x + rows[r].glyphs.first().map_or(0.0, |g| g.pos.x);
-    assert!(
-        first_glyph_x(1) > first_glyph_x(0) + 10.0,
-        "q2 line indented: {} vs {}",
-        first_glyph_x(1),
-        first_glyph_x(0)
-    );
+    assert!(cell.galley.rows.len() >= 2);
+    assert!(cell.galley.rows.iter().all(|r| !r.ends_with_newline), "no forced line breaks");
 }
