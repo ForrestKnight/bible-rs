@@ -1,7 +1,7 @@
-//! Baseline for the startup benchmark: an empty eframe window with the same renderer and window
-//! options as bible-rs, painting one label. Its time to first frame is the floor set by the
-//! platform (window + OpenGL context creation, first present); bible-rs's extra cost is the
-//! difference.
+//! Baseline for the startup benchmark: an empty eframe window with the same renderer
+//! (`BIBLE_RS_RENDERER`) and window options as bible-rs, painting one label. Its time to first
+//! frame is the floor set by the platform (window + GPU context creation, first present);
+//! bible-rs's extra cost is the difference.
 //!
 //! `cargo run --release -p bible-rs --example startup_floor`
 
@@ -41,7 +41,7 @@ fn main() -> eframe::Result {
     let viewport = egui::ViewportBuilder::default().with_title("floor").with_inner_size([1280.0, 860.0]);
     let options = eframe::NativeOptions {
         viewport,
-        renderer: eframe::Renderer::Glow,
+        renderer: bible_rs::renderer(),
         centered: true,
         ..Default::default()
     };

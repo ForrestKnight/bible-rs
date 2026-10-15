@@ -3,6 +3,7 @@
 #
 #   scripts/bench-startup.sh          # 10 launches + one scroll run
 #   RUNS=20 scripts/bench-startup.sh
+#   BIBLE_RS_RENDERER=wgpu scripts/bench-startup.sh   # glow (default) or wgpu, app and baseline
 #
 # On Linux without a display it starts Xvfb (software OpenGL); on macOS it opens real windows.
 set -euo pipefail
@@ -54,6 +55,7 @@ for name, arg in zip(names, sys.argv[1:]):
     v = sorted(float(x) for x in arg.split())
     print(f"{name:<44} median {statistics.median(v):7.1f} ms   min {v[0]:7.1f}   max {v[-1]:7.1f}   (n={len(v)})")
 PY
+echo "renderer: ${BIBLE_RS_RENDERER:-default}"
 echo "scrolling (900 frames, ~2,200 px/s through consecutive chapters):"
 BIBLE_RS_HOME="$HOME_DIR" BIBLE_RS_SCROLL_PROBE=1 "$BIN" 2>/dev/null | tail -1
 rm -rf "$HOME_DIR"

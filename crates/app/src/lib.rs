@@ -36,6 +36,23 @@ pub fn trace(t0: Instant, what: &str) {
     }
 }
 
+/// The renderer: `BIBLE_RS_RENDERER=glow|wgpu` overrides the default.
+pub fn renderer() -> eframe::Renderer {
+    match std::env::var("BIBLE_RS_RENDERER").as_deref() {
+        Ok("wgpu") => eframe::Renderer::Wgpu,
+        Ok("glow") => eframe::Renderer::Glow,
+        // glow creates its context several times faster than wgpu, which matters most for the
+        // time to first painted text.
+        _ => eframe::Renderer::Glow,
+    }
+}
+
+/// Whether this process runs from inside a macOS `.app` bundle.
+fn in_app_bundle() -> bool {
+    cfg!(target_os = "macos")
+        && std::env::current_exe().is_ok_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"))
+}
+
 /// Runs the CLI if arguments name a command, otherwise the GUI.
 pub fn run() -> eframe::Result {
     let t0 = Instant::now();
@@ -68,18 +85,16 @@ pub fn run() -> eframe::Result {
         .spawn(move || app::initialize(dir, notify))
         .expect("spawn init thread");
 
-    let renderer = match std::env::var("BIBLE_RS_RENDERER").as_deref() {
-        Ok("wgpu") => eframe::Renderer::Wgpu,
-        // glow creates its context several times faster than wgpu, which matters most for the
-        // time to first painted text; wgpu remains available as an override.
-        _ => eframe::Renderer::Glow,
-    };
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("bible-rs")
         .with_app_id("bible-rs")
         .with_inner_size([1280.0, 860.0])
         .with_min_inner_size([620.0, 420.0]);
-    if let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon-256.png")) {
+    if in_app_bundle() {
+        // The bundle's .icns is already the Dock icon; an empty icon stops eframe from decoding
+        // and installing one at runtime during the first frame.
+        viewport = viewport.with_icon(Arc::new(egui::IconData::default()));
+    } else if let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon-256.png")) {
         viewport = viewport.with_icon(Arc::new(icon));
     }
     if cfg!(target_os = "macos") {
@@ -87,7 +102,8 @@ pub fn run() -> eframe::Result {
         viewport =
             viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
     }
-    let options = eframe::NativeOptions { viewport, renderer, centered: true, ..Default::default() };
+    let options =
+        eframe::NativeOptions { viewport, renderer: renderer(), centered: true, ..Default::default() };
     let probe = std::env::var_os("BIBLE_RS_STARTUP_PROBE").is_some();
     eframe::run_native(
         "bible-rs",

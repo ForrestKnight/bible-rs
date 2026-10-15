@@ -46,8 +46,17 @@ jobs:
         run: cargo test --workspace
       - name: App bundle and DMG
         run: scripts/bundle-macos.sh
-      - name: Startup probe
-        run: RUNS=5 scripts/bench-startup.sh || true
+      - name: Startup and scrolling (glow)
+        run: BIN=dist/bible-rs.app/Contents/MacOS/bible-rs BIBLE_RS_RENDERER=glow RUNS=10 scripts/bench-startup.sh || true
+      - name: Startup and scrolling (wgpu / Metal)
+        run: BIN=dist/bible-rs.app/Contents/MacOS/bible-rs BIBLE_RS_RENDERER=wgpu RUNS=10 scripts/bench-startup.sh || true
+      - name: Startup phases
+        run: |
+          for r in glow wgpu; do
+            echo "== $r"
+            BIBLE_RS_HOME="$(mktemp -d)" BIBLE_RS_RENDERER=$r BIBLE_RS_TRACE_STARTUP=1 BIBLE_RS_STARTUP_PROBE=1 \
+              dist/bible-rs.app/Contents/MacOS/bible-rs 2>&1 | tail -20 || true
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: bible-rs-macos
