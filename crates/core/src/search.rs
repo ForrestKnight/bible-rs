@@ -167,7 +167,8 @@ pub struct Query {
 
 impl Query {
     /// Parses user input: bare words (all must occur, as word prefixes unless `whole_words`),
-    /// `"quoted phrases"` (an unterminated quote is a phrase still being typed), and `-excluded`.
+    /// `"quoted phrases"` (words in order; the last may be a prefix unless `whole_words`, so
+    /// "living water" also finds "living waters"), and `-excluded`.
     pub fn parse(input: &str, whole_words: bool) -> Self {
         let mut q = Query::default();
         let mut rest = input.trim_start();
@@ -180,7 +181,7 @@ impl Query {
                 match b.find(['"', '“', '”']) {
                     Some(end) => {
                         let close_len = b[end..].chars().next().map_or(1, char::len_utf8);
-                        (make_term(&b[..end], true, true), &b[end + close_len..])
+                        (make_term(&b[..end], true, whole_words), &b[end + close_len..])
                     }
                     None => (make_term(b, true, whole_words), ""),
                 }
@@ -344,6 +345,14 @@ pub fn run(t: &Translation, input: &str, scope: Scope, whole_words: bool) -> Sea
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phrases_end_in_a_prefix_unless_whole_words() {
+        let text = "a fountain of gardens, a well of living waters";
+        assert_eq!(Query::parse("\"living water\"", false).match_ranges(text).len(), 1);
+        assert!(Query::parse("\"living water\"", true).match_ranges(text).is_empty());
+        assert!(Query::parse("“living water”", true).match_ranges("given thee living water.").len() == 1);
+    }
     use crate::books::VerseRef;
     use crate::model::{MarkKind, TranslationBuilder, TranslationMeta};
 

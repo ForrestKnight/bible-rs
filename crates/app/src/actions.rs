@@ -43,6 +43,9 @@ pub enum Action {
     SelectPrev,
     OpenPalette,
     OpenSearch(Option<String>),
+    /// Move to the next (1) or previous (-1) search result.
+    SearchStep(i32),
+    ClearSearch,
     ToggleSidebar,
     SidebarTab(SidebarTab),
     OpenSettings(SettingsTab),

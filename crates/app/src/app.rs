@@ -588,8 +588,15 @@ impl BibleApp {
                 let ids: Vec<String> = self.library.entries().iter().map(|e| e.meta.id.clone()).collect();
                 self.library.warm(&ids);
             }
+            Action::SearchStep(d) => self.sidebar.step_result(d),
+            Action::ClearSearch => {
+                self.sidebar.query.clear();
+                self.reader.selection = None;
+            }
             Action::ClearSelection => {
-                if self.reader.selection.is_some() {
+                if self.sidebar.searching() {
+                    self.apply_one(ctx, Action::ClearSearch);
+                } else if self.reader.selection.is_some() {
                     self.reader.selection = None;
                 } else {
                     self.panel = None;
@@ -651,7 +658,7 @@ impl BibleApp {
     }
 
     /// One `BIBLE_RS_DEMO` step: `jump:<reference>`, `select:<reference>`, `palette:<query>`,
-    /// `search:<query>`, `note:<reference>`, `compare:<reference>`, `study:<bookmarks|highlights|notes>`,
+    /// `search:<query>`, `step:<n>` (search results), `note:<reference>`, `compare:<reference>`, `study:<bookmarks|highlights|notes>`,
     /// `settings:<reading|translations|data>`.
     fn demo_step(&mut self, step: &str, actions: &mut Vec<Action>) {
         let (cmd, arg) = step.split_once(':').unwrap_or((step, ""));
@@ -669,6 +676,7 @@ impl BibleApp {
             "select" => self.reader.set_selection(verse()),
             "palette" => self.palette = Some(CommandPalette::with_query(arg)),
             "search" => actions.push(Action::OpenSearch(Some(arg.to_string()))),
+            "step" => actions.push(Action::SearchStep(arg.parse().unwrap_or(1))),
             "note" => actions.extend(verse().map(Action::EditNote)),
             "compare" => {
                 self.reader.set_selection(verse());
@@ -936,65 +944,52 @@ impl BibleApp {
         let _ = items;
     }
 
-    fn selection_bar(&mut self, ui: &mut Ui, reader_rect: egui::Rect, actions: &mut Vec<Action>) {
-        let refs = self.reader.selected_refs();
-        let (Some(first), Some(last)) = (refs.first().copied(), refs.last().copied()) else { return };
+    /// While a search has results: "Result 5 of 7", a stepper and a hint, floating over the top
+    /// of the text (frame 06).
+    fn result_navigator(&mut self, ui: &mut Ui, reader_rect: egui::Rect, actions: &mut Vec<Action>) {
+        let Some((at, of)) = self.sidebar.result_position() else { return };
         let p = self.settings.theme.palette();
-        let label = bible_core::reference::format_range(first, last);
-        let center = egui::pos2(reader_rect.center().x, reader_rect.bottom() - 34.0);
-        egui::Area::new(Id::new("selection-bar"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(center)
-            .pivot(Align2::CENTER_CENTER)
-            .show(ui.ctx(), |ui| {
-                Frame::new()
-                    .fill(p.surface)
-                    .stroke(Stroke::new(1.0, p.separator))
-                    .corner_radius(CornerRadius::same(20))
-                    .inner_margin(Margin::symmetric(14, 6))
-                    .shadow(ui.visuals().popup_shadow)
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(label).font(theme::ui_medium(13.0)).color(p.ink));
-                            ui.add_space(6.0);
-                            for (i, c) in bible_core::study::HighlightColor::ALL.into_iter().enumerate() {
-                                let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
-                                let on = refs.iter().all(|v| self.study.highlight(*v) == Some(c));
-                                ui.painter().circle_filled(r.center(), 7.5, p.swatch(c));
-                                if on || resp.hovered() {
-                                    ui.painter().circle_stroke(r.center(), 9.5, Stroke::new(1.5, p.ink));
-                                }
-                                if resp.on_hover_text(format!("Highlight {} ({})", c.name(), i + 1)).clicked()
-                                {
-                                    actions.push(Action::Highlight(if on { None } else { Some(c) }));
-                                }
-                            }
-                            ui.add_space(4.0);
-                            for (label, tip, a) in [
-                                ("Note", "Add or edit a note (N)", Action::EditSelectedNote),
-                                ("Bookmark", "Bookmark (B)", Action::ToggleBookmark),
-                                ("Copy", "Copy with reference (⌘C)", Action::Copy),
-                                ("Compare", "Compare translations (C)", Action::Compare),
-                            ] {
-                                if ui.add(egui::Button::new(label).frame(false)).on_hover_text(tip).clicked()
-                                {
-                                    actions.push(a);
-                                }
-                            }
-                            if widgets::icon_button(
-                                ui,
-                                p,
-                                "Clear selection (Esc)",
-                                false,
-                                crate::icons::close,
-                            )
-                            .clicked()
-                            {
-                                actions.push(Action::ClearSelection);
-                            }
-                        });
-                    });
-            });
+        let painter = ui.painter();
+        let font = theme::ui_medium(theme::text::SMALL.size);
+        let label = painter.layout_no_wrap(format!("Result {at} of {of}"), font, p.ink_2);
+        let hint = painter.layout_no_wrap("Esc to clear".into(), theme::text::SMALL.font(), p.ink_3);
+        let w = 14.0 + label.size().x + 8.0 + 24.0 + 8.0 + 1.0 + 8.0 + hint.size().x + 8.0;
+        let top = reader_rect.top() + self.chrome.height + crate::reader::layout::PAGE_TOP;
+        let r = egui::Rect::from_min_size(
+            egui::pos2((reader_rect.center().x - w / 2.0).round(), top),
+            vec2(w, 32.0),
+        );
+        widgets::capsule(painter, r, p);
+        let cy = r.center().y;
+        let mut x = r.left() + 14.0;
+        let lw = label.size().x;
+        painter.galley(egui::pos2(x, cy - label.size().y / 2.0), label, p.ink_2);
+        x += lw + 8.0;
+        // The stepper: the upper half goes back, the lower half on.
+        let b = egui::Rect::from_min_size(egui::pos2(x, cy - 12.0), vec2(24.0, 24.0));
+        let resp = ui.interact(b, Id::new("result-step"), Sense::click());
+        if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+            ui.painter().circle_filled(b.center(), 12.0, fill);
+        }
+        crate::icons::heavy(|| {
+            crate::icons::chevrons_up_down(
+                ui.painter(),
+                egui::Rect::from_center_size(b.center(), vec2(14.0, 14.0)),
+                p.ink_2,
+            )
+        });
+        if resp.clicked() {
+            let up = resp.interact_pointer_pos().is_some_and(|pt| pt.y < b.center().y);
+            actions.push(Action::SearchStep(if up { -1 } else { 1 }));
+        }
+        let resp = resp.on_hover_text("Previous / next result (↑ ↓ in the search field)");
+        let _ = resp;
+        x = b.right() + 8.0;
+        widgets::capsule_divider(ui.painter(), x, cy, p);
+        x += 1.0 + 8.0;
+        ui.painter().galley(egui::pos2(x, cy - hint.size().y / 2.0), hint, p.ink_3);
+        #[cfg(target_os = "macos")]
+        self.toolbar_items.push(r);
     }
 
     fn toasts(&mut self, ctx: &egui::Context) {
@@ -1106,6 +1101,9 @@ impl BibleApp {
         }
     }
 }
+
+/// Under the toolbar while searching: the result navigator (24 pt down, 32 tall) and 16 pt below.
+const SEARCH_BAND: f32 = 48.0;
 
 /// Height of the sidebar's header (traffic lights and toggle) and the search sidebar's width.
 const SIDEBAR_HEADER: f32 = 36.0;
@@ -1290,7 +1288,9 @@ impl eframe::App for BibleApp {
                 columns: &cols,
                 keyboard,
                 online_generation: &self.online_gen,
-                toolbar: self.chrome.height,
+                // A search's result navigator sits in a band under the toolbar.
+                toolbar: self.chrome.height
+                    + if self.sidebar.result_position().is_some() { SEARCH_BAND } else { 0.0 },
             };
             self.reader.show(ui, &env, &mut actions);
             if first {
@@ -1308,9 +1308,18 @@ impl eframe::App for BibleApp {
                     &self.study,
                 );
             }
+            if self.sidebar.result_position().is_some() {
+                // egui can't blur what scrolls beneath, so the band is solid paper.
+                let band = egui::Rect::from_min_size(
+                    reader_rect.min,
+                    vec2(reader_rect.width(), self.chrome.height + SEARCH_BAND),
+                );
+                ui.painter().rect_filled(band, 0.0, p.paper);
+            }
+            self.result_navigator(ui, reader_rect, &mut actions);
             let material = ctx.animate_bool_with_time(
                 Id::new("toolbar-material"),
-                self.reader.under_toolbar,
+                self.reader.under_toolbar && self.sidebar.result_position().is_none(),
                 theme::motion::FAST_MS / 1000.0,
             );
             self.toolbar(ui, reader_rect, material, &mut actions);
@@ -1318,7 +1327,6 @@ impl eframe::App for BibleApp {
                 crate::trace(self.startup.t0, "toolbar laid out");
             }
         });
-        self.selection_bar(ui, reader_rect, &mut actions);
 
         if let Some(pal) = &mut self.palette {
             let close = pal.show(&ctx, &self.library, &self.study, &self.settings, &mut actions);

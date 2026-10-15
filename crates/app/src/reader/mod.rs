@@ -322,10 +322,21 @@ impl Reader {
         }
         if let Some((c, verse, flash)) = self.pending_jump.take() {
             let l = self.chapter_layout(ui, env, &geom, c);
+            // A verse shows a little below the top, or from its paragraph's start when that is
+            // only a few lines up.
             let offset = if verse <= 1 {
                 0.0
             } else {
-                l.anchor(0, verse).map_or(0.0, |a| (a.top - self.em * 2.2).max(0.0))
+                l.anchor(0, verse).map_or(0.0, |a| {
+                    let paragraph = l
+                        .blocks
+                        .iter()
+                        .filter(|b| b.column == 0 && b.pos.y <= a.top + 1.0)
+                        .map(|b| b.pos.y - self.em * 0.5)
+                        .next_back()
+                        .filter(|top| a.top - top < self.viewport_h * 0.35);
+                    paragraph.unwrap_or(a.top - self.em * 2.2).max(0.0)
+                })
             };
             self.anchor = Anchor { chapter: c, offset };
             if flash {

@@ -229,9 +229,10 @@ pub fn clock(p: &Painter, r: Rect, c: Color32) {
 /// A filled circle with an × knocked out (clear a field).
 pub fn clear(p: &Painter, r: Rect, circle: Color32, cross: Color32) {
     p.circle_filled(r.center(), r.width() / 2.0, circle);
-    let g = Grid::with(p, r, cross, 16.0, 1.5);
-    g.line(&[(5.75, 5.75), (10.25, 10.25)]);
-    g.line(&[(10.25, 5.75), (5.75, 10.25)]);
+    // A 10 pt × (on the 20-unit grid, 2.25 units) in the middle of the 16 pt circle.
+    let g = Grid::with(p, Rect::from_center_size(r.center(), r.size() * 0.625), cross, 20.0, 2.25);
+    g.line(&[(5.5, 5.5), (14.5, 14.5)]);
+    g.line(&[(14.5, 5.5), (5.5, 14.5)]);
 }
 
 /// Three lines with bullets (a chapter, a list).

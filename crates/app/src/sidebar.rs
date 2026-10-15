@@ -83,7 +83,14 @@ pub struct Sidebar {
     focus: bool,
     scope: Scope,
     results: Arc<Vec<u32>>,
+    /// The result list laid out (headers and hits with their positions).
+    entries: Arc<Vec<Entry>>,
     key: Option<(String, String, Scope, bool)>,
+    /// Results ordered with the current book first, and the book they were ordered for.
+    current_first: bool,
+    order_key: (bool, BookId),
+    /// Steps through the results asked for by the reader's navigator.
+    pending_step: i32,
     elapsed: Duration,
     selected: usize,
     scroll_to_selected: bool,
@@ -112,7 +119,11 @@ impl Sidebar {
             focus: false,
             scope: Scope::All,
             results: Arc::new(Vec::new()),
+            entries: Arc::new(Vec::new()),
             key: None,
+            current_first: false,
+            order_key: (false, BookId(0)),
+            pending_step: 0,
             elapsed: Duration::ZERO,
             selected: 0,
             scroll_to_selected: false,
@@ -176,6 +187,16 @@ impl Sidebar {
 
     pub fn searching(&self) -> bool {
         !self.query.trim().is_empty()
+    }
+
+    /// The selected result and how many there are, while a search has results.
+    pub fn result_position(&self) -> Option<(usize, usize)> {
+        (self.searching() && !self.results.is_empty()).then(|| (self.selected + 1, self.results.len()))
+    }
+
+    /// Moves to the next (`1`) or previous (`-1`) result.
+    pub fn step_result(&mut self, delta: i32) {
+        self.pending_step += delta;
     }
 
     pub fn show(
@@ -494,6 +515,8 @@ impl Sidebar {
         }
     }
 
+    /// Search results (frame 06 in the design): scope, book and whole-word filters, a count, then
+    /// the hits grouped by book with the matched phrase marked.
     #[allow(clippy::too_many_arguments)]
     fn search(
         &mut self,
@@ -513,136 +536,244 @@ impl Sidebar {
             return;
         };
         let mut jump_to: Option<u32> = None;
-        // The query lives in the toolbar's field; arrow keys and return drive the results.
-        let (down, up, enter) = if self.field_focused {
+        // The query lives in the toolbar's field; arrow keys and return drive the results, and the
+        // reader's result navigator steps through them.
+        let mut step = std::mem::take(&mut self.pending_step);
+        if self.field_focused {
             ui.input_mut(|i| {
-                (
-                    i.consume_key(egui::Modifiers::NONE, Key::ArrowDown),
-                    i.consume_key(egui::Modifiers::NONE, Key::ArrowUp),
-                    i.key_pressed(Key::Enter),
-                )
-            })
-        } else {
-            (false, false, false)
-        };
-        if down && !self.results.is_empty() {
-            self.selected = (self.selected + 1).min(self.results.len() - 1);
+                if i.consume_key(egui::Modifiers::NONE, Key::ArrowDown) {
+                    step += 1;
+                }
+                if i.consume_key(egui::Modifiers::NONE, Key::ArrowUp) {
+                    step -= 1;
+                }
+                if i.key_pressed(Key::Enter) {
+                    jump_to = self.results.get(self.selected).copied();
+                }
+            });
+        }
+        if step != 0 && !self.results.is_empty() {
+            self.selected =
+                (self.selected as i64 + step as i64).clamp(0, self.results.len() as i64 - 1) as usize;
             self.scroll_to_selected = true;
             jump_to = self.results.get(self.selected).copied();
         }
-        if up {
-            self.selected = self.selected.saturating_sub(1);
-            self.scroll_to_selected = true;
-            jump_to = self.results.get(self.selected).copied();
-        }
-        if enter {
-            jump_to = self.results.get(self.selected).copied();
-        }
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| {
-            let idx = match self.scope {
-                Scope::OldTestament => 1,
-                Scope::NewTestament => 2,
-                _ => 0,
-            };
-            if let Some(i) = widgets::segmented(ui, p, &["Bible", "Old Testament", "New Testament"], idx) {
-                self.scope = [Scope::All, Scope::OldTestament, Scope::NewTestament][i];
-            }
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                let book = location.0.book();
-                let label = |s: Scope| match s {
+
+        let book = location.0.book();
+        egui::Frame::NONE.inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 8 }).show(
+            ui,
+            |ui| {
+                ui.spacing_mut().item_spacing.y = 12.0;
+                let idx = match self.scope {
+                    Scope::OldTestament => 1,
+                    Scope::NewTestament => 2,
+                    Scope::Book(b) if b >= FIRST_NT_BOOK => 2,
+                    Scope::Book(_) => 1,
+                    Scope::All => 0,
+                };
+                if let Some(i) = widgets::segmented(ui, p, &["Bible", "Old Testament", "New Testament"], idx)
+                {
+                    self.scope = [Scope::All, Scope::OldTestament, Scope::NewTestament][i];
+                }
+                let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+                let select = Rect::from_min_size(row.min, vec2(168.0, 32.0));
+                let label = match self.scope {
                     Scope::Book(b) => b.name().to_string(),
                     _ => "All books".into(),
                 };
-                egui::ComboBox::from_id_salt("scope-book")
-                    .selected_text(label(self.scope))
-                    .width(150.0)
-                    .icon(widgets::combo_chevron)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.scope, Scope::All, "All books");
-                        ui.selectable_value(&mut self.scope, Scope::Book(book), book.name());
-                        ui.separator();
-                        ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                            for b in BookId::all() {
-                                ui.selectable_value(&mut self.scope, Scope::Book(b), b.name());
+                let resp = select_field(ui, p, select, &label, "scope-book");
+                egui::Popup::menu(&resp).show(|ui| {
+                    ui.set_min_width(200.0);
+                    let testament = match self.scope {
+                        Scope::OldTestament => Some(false),
+                        Scope::NewTestament => Some(true),
+                        _ => None,
+                    };
+                    if ui.selectable_label(!matches!(self.scope, Scope::Book(_)), "All books").clicked() {
+                        self.scope = match testament {
+                            Some(false) => Scope::OldTestament,
+                            Some(true) => Scope::NewTestament,
+                            None => Scope::All,
+                        };
+                        ui.close();
+                    }
+                    if ui
+                        .selectable_label(
+                            self.scope == Scope::Book(book),
+                            format!("{} (this book)", book.name()),
+                        )
+                        .clicked()
+                    {
+                        self.scope = Scope::Book(book);
+                        ui.close();
+                    }
+                    ui.separator();
+                    ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                        for b in
+                            BookId::all().filter(|b| testament.is_none_or(|nt| (*b >= FIRST_NT_BOOK) == nt))
+                        {
+                            if ui.selectable_label(self.scope == Scope::Book(b), b.name()).clicked() {
+                                self.scope = Scope::Book(b);
+                                ui.close();
                             }
-                        });
+                        }
                     });
-                ui.checkbox(whole_words, "Whole words");
-            });
-        });
+                });
+                let check =
+                    Rect::from_min_size(pos2(select.right() + 16.0, row.center().y - 8.0), vec2(16.0, 16.0));
+                if checkbox(ui, p, check, *whole_words, "Whole words").clicked() {
+                    *whole_words = !*whole_words;
+                }
 
-        // Run the search when its inputs change (well under a millisecond on the KJV).
-        let key = (self.query.clone(), translation.to_string(), self.scope, *whole_words);
-        if self.key.as_ref() != Some(&key) {
-            let out = bible_core::search::run(&t, &self.query, self.scope, *whole_words);
-            self.results = Arc::new(out.verses);
-            self.elapsed = out.elapsed;
-            self.key = Some(key);
-            self.selected = 0;
-        }
+                // Run the search when its inputs change (well under a millisecond on the KJV).
+                let key = (self.query.clone(), translation.to_string(), self.scope, *whole_words);
+                if self.key.as_ref() != Some(&key) || self.order_key != (self.current_first, book) {
+                    let out = bible_core::search::run(&t, &self.query, self.scope, *whole_words);
+                    let mut verses = out.verses;
+                    if self.current_first {
+                        // Stable: this book's hits first, the rest in canonical order.
+                        verses.sort_by_key(|vi| t.verse_view(*vi).is_none_or(|v| v.chapter.book() != book));
+                    }
+                    self.results = Arc::new(verses);
+                    self.elapsed = out.elapsed;
+                    self.key = Some(key);
+                    self.order_key = (self.current_first, book);
+                    self.selected = 0;
+                    let query = Query::parse(&self.query, *whole_words);
+                    self.entries = Arc::new(result_entries(ui, &t, &self.results, &query));
+                }
+
+                let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+                let n = self.results.len();
+                let books = self.entries.iter().filter(|e| matches!(e.kind, EntryKind::Header(..))).count();
+                let summary = format!(
+                    "{} {} in {} {}",
+                    group(n),
+                    if n == 1 { "verse" } else { "verses" },
+                    books,
+                    if books == 1 { "book" } else { "books" }
+                );
+                let font = theme::ui_medium(text::SMALL.size);
+                let cy = row.top() + 4.0 + 8.0;
+                let r = ui.painter().text(
+                    pos2(row.left() + 4.0, cy),
+                    Align2::LEFT_CENTER,
+                    summary,
+                    font.clone(),
+                    p.ink_2,
+                );
+                ui.interact(r, ui.id().with("summary"), Sense::hover()).on_hover_text(format!(
+                    "{:.2} ms · {}",
+                    self.elapsed.as_secs_f64() * 1000.0,
+                    t.meta.abbrev
+                ));
+                let order = if self.current_first { "This book first" } else { "Canonical" };
+                let ow = ui.painter().layout_no_wrap(order.into(), font.clone(), p.ink_2).size().x;
+                let chevron = Rect::from_center_size(pos2(row.right() - 4.0 - 6.0, cy), vec2(12.0, 12.0));
+                let order_rect = Rect::from_min_max(
+                    pos2(chevron.left() - 2.0 - ow, cy - 8.0),
+                    pos2(chevron.right(), cy + 8.0),
+                );
+                let resp = ui.interact(order_rect, ui.id().with("order"), Sense::click());
+                ui.painter().text(pos2(chevron.left() - 2.0, cy), Align2::RIGHT_CENTER, order, font, p.ink_2);
+                crate::icons::chevron_down(ui.painter(), chevron, p.ink_3);
+                egui::Popup::menu(&resp).show(|ui| {
+                    if ui.selectable_label(!self.current_first, "Canonical").clicked() {
+                        self.current_first = false;
+                        ui.close();
+                    }
+                    if ui.selectable_label(self.current_first, "This book first").clicked() {
+                        self.current_first = true;
+                        ui.close();
+                    }
+                });
+            },
+        );
+
         let query = Query::parse(&self.query, *whole_words);
-        ui.add_space(8.0);
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(16, 0)).show(ui, |ui| {
-            let n = self.results.len();
-            let status = format!(
-                "{} {} · {:.2} ms · {}",
-                group(n),
-                if n == 1 { "verse" } else { "verses" },
-                self.elapsed.as_secs_f64() * 1000.0,
-                t.meta.abbrev
-            );
-            ui.label(egui::RichText::new(status).font(text::SMALL.font()).color(p.ink_2));
-        });
-        ui.add_space(4.0);
-        let row_h = 76.0;
-        let results = self.results.clone();
+        let entries = self.entries.clone();
+        let total = entries.last().map_or(0.0, |e| e.y + e.height);
         let mut sa = ScrollArea::vertical().auto_shrink(false).id_salt("results");
-        if self.scroll_to_selected {
-            self.scroll_to_selected = false;
+        if std::mem::take(&mut self.scroll_to_selected)
+            && let Some(e) =
+                entries.iter().find(|e| matches!(e.kind, EntryKind::Item(i, _) if i == self.selected))
+        {
             let avail = ui.available_height();
-            let target = self.selected as f32 * row_h;
             let cur = ui.ctx().data(|d| d.get_temp::<f32>(egui::Id::new("results-offset"))).unwrap_or(0.0);
-            if target < cur || target + row_h > cur + avail {
-                sa = sa.vertical_scroll_offset((target - avail / 2.0).max(0.0));
+            if e.y < cur || e.y + e.height > cur + avail {
+                sa = sa.vertical_scroll_offset((e.y - avail / 3.0).max(0.0));
             }
         }
-        let out = sa.show_rows(ui, row_h, results.len(), |ui, range| {
-            for i in range {
-                let vi = results[i];
-                let Some(v) = t.verse_view(vi) else { continue };
-                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
-                let item = rect.shrink2(vec2(LIST_INSET, 2.0));
-                let selected = i == self.selected;
-                if selected {
-                    ui.painter().rect_filled(item, 10.0, p.accent_soft);
-                } else if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
-                    ui.painter().rect_filled(item, 10.0, fill);
+        let out = sa.show_viewport(ui, |ui, viewport| {
+            let width = ui.available_width();
+            ui.set_min_height(total + 8.0);
+            let origin = ui.min_rect().min + vec2(LIST_INSET, 0.0);
+            let first = entries.partition_point(|e| e.y + e.height < viewport.top());
+            for e in &entries[first..] {
+                if e.y > viewport.bottom() {
+                    break;
                 }
-                let inner = item.shrink2(vec2(12.0, 10.0));
-                let reference =
-                    format!("{} {}:{}", t.meta.ref_name(v.chapter.book()), v.chapter.chapter(), v.number);
-                ui.painter().text(
-                    inner.left_top(),
-                    Align2::LEFT_TOP,
-                    reference,
-                    text::UI_STRONG.font(),
-                    if selected { p.accent } else { p.ink },
-                );
-                ui.painter().text(
-                    inner.right_top() + vec2(0.0, 2.0),
-                    Align2::RIGHT_TOP,
-                    &t.meta.abbrev,
-                    theme::ui_medium(11.0),
-                    p.ink_3,
-                );
-                let text = v.plain_text();
-                let job = snippet_job(&text, &query, inner.width(), theme);
-                let g = ui.painter().layout_job(job);
-                ui.painter().galley(inner.left_top() + vec2(0.0, 22.0), g, p.ink_2);
-                if resp.clicked() {
-                    self.selected = i;
-                    jump_to = Some(vi);
+                let r =
+                    Rect::from_min_size(origin + vec2(0.0, e.y), vec2(width - 2.0 * LIST_INSET, e.height));
+                match e.kind {
+                    EntryKind::Header(b, count) => {
+                        let cy = r.top() + 8.0 + 10.0;
+                        let name = t.meta.book_short(b).to_string();
+                        ui.painter().text(
+                            pos2(r.left() + 8.0, cy),
+                            Align2::LEFT_CENTER,
+                            name,
+                            text::CAPTION.font(),
+                            p.ink_3,
+                        );
+                        ui.painter().text(
+                            pos2(r.right() - 8.0, cy),
+                            Align2::RIGHT_CENTER,
+                            count.to_string(),
+                            text::SMALL.font(),
+                            p.ink_3,
+                        );
+                    }
+                    EntryKind::Item(i, rows) => {
+                        let vi = self.results[i];
+                        let Some(v) = t.verse_view(vi) else { continue };
+                        let resp = ui.interact(r, ui.id().with(("hit", vi)), Sense::click());
+                        let selected = i == self.selected;
+                        if selected {
+                            ui.painter().rect_filled(r, 10.0, p.accent_soft);
+                        } else if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+                            ui.painter().rect_filled(r, 10.0, fill);
+                        }
+                        let inner = r.shrink2(ITEM_PAD);
+                        let reference = format!(
+                            "{} {}:{}",
+                            t.meta.ref_name(v.chapter.book()),
+                            v.chapter.chapter(),
+                            v.number
+                        );
+                        let cy = inner.top() + 8.0;
+                        ui.painter().text(
+                            pos2(inner.left(), cy),
+                            Align2::LEFT_CENTER,
+                            reference,
+                            text::UI_STRONG.font(),
+                            if selected { p.accent } else { p.ink },
+                        );
+                        ui.painter().text(
+                            pos2(inner.right(), cy),
+                            Align2::RIGHT_CENTER,
+                            &t.meta.abbrev,
+                            theme::ui_medium(11.0),
+                            p.ink_3,
+                        );
+                        let (job, hits) =
+                            snippet_job(&v.plain_text(), &query, inner.width(), rows as usize, theme);
+                        paint_snippet(ui.painter(), p, pos2(inner.left(), inner.top() + 20.0), job, &hits);
+                        if resp.clicked() {
+                            self.selected = i;
+                            jump_to = Some(vi);
+                        }
+                    }
                 }
             }
         });
@@ -976,8 +1107,16 @@ fn group(n: usize) -> String {
     out
 }
 
-/// A two-line result snippet with search hits highlighted.
-pub fn snippet_job(text: &str, query: &Query, width: f32, theme: Theme) -> LayoutJob {
+/// A search hit's snippet: Literata 14/20 in secondary ink, starting a few words before the first
+/// hit (marked with "…"), the matched phrase in ink at medium weight. Returns the job and the
+/// char ranges of the hits within it.
+pub fn snippet_job(
+    text: &str,
+    query: &Query,
+    width: f32,
+    rows: usize,
+    theme: Theme,
+) -> (LayoutJob, Vec<std::ops::Range<usize>>) {
     let p = theme.palette();
     let base = TextFormat {
         font_id: FontId::new(text::SNIPPET_SM.size, theme::family(theme::SERIF)),
@@ -985,10 +1124,53 @@ pub fn snippet_job(text: &str, query: &Query, width: f32, theme: Theme) -> Layou
         line_height: Some(text::SNIPPET_SM.line_height),
         ..Default::default()
     };
-    let mut hit = base.clone();
-    hit.background = p.highlights[0];
-    hit.color = p.ink;
-    // Merge hits separated only by spaces so "love one another" reads as one highlight.
+    let hit = TextFormat {
+        font_id: FontId::new(text::SNIPPET_SM.size, theme::family(theme::SERIF_MEDIUM)),
+        color: p.ink,
+        ..base.clone()
+    };
+    let ranges = hit_ranges(text, query);
+    let start = kwic_start(text, &ranges);
+    let mut job = LayoutJob::default();
+    let mut chars = 0usize;
+    let mut out = Vec::new();
+    // A hair of space either side of a hit, for its rounded mark.
+    let mut after_hit = false;
+    let mut push = |job: &mut LayoutJob, s: &str, f: TextFormat, is_hit: bool| {
+        let n = s.chars().count();
+        if is_hit {
+            out.push(chars..chars + n);
+        }
+        chars += n;
+        job.append(s, if is_hit || after_hit { 2.0 } else { 0.0 }, f);
+        after_hit = is_hit;
+    };
+    if start > 0 {
+        push(&mut job, "…", base.clone(), false);
+    }
+    let mut pos = start;
+    for r in ranges.iter().filter(|r| r.start >= start) {
+        if r.start > pos {
+            push(&mut job, &text[pos..r.start], base.clone(), false);
+        }
+        push(&mut job, &text[r.start..r.end], hit.clone(), true);
+        pos = r.end;
+    }
+    if pos < text.len() {
+        push(&mut job, &text[pos..], base, false);
+    }
+    job.wrap = TextWrapping {
+        max_width: width,
+        max_rows: rows,
+        break_anywhere: false,
+        overflow_character: Some('…'),
+    };
+    job.halign = Align::LEFT;
+    (job, out)
+}
+
+/// Matches of the query in the text, with hits separated only by spaces merged ("love one another").
+fn hit_ranges(text: &str, query: &Query) -> Vec<std::ops::Range<usize>> {
     let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
     for r in query.match_ranges(text) {
         match ranges.last_mut() {
@@ -996,39 +1178,153 @@ pub fn snippet_job(text: &str, query: &Query, width: f32, theme: Theme) -> Layou
             _ => ranges.push(r),
         }
     }
-    // Start the snippet a few words before the first hit so it is visible in two lines.
-    let start = ranges.first().map_or(0, |r| {
-        if r.start > 50 {
-            let mut s = r.start - 30;
-            while !text.is_char_boundary(s) {
-                s -= 1;
+    ranges
+}
+
+/// Where a snippet starts: five words before the first hit, or at the verse's start when the hit
+/// is within its first seven words.
+fn kwic_start(text: &str, ranges: &[std::ops::Range<usize>]) -> usize {
+    let Some(hit) = ranges.first() else { return 0 };
+    let starts: Vec<usize> = text[..hit.start]
+        .char_indices()
+        .filter(|&(i, c)| !c.is_whitespace() && (i == 0 || text[..i].ends_with(char::is_whitespace)))
+        .map(|(i, _)| i)
+        .collect();
+    if starts.len() <= 7 { 0 } else { starts[starts.len() - 5] }
+}
+
+/// Lays out a snippet and paints it with its hits marked (`hl-yellow`, radius 3).
+fn paint_snippet(
+    painter: &Painter,
+    p: &Palette,
+    pos: egui::Pos2,
+    job: LayoutJob,
+    hits: &[std::ops::Range<usize>],
+) {
+    let galley = painter.layout_job(job);
+    for range in hits {
+        let mut base = 0usize;
+        for row in &galley.rows {
+            let n = row.glyphs.len();
+            let (s, e) = (range.start.max(base), range.end.min(base + n));
+            if s < e {
+                let (g0, g1) = (&row.glyphs[s - base], &row.glyphs[e - base - 1]);
+                let r = Rect::from_min_max(
+                    pos + vec2(row.pos.x + g0.pos.x - 2.0, row.pos.y),
+                    pos + vec2(row.pos.x + g1.pos.x + g1.advance_width + 2.0, row.pos.y + row.height()),
+                );
+                painter.rect_filled(r, 3.0, p.highlights[0]);
             }
-            text[..s].rfind(' ').map_or(s, |i| i + 1)
-        } else {
-            0
+            base += n + usize::from(row.ends_with_newline);
         }
-    });
-    let mut job = LayoutJob::default();
-    if start > 0 {
-        job.append("…", 0.0, base.clone());
     }
-    let mut pos = start;
-    for r in ranges.iter().filter(|r| r.start >= start) {
-        if r.start > pos {
-            job.append(&text[pos..r.start], 0.0, base.clone());
-        }
-        job.append(&text[r.start..r.end], 0.0, hit.clone());
-        pos = r.end;
-    }
-    if pos < text.len() {
-        job.append(&text[pos..], 0.0, base);
-    }
-    job.wrap =
-        TextWrapping {
-            max_width: width, max_rows: 2, break_anywhere: false, overflow_character: Some('…')
+    painter.galley(pos, galley, p.ink_2);
+}
+
+/// One line of the result list: a book's header or a hit (its index in the results and how many
+/// snippet lines it shows), at a precomputed position so the list can be virtualized.
+#[derive(Clone, Copy)]
+enum EntryKind {
+    Header(BookId, usize),
+    Item(usize, u8),
+}
+
+#[derive(Clone, Copy)]
+struct Entry {
+    kind: EntryKind,
+    y: f32,
+    height: f32,
+}
+
+/// Lays the result list out: headers 28 pt, hits 60 (one snippet line) or 80 (two). A snippet's
+/// line count comes from its glyph advances (no shaping), for the first couple of thousand hits.
+fn result_entries(ui: &Ui, t: &bible_core::Translation, results: &[u32], query: &Query) -> Vec<Entry> {
+    let width = ui.available_width() - 2.0 * LIST_INSET - 2.0 * ITEM_PAD.x;
+    let font = FontId::new(text::SNIPPET_SM.size, theme::family(theme::SERIF));
+    let mut out = Vec::with_capacity(results.len() + 64);
+    let mut y = 0.0;
+    let mut i = 0;
+    while i < results.len() {
+        let Some(book) = t.verse_view(results[i]).map(|v| v.chapter.book()) else {
+            i += 1;
+            continue;
         };
-    job.halign = Align::LEFT;
-    job
+        let count = results[i..]
+            .iter()
+            .take_while(|vi| t.verse_view(**vi).is_some_and(|v| v.chapter.book() == book))
+            .count();
+        out.push(Entry { kind: EntryKind::Header(book, count), y, height: 28.0 });
+        y += 28.0;
+        for k in i..i + count {
+            let rows = if k < 2000 {
+                let text = t.verse_view(results[k]).map(|v| v.plain_text()).unwrap_or_default();
+                let start = kwic_start(&text, &hit_ranges(&text, query));
+                let w: f32 = ui.fonts_mut(|f| text[start..].chars().map(|c| f.glyph_width(&font, c)).sum());
+                if w + if start > 0 { 12.0 } else { 0.0 } <= width { 1 } else { 2 }
+            } else {
+                2
+            };
+            let height = 40.0 + 20.0 * rows as f32;
+            out.push(Entry { kind: EntryKind::Item(k, rows), y, height });
+            y += height;
+        }
+        i += count;
+    }
+    out
+}
+
+/// A pop-up button (`ds-14` select): field colour, hairline and soft drop, book glyph, value,
+/// up-down chevrons.
+fn select_field(ui: &mut Ui, p: &Palette, r: Rect, value: &str, id: &str) -> Response {
+    let resp = ui.interact(r, ui.id().with(id), Sense::click());
+    let painter = ui.painter();
+    painter.add(
+        eframe::epaint::RectShape::filled(r.translate(vec2(0.0, 1.0)), 8.0, Color32::from_black_alpha(15))
+            .with_blur_width(2.0),
+    );
+    painter.rect_filled(r, 8.0, if resp.hovered() { p.raised } else { p.field });
+    painter.rect_stroke(r, 8.0, egui::Stroke::new(0.5, p.border), egui::StrokeKind::Outside);
+    let cy = r.center().y;
+    crate::icons::heavy(|| {
+        crate::icons::book(
+            painter,
+            Rect::from_center_size(pos2(r.left() + 12.0 + 8.0, cy), vec2(16.0, 16.0)),
+            p.ink_2,
+        )
+    });
+    painter.text(pos2(r.left() + 12.0 + 16.0 + 8.0, cy), Align2::LEFT_CENTER, value, text::UI.font(), p.ink);
+    crate::icons::heavy(|| {
+        crate::icons::chevrons_up_down(
+            painter,
+            Rect::from_center_size(pos2(r.right() - 8.0 - 8.0, cy), vec2(16.0, 16.0)),
+            p.ink_2,
+        )
+    });
+    resp
+}
+
+/// A checkbox (`ds-14`): 16 pt, radius 4; off, the field colour with a hairline; on, the accent
+/// with a check. The label follows 8 pt after.
+fn checkbox(ui: &mut Ui, p: &Palette, b: Rect, on: bool, label: &str) -> Response {
+    let g = ui.painter().layout_no_wrap(label.to_string(), text::UI.font(), p.ink);
+    let hit = Rect::from_min_size(b.min, vec2(16.0 + 8.0 + g.size().x, 16.0)).expand(4.0);
+    let resp = ui.interact(hit, ui.id().with(("check", label)), Sense::click());
+    let painter = ui.painter();
+    if on {
+        painter.rect_filled(b, 4.0, p.accent);
+        let s = egui::Stroke::new(1.75, p.on_accent);
+        painter.add(egui::Shape::line(
+            vec![b.min + vec2(4.0, 8.25), b.min + vec2(7.0, 11.0), b.min + vec2(12.0, 5.25)],
+            s,
+        ));
+    } else {
+        painter.rect_filled(b, 4.0, p.field);
+        let border = if resp.hovered() { p.ink_3 } else { p.border };
+        painter.rect_stroke(b, 4.0, egui::Stroke::new(1.0, border), egui::StrokeKind::Inside);
+    }
+    let size = g.size();
+    painter.galley(pos2(b.right() + 8.0, b.center().y - size.y / 2.0), g, p.ink);
+    resp
 }
 
 /// Popup under the toolbar's location button: books, then chapters.

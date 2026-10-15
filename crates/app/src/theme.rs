@@ -242,6 +242,7 @@ pub mod metrics {
 pub const SERIF: &str = "serif";
 pub const SERIF_ITALIC: &str = "serif-italic";
 pub const SERIF_SEMIBOLD: &str = "serif-semibold";
+pub const SERIF_MEDIUM: &str = "serif-medium";
 pub const SERIF_DISPLAY: &str = "serif-display";
 pub const SERIF_HEADING: &str = "serif-heading";
 pub const UI_SEMIBOLD: &str = "ui-semibold";
@@ -291,6 +292,7 @@ pub fn font_definitions() -> FontDefinitions {
         ("literata", Arc::new(FontData::from_static(LITERATA))),
         ("literata-italic", Arc::new(FontData::from_static(LITERATA_ITALIC))),
         ("literata-semibold", variable(LITERATA, &[(b"wght", 600.0), (b"opsz", 16.0)])),
+        ("literata-medium", variable(LITERATA, &[(b"wght", 500.0), (b"opsz", 14.0)])),
         ("literata-display", variable(LITERATA, &[(b"wght", 300.0), (b"opsz", 48.0)])),
         ("literata-heading", variable(LITERATA, &[(b"wght", 400.0), (b"opsz", 28.0)])),
         ("inter", Arc::new(FontData::from_static(INTER))),
@@ -312,6 +314,7 @@ pub fn font_definitions() -> FontDefinitions {
     fonts.families.insert(family(SERIF), with_fallbacks("literata"));
     fonts.families.insert(family(SERIF_ITALIC), with_fallbacks("literata-italic"));
     fonts.families.insert(family(SERIF_SEMIBOLD), with_fallbacks("literata-semibold"));
+    fonts.families.insert(family(SERIF_MEDIUM), with_fallbacks("literata-medium"));
     fonts.families.insert(family(SERIF_DISPLAY), with_fallbacks("literata-display"));
     fonts.families.insert(family(SERIF_HEADING), with_fallbacks("literata-heading"));
     fonts

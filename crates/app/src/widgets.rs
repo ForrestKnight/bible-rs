@@ -207,7 +207,7 @@ pub fn search_field(
     if !query.is_empty() {
         let c = Rect::from_center_size(pos2(rect.right() - 10.0 - 8.0, rect.center().y), vec2(16.0, 16.0));
         let cr = ui.interact(c.expand(2.0), id.with("clear"), Sense::click());
-        crate::icons::clear(ui.painter(), c, p.ink_3, p.field);
+        crate::icons::clear(ui.painter(), c, p.ink_3, p.paper);
         cleared = cr.clicked();
     }
     (resp, cleared)
