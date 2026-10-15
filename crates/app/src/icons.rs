@@ -535,6 +535,22 @@ pub fn folder(p: &Painter, r: Rect, c: Color32) {
     g.polyline(pts, true);
 }
 
+/// A box with an arrow out of its corner (opens elsewhere).
+pub fn external(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    let mut pts = vec![(8.25, 4.25), (5.25, 4.25)];
+    pts.extend(Grid::arc(5.25, 5.75, 1.5, 1.5 * PI, PI));
+    pts.push((3.75, 14.75));
+    pts.extend(Grid::arc(5.25, 14.75, 1.5, PI, FRAC_PI_2));
+    pts.push((14.25, 16.25));
+    pts.extend(Grid::arc(14.25, 14.75, 1.5, FRAC_PI_2, 0.0));
+    pts.push((15.75, 11.75));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, false);
+    g.line(&[(11.25, 3.25), (16.75, 3.25), (16.75, 8.75)]);
+    g.line(&[(16.5, 3.5), (9.25, 10.75)]);
+}
+
 /// A page with a folded corner (a file).
 pub fn doc(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);

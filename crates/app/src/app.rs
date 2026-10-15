@@ -2085,6 +2085,12 @@ pub fn reveal(path: &std::path::Path) {
     let _ = std::process::Command::new(opener).arg(path).spawn();
 }
 
+/// Opens a web page in the browser.
+pub fn open_url(url: &str) {
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let _ = std::process::Command::new(opener).arg(url).spawn();
+}
+
 pub fn online_counter() -> Arc<AtomicU64> {
     Arc::new(AtomicU64::new(0))
 }

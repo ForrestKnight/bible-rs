@@ -1769,30 +1769,105 @@ fn icon_segmented(
     out
 }
 
-/// The app, its version and its licences.
+/// The project's releases, opened when asked (the app makes no network requests of its own).
+const RELEASES: &str = "https://github.com/michaelshimeles/bible-rs/releases";
+
+/// About (frame 28): the app, its version, the translations' and fonts' licences.
 fn about(ui: &mut Ui, p: &Palette) {
     let width = ui.available_width();
-    let (r, _) = ui.allocate_exact_size(vec2(width, 120.0), Sense::hover());
-    ui.painter().text(
-        pos2(r.center().x, r.top() + 40.0),
-        Align2::CENTER_CENTER,
-        "bible-rs",
-        FontId::new(28.0, theme::family(theme::SERIF_HEADING)),
-        p.ink,
+    let (r, _) = ui.allocate_exact_size(vec2(width, 240.0), Sense::hover());
+    let painter = ui.painter().clone();
+    let cx = r.center().x;
+    crate::onboarding::app_icon(
+        &painter,
+        Rect::from_center_size(pos2(cx, r.top() + 8.0 + 44.0), vec2(88.0, 88.0)),
     );
-    ui.painter().text(
-        pos2(r.center().x, r.top() + 76.0),
-        Align2::CENTER_CENTER,
-        format!("Version {}", env!("CARGO_PKG_VERSION")),
-        text::UI.font(),
-        p.ink_2,
+    let centred = |top: f32, lh: f32, s: &str, font: FontId, ink: Color32, tracking: f32| {
+        let size = font.size;
+        let reading = matches!(&font.family, egui::FontFamily::Name(n) if n.starts_with("serif"));
+        let g = widgets::line(&painter, s, font, ink, tracking);
+        let x = cx - g.size().x / 2.0;
+        widgets::paint_on_baseline(&painter, x, widgets::css_baseline(top, lh, size, reading), g, ink);
+    };
+    centred(
+        r.top() + 100.0,
+        40.0,
+        "Bible",
+        FontId::new(32.0, theme::family(theme::SERIF_DISPLAY)),
+        p.ink,
+        -0.015,
+    );
+    let arch = match std::env::consts::ARCH {
+        "aarch64" if cfg!(target_os = "macos") => "Apple Silicon",
+        "x86_64" if cfg!(target_os = "macos") => "Intel",
+        other => other,
+    };
+    let version = format!("Version {} · {arch}", env!("CARGO_PKG_VERSION"));
+    centred(r.top() + 144.0, 20.0, &version, theme::ui_font(13.0), p.ink_2, 0.0);
+    centred(
+        r.top() + 168.0,
+        20.0,
+        "A very fast, native Bible reader for the Mac.",
+        theme::ui_font(13.0),
+        p.ink_3,
+        0.0,
+    );
+    let check = Button::new(Kind::Secondary, "Check for Updates…");
+    let notes = Button::new(Kind::Ghost, "Release Notes").trailing_icon(icons::external);
+    let (wa, wb) = (check.width(&painter), notes.width(&painter));
+    let x = cx - (wa + 8.0 + wb) / 2.0;
+    let cy = r.top() + 200.0 + 16.0;
+    if check.show_left(ui, p, x, cy, ui.id().with("check-updates")).1.clicked() {
+        crate::app::open_url(&format!("{RELEASES}/latest"));
+    }
+    if notes.show_left(ui, p, x + wa + 8.0, cy, ui.id().with("release-notes")).1.clicked() {
+        crate::app::open_url(RELEASES);
+    }
+    ui.add_space(24.0);
+
+    let licences = |ui: &mut Ui, rows: &[(&str, &str)]| {
+        rows_card(ui, p, &vec![40.0; rows.len()], |ui, i, r| {
+            let (k, v) = rows[i];
+            let painter = ui.painter();
+            painter.text(
+                pos2(r.left() + 16.0, r.center().y),
+                Align2::LEFT_CENTER,
+                k,
+                theme::ui_bold(12.0),
+                p.ink,
+            );
+            painter.text(
+                pos2(r.left() + 166.0, r.center().y),
+                Align2::LEFT_CENTER,
+                v,
+                text::SMALL.font(),
+                p.ink_2,
+            );
+        });
+    };
+    group_title(ui, p, "Translations");
+    licences(
+        ui,
+        &[
+            ("KJV", "Public domain (Crown letters patent in the UK)"),
+            ("WEB", "Public domain · “World English Bible” is a trademark of eBible.org"),
+            ("BSB", "Dedicated to the public domain, 2023"),
+            ("ASV · YLT · DBY · WBS", "Public domain"),
+        ],
     );
     ui.add_space(8.0);
-    ui.label(
-        RichText::new(
-            "A fast, native Bible reader. Bundled translations are in the public domain; Literata and Inter are under the SIL Open Font License; the app is MIT-licensed.",
-        )
-        .color(p.ink_2),
+    footnote(ui, p, "Source texts: eBible.org USFM editions, pinned by SHA-256.");
+    ui.add_space(24.0);
+    group_title(ui, p, "Fonts");
+    licences(ui, &[("Literata", "SIL Open Font License 1.1"), ("Inter", "SIL Open Font License 1.1")]);
+    ui.add_space(24.0);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
+    ui.painter().text(
+        r.center(),
+        Align2::CENTER_CENTER,
+        "No accounts, no tracking, no network unless you add an online translation.",
+        text::SMALL.font(),
+        p.ink_3,
     );
 }
 

@@ -413,8 +413,10 @@ fn steps(painter: &Painter, p: &Palette, full: Rect, current: usize) {
 }
 
 /// The app icon: a blue gradient tile with a soft blue shadow, a white hairline and the book glyph.
-fn app_icon(painter: &Painter, r: Rect) {
-    let radius = 14.4;
+pub fn app_icon(painter: &Painter, r: Rect) {
+    // The design's icon at 64 pt: radius 14.4, a 32 pt glyph; it scales with its box.
+    let k = r.width() / 64.0;
+    let radius = 14.4 * k;
     let top = Color32::from_rgb(61, 93, 186);
     let bottom = Color32::from_rgb(36, 57, 122);
     painter.add(
@@ -449,7 +451,7 @@ fn app_icon(painter: &Painter, r: Rect) {
         Stroke::new(0.5, Color32::from_white_alpha(64)),
         egui::StrokeKind::Middle,
     );
-    icons::book(painter, Rect::from_center_size(r.center(), vec2(32.0, 32.0)), Color32::WHITE);
+    icons::book(painter, Rect::from_center_size(r.center(), vec2(32.0 * k, 32.0 * k)), Color32::WHITE);
 }
 
 fn rounded_rect_points(r: Rect, radius: f32) -> Vec<Pos2> {
