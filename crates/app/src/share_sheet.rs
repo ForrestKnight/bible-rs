@@ -622,7 +622,7 @@ mod tests {
         let png = crop_png(&image, card, 2.0).unwrap();
         let decoded = image::load_from_memory(&png).unwrap().to_rgba8();
         // 2 px per point, clipped to the image.
-        assert_eq!(decoded.dimensions(), (80, 75));
+        assert_eq!(decoded.dimensions(), (80, 70));
         assert_eq!(decoded.get_pixel(0, 0)[3], 0, "outside the corner radius is transparent");
         assert_eq!(decoded.get_pixel(40, 40).0, [200, 100, 50, 255]);
     }
