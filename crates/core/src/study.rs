@@ -344,6 +344,17 @@ impl StudyStore {
         v.into_iter().map(|(r, c, _)| (r, c)).collect()
     }
 
+    /// Highlights with when they were made, the most recent first.
+    pub fn highlights_dated(&self) -> Vec<(VerseRef, HighlightColor, i64)> {
+        let mut v: Vec<_> = self
+            .highlights
+            .iter()
+            .filter_map(|(k, (c, t))| Some((VerseRef::from_key(*k)?, *c, *t)))
+            .collect();
+        v.sort_by_key(|(r, _, t)| (std::cmp::Reverse(*t), *r));
+        v
+    }
+
     pub fn notes(&self) -> Vec<(VerseRef, &Note)> {
         let mut v: Vec<_> =
             self.notes.iter().filter_map(|(k, n)| Some((VerseRef::from_key(*k)?, n))).collect();

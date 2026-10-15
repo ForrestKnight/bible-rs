@@ -207,9 +207,10 @@ impl State {
         ] {
             let n = n.to_string();
             let on = self.filter == f;
-            let w = widgets::pill_tab_width(&painter, label, Some(&n), on);
+            let w = widgets::pill_tab_width(&painter, label, Some(&n), on, false);
             let r = Rect::from_min_size(pos2(x, y), vec2(w, 28.0));
-            if widgets::pill_tab(ui, p, r, label, Some(&n), on, ui.id().with(("tab", label))).clicked() {
+            if widgets::pill_tab(ui, p, r, label, Some(&n), None, on, ui.id().with(("tab", label))).clicked()
+            {
                 self.filter = f;
             }
             x = r.right() + 4.0;

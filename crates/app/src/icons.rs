@@ -6,7 +6,7 @@
 //! do: 20 pt in the toolbar, 16 pt in rows and menus. A few small glyphs (disclosure chevrons)
 //! use their own 12-unit grid.
 
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
 use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, vec2};
 
@@ -446,6 +446,32 @@ pub fn key(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(9.75, 9.75), (16.25, 3.25)]);
     g.line(&[(14.25, 5.25), (16.25, 7.25)]);
     g.line(&[(12.5, 7.0), (14.0, 8.5)]);
+}
+
+/// An arrow up out of a tray (export, share a file).
+pub fn upload(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(10.0, 12.25), (10.0, 2.75)]);
+    g.line(&[(6.5, 6.25), (10.0, 2.75), (13.5, 6.25)]);
+    let mut pts = vec![(3.25, 12.0), (3.25, 14.75)];
+    pts.extend(Grid::arc(5.25, 14.75, 2.0, PI, FRAC_PI_2));
+    pts.extend(Grid::arc(14.75, 14.75, 2.0, FRAC_PI_2, 0.0));
+    pts.push((16.75, 12.0));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, false);
+}
+
+/// Two chain links (linked verses): the design's path and its half-turn copy.
+pub fn link(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    let mut half: Vec<(f32, f32)> = Grid::arc(10.625, 9.382, 3.0, 2.358, 0.784).collect();
+    half.extend(Grid::arc(13.125, 6.875, 3.005, FRAC_PI_4, -3.0 * FRAC_PI_4));
+    half.push((10.25, 5.5));
+    for flip in [false, true] {
+        let pts: Vec<Pos2> =
+            half.iter().map(|&(x, y)| if flip { g.p(20.0 - x, 20.0 - y) } else { g.p(x, y) }).collect();
+        g.polyline(pts, false);
+    }
 }
 
 /// A page with a folded corner (a file).

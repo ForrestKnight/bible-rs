@@ -809,23 +809,28 @@ pub fn badge(painter: &Painter, p: &Palette, left: f32, cy: f32, kind: BadgeKind
 }
 
 /// Width of a [`pill_tab`].
-pub fn pill_tab_width(painter: &Painter, label: &str, count: Option<&str>, selected: bool) -> f32 {
+pub fn pill_tab_width(painter: &Painter, label: &str, count: Option<&str>, selected: bool, dot: bool) -> f32 {
     let font = if selected { theme::ui_semibold(13.0) } else { theme::ui_medium(13.0) };
     let mut w = painter.layout_no_wrap(label.into(), font, Color32::PLACEHOLDER).size().x + 24.0;
+    if dot {
+        w += 10.0 + 6.0;
+    }
     if let Some(c) = count {
         w += 6.0 + painter.layout_no_wrap(c.into(), theme::ui_medium(12.0), Color32::PLACEHOLDER).size().x;
     }
     w
 }
 
-/// A pill tab (`ds-15`): 28 pt, radius 14, 13 pt medium secondary ink with an optional 12 pt count;
-/// selected, accent on `accent_soft`.
+/// A pill tab (`ds-15`): 28 pt, radius 14, 13 pt medium secondary ink with an optional 10 pt
+/// colour dot before it and a 12 pt count after; selected, accent on `accent_soft`.
+#[allow(clippy::too_many_arguments)]
 pub fn pill_tab(
     ui: &mut Ui,
     p: &Palette,
     rect: Rect,
     label: &str,
     count: Option<&str>,
+    dot: Option<Color32>,
     selected: bool,
     id: egui::Id,
 ) -> Response {
@@ -843,7 +848,11 @@ pub fn pill_tab(
     };
     let g = painter.layout_no_wrap(label.into(), font, ink);
     let cy = rect.center().y;
-    let x = rect.left() + 12.0;
+    let mut x = rect.left() + 12.0;
+    if let Some(c) = dot {
+        painter.circle_filled(pos2(x + 5.0, cy), 5.0, c);
+        x += 16.0;
+    }
     let w = g.size().x;
     painter.galley(pos2(x, cy - g.size().y / 2.0), g, ink);
     if let Some(c) = count {
@@ -1017,4 +1026,63 @@ pub fn text_field(
             .vertical_align(egui::Align::Center)
             .desired_width(edit.width()),
     )
+}
+
+/// A segmented control sized to its labels (`ds-07`): segments 28 pt with 10 pt sides, 2 pt
+/// apart in a 32 pt `fill` track; the selected one `raised` with the knob shadow. Drawn with its
+/// right edge at `right_center`; returns the track and the newly selected index.
+pub fn segmented_tight(
+    ui: &mut Ui,
+    p: &Palette,
+    right_center: egui::Pos2,
+    id: egui::Id,
+    labels: &[&str],
+    selected: usize,
+) -> (Rect, Option<usize>) {
+    let widths: Vec<f32> = labels
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let font = if i == selected { text::UI_STRONG.font() } else { theme::ui_medium(text::UI.size) };
+            ui.painter().layout_no_wrap(l.to_string(), font, Color32::PLACEHOLDER).size().x + 20.0
+        })
+        .collect();
+    let total: f32 = widths.iter().sum::<f32>() + 2.0 * (labels.len() as f32 - 1.0) + 4.0;
+    let track = Rect::from_min_size(pos2(right_center.x - total, right_center.y - 16.0), vec2(total, 32.0));
+    ui.painter().rect_filled(track, 16.0, p.fill);
+    let mut x = track.left() + 2.0;
+    let mut out = None;
+    for (i, (label, w)) in labels.iter().zip(widths).enumerate() {
+        let r = Rect::from_min_size(pos2(x, track.top() + 2.0), vec2(w, 28.0));
+        let resp = ui.interact(r, id.with(i), Sense::click());
+        if i == selected {
+            p.shadows.knob.paint(ui.painter(), r, 14.0);
+            ui.painter().rect_filled(r, 14.0, p.raised);
+        } else if let Some(fill) = hover_fill(ui, &resp, p, false) {
+            ui.painter().rect_filled(r, 14.0, fill);
+        }
+        let (f, c) = if i == selected {
+            (text::UI_STRONG.font(), p.ink)
+        } else {
+            (theme::ui_medium(text::UI.size), p.ink_2)
+        };
+        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, *label, f, c);
+        if resp.clicked() && i != selected {
+            out = Some(i);
+        }
+        x += w + 2.0;
+    }
+    (track, out)
+}
+
+/// A 28 pt round icon button: no fill until hovered (`fill`) or pressed (`fill_strong`); a
+/// 16 pt glyph in secondary ink.
+pub fn round_button(ui: &mut Ui, p: &Palette, rect: Rect, icon: IconFn, id: egui::Id) -> Response {
+    let resp = ui.interact(rect, id, Sense::click());
+    if let Some(fill) = hover_fill(ui, &resp, p, false) {
+        ui.painter().circle_filled(rect.center(), rect.width() / 2.0, fill);
+    }
+    let r = Rect::from_center_size(rect.center(), vec2(16.0, 16.0));
+    crate::icons::heavy(|| icon(ui.painter(), r, p.ink_2));
+    resp
 }

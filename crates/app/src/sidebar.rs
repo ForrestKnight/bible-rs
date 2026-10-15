@@ -326,31 +326,57 @@ impl Sidebar {
                         }
                     } else {
                         section(ui, p, "Study", true);
-                        let any_open = self.study_open.iter().any(|o| *o);
-                        for (i, (kind, label, n, icon)) in [
-                            (StudyKind::Bookmarks, "Bookmarks", nb, icon_bookmark as IconFn),
-                            (StudyKind::Highlights, "Highlights", nh, crate::icons::highlighter),
-                            (StudyKind::Notes, "Notes", nn, crate::icons::note),
+                        use crate::pages::Page;
+                        for (i, (kind, label, n, icon, page)) in [
+                            (
+                                StudyKind::Bookmarks,
+                                "Bookmarks",
+                                nb,
+                                icon_bookmark as IconFn,
+                                Some(Page::Bookmarks),
+                            ),
+                            (
+                                StudyKind::Highlights,
+                                "Highlights",
+                                nh,
+                                crate::icons::highlighter,
+                                Some(Page::Highlights),
+                            ),
+                            (StudyKind::Notes, "Notes", nn, crate::icons::note, None),
                         ]
                         .into_iter()
                         .enumerate()
                         {
                             let open = self.study_open[i];
+                            // Rows open their page; the chevron (shown on hover, or while open)
+                            // lists the most recent items in place.
+                            let next =
+                                Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), ROW_HEIGHT));
+                            let hovered = ui.rect_contains_pointer(next);
+                            let selected = match page {
+                                Some(pg) => env.page == pg,
+                                None => self.study_selected == Some(kind),
+                            };
                             let r = row(
                                 ui,
                                 p,
                                 &Row {
                                     icon: Some(icon),
                                     label,
-                                    count: Some(n.to_string()),
-                                    // Chevrons appear once a collection is open, to show which are.
-                                    disclosure: any_open.then_some(open),
-                                    selected: self.study_selected == Some(kind),
+                                    count: (n > 0).then(|| n.to_string()),
+                                    disclosure: (hovered || open).then_some(open),
+                                    selected,
                                     ..Row::default()
                                 },
                             );
+                            let on_chevron = r
+                                .interact_pointer_pos()
+                                .is_some_and(|pos| pos.x > r.rect.right() - ROW_PAD - ICON_LANE - 4.0);
                             if r.clicked() {
-                                self.toggle_study(kind);
+                                match page {
+                                    Some(pg) if !on_chevron => actions.push(Action::OpenPage(pg)),
+                                    _ => self.toggle_study(kind),
+                                }
                             }
                             if open {
                                 self.study_items(ui, env, kind, actions);
