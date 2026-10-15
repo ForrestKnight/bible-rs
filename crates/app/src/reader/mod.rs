@@ -79,6 +79,8 @@ pub struct Reader {
     /// The verse whose note popover is open, and where its marker was drawn this frame.
     pub marker_for: Option<VerseRef>,
     pub marker_rect: Option<Rect>,
+    /// Where the selection is on screen this frame (its line bands, together), for popovers.
+    pub selection_rect: Option<Rect>,
     frames: u64,
 }
 
@@ -104,6 +106,7 @@ impl Reader {
             columns_x: Vec::new(),
             marker_for: None,
             marker_rect: None,
+            selection_rect: None,
             frames: 0,
         };
         if verse > 1 {
@@ -301,6 +304,7 @@ impl Reader {
         self.toolbar = env.toolbar;
         self.top_pad = env.toolbar + layout::PAGE_TOP;
         self.marker_rect = None;
+        self.selection_rect = None;
         let id = Id::new("reader");
         // Text runs under the toolbar, but clicks there belong to the toolbar (and the window).
         let below_toolbar = Rect::from_min_max(pos2(rect.left(), rect.top() + env.toolbar), rect.max);
@@ -460,6 +464,7 @@ impl Reader {
                         pos2(geom.x0 + geom.total_w + pad.x, bottom + pad.y),
                     );
                     painter.rect_filled(band, CornerRadius::same(10), p.selection);
+                    self.selection_rect = Some(self.selection_rect.map_or(band, |s| s.union(band)));
                 }
                 // Underlays: highlights, selection, flash.
                 for (k, (start, _vi, number)) in block.verses.iter().enumerate() {
@@ -494,6 +499,9 @@ impl Reader {
                         );
                         for f in &fills {
                             painter.rect_filled(r, CornerRadius::same(4), *f);
+                        }
+                        if is_selected && !parallel {
+                            self.selection_rect = Some(self.selection_rect.map_or(r, |s| s.union(r)));
                         }
                     }
                 }

@@ -6,6 +6,7 @@
 pub mod actions;
 pub mod app;
 pub mod cli;
+pub mod compare_popover;
 pub mod icons;
 pub mod import_sheet;
 #[cfg(target_os = "macos")]

@@ -239,6 +239,8 @@ pub struct BibleApp {
     note_popover: Option<NotePopover>,
     /// The first-launch screens, until they are done.
     onboarding: Option<crate::onboarding::Onboarding>,
+    /// Compare Verse as a popover on the selected verse (frame 23).
+    compare: Option<crate::compare_popover::ComparePopover>,
     /// Sharing the selected verses as an image or text (frame 22).
     share_sheet: Option<crate::share_sheet::ShareSheet>,
     /// Importing a translation (frames 13–15).
@@ -348,6 +350,7 @@ impl BibleApp {
             onboarding,
             import_sheet: None,
             share_sheet: None,
+            compare: None,
             reminded: None,
             pages: Default::default(),
             demo: std::env::var("BIBLE_RS_DEMO")
@@ -686,7 +689,12 @@ impl BibleApp {
             Action::Compare => {
                 let v = self.selection_or_location()[0];
                 self.reader.set_selection(Some(v));
-                self.panel = Some(VersePanel::new(v));
+                if self.columns().len() > 1 {
+                    // Beside parallel columns: the Compare inspector (frame 07).
+                    self.panel = Some(VersePanel::new(v));
+                } else {
+                    self.compare = Some(crate::compare_popover::ComparePopover::new(v));
+                }
                 let ids: Vec<String> = self.library.entries().iter().map(|e| e.meta.id.clone()).collect();
                 self.library.warm(&ids);
             }
@@ -1788,6 +1796,20 @@ impl eframe::App for BibleApp {
                 &mut actions,
             ) {
                 self.note_popover = None;
+            }
+        }
+        if let Some(c) = &mut self.compare {
+            let selected = self.reader.selected_refs();
+            if !selected.contains(&c.verse) || !self.pages.reader() {
+                self.compare = None;
+            } else {
+                let anchor = self
+                    .reader
+                    .selection_rect
+                    .unwrap_or_else(|| crate::note_popover::fallback_anchor(ctx.content_rect()));
+                if c.show(&ctx, p, &self.library, &self.settings, anchor, &mut actions) {
+                    self.compare = None;
+                }
             }
         }
         if let Some(menu) = &mut self.verse_menu {
