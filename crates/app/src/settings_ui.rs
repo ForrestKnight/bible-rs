@@ -20,7 +20,7 @@ use crate::app::{Settings, TaskResult};
 use crate::icons;
 use crate::reader::layout::{Mode, Typography};
 use crate::theme::{self, Palette, Theme, text};
-use crate::widgets;
+use crate::widgets::{self, Button, Kind};
 
 /// The window's width, its title bar and its tab strip (icon tabs 76 × 52, 12 pt below).
 const WIDTH: f32 = 720.0;
@@ -43,12 +43,12 @@ pub struct SettingsUi {
     tab: SettingsTab,
     esv_key: String,
     apibible_key: String,
-    show_keys: bool,
     bibles: Option<Result<Vec<RemoteBible>, String>>,
     loading_bibles: bool,
     bible_filter: String,
-    unlock_key: String,
     message: Option<String>,
+    /// Every bundled translation in the Installed list, rather than the reading ones.
+    show_all_bundled: bool,
 }
 
 impl SettingsUi {
@@ -57,12 +57,11 @@ impl SettingsUi {
             tab,
             esv_key: library.api_key("esv-api-key").unwrap_or_default(),
             apibible_key: library.api_key("api-bible-key").unwrap_or_default(),
-            show_keys: false,
             bibles: None,
             loading_bibles: false,
             bible_filter: String::new(),
-            unlock_key: String::new(),
             message: None,
+            show_all_bundled: false,
         }
     }
 
@@ -213,7 +212,6 @@ impl SettingsUi {
                             SettingsTab::Reading => reading(ui, library, settings, actions),
                             SettingsTab::Appearance => appearance(ui, settings, actions),
                             SettingsTab::Translations => {
-                                ui.spacing_mut().item_spacing.y = 6.0;
                                 self.translations(ui, library, settings, actions, tx, import)
                             }
                             SettingsTab::Shortcuts => shortcuts(ui, p),
@@ -228,6 +226,9 @@ impl SettingsUi {
         );
     }
 
+    /// Translations (frame 25): the default and parallel set, what's installed, importing a
+    /// translation you own, and API keys for online ones.
+    #[allow(clippy::too_many_arguments)]
     fn translations(
         &mut self,
         ui: &mut Ui,
@@ -238,209 +239,518 @@ impl SettingsUi {
         import: &mut Option<(PathBuf, Option<String>)>,
     ) {
         let p = settings.theme.palette();
-        widgets::caption(ui, "Installed");
-        let mut remove: Option<String> = None;
-        for e in library.entries() {
-            let m = &e.meta;
-            ui.horizontal_top(|ui| {
-                ui.add_sized(
-                    [58.0, 20.0],
-                    egui::Label::new(RichText::new(&m.abbrev).font(theme::ui_medium(13.0)).color(p.accent)),
-                );
-                let w = (ui.available_width() - 90.0).max(200.0);
-                ui.allocate_ui_with_layout(vec2(w, 0.0), egui::Layout::top_down(egui::Align::LEFT), |ui| {
-                    ui.set_width(w);
-                    ui.label(RichText::new(&m.name).color(p.ink));
-                    let origin = match &m.origin {
-                        Origin::Bundled => format!("Bundled · {}", m.license),
-                        Origin::Imported { format, file_name } => {
-                            format!("Imported {format} from {file_name} · stored only on this computer")
+        let abbrev_of =
+            |id: &str| library.get(id).map(|e| e.meta.abbrev.clone()).unwrap_or_else(|| id.to_uppercase());
+
+        // Reading: the default translation and the parallel columns.
+        group_title(ui, p, "Reading");
+        let ids: Vec<(String, String, String)> = library
+            .entries()
+            .iter()
+            .map(|e| (e.meta.id.clone(), e.meta.abbrev.clone(), e.meta.name.clone()))
+            .collect();
+        rows_card(ui, p, &[44.0, 44.0], |ui, i, r| {
+            let right = r.right() - 16.0;
+            if i == 0 {
+                row_label(ui, p, r, "Default translation", None);
+                let current = ids
+                    .iter()
+                    .find(|(id, _, _)| *id == settings.translation)
+                    .map(|(_, a, n)| format!("{n} ({a})"))
+                    .unwrap_or_default();
+                let field = Rect::from_min_size(pos2(right - 260.0, r.center().y - 16.0), vec2(260.0, 32.0));
+                let resp =
+                    widgets::select_field(ui, p, field, &current, None, ui.id().with("default-translation"));
+                egui::Popup::menu(&resp).show(|ui| {
+                    ui.set_min_width(260.0);
+                    for (id, a, n) in &ids {
+                        if ui.selectable_label(*id == settings.translation, format!("{n} ({a})")).clicked() {
+                            actions.push(Action::SetTranslation(id.clone()));
                         }
-                        Origin::Online { provider, .. } => {
-                            let cached = library.cached_verses(&m.id);
-                            format!(
-                                "Online via {provider} · {cached} verses cached (within the API's limits)"
-                            )
-                        }
-                    };
-                    ui.label(RichText::new(origin).font(theme::ui_font(11.5)).color(p.ink_2));
-                });
-                if !matches!(e.kind, EntryKind::Bundled(_)) && ui.button("Remove").clicked() {
-                    remove = Some(m.id.clone());
-                }
-            });
-            ui.add_space(6.0);
-        }
-        if let Some(id) = remove {
-            match library.remove(&id) {
-                Ok(()) => {
-                    if settings.translation == id {
-                        settings.translation = bible_core::bundled::DEFAULT_ID.into();
                     }
-                    settings.parallel.retain(|x| *x != id);
-                    actions.push(Action::Toast(format!("Removed {id}")));
-                }
-                Err(e) => actions.push(Action::Toast(format!("{e:#}"))),
+                });
+            } else {
+                row_label(ui, p, r, "Parallel columns", None);
+                let (b, resp) = Button::new(Kind::Secondary, "Edit…").small().show_right(
+                    ui,
+                    p,
+                    right,
+                    r.center().y,
+                    ui.id().with("edit-parallel"),
+                );
+                let mut cols = vec![abbrev_of(&settings.translation)];
+                cols.extend(settings.parallel.iter().map(|id| abbrev_of(id)));
+                ui.painter().text(
+                    pos2(b.left() - 12.0, r.center().y),
+                    Align2::RIGHT_CENTER,
+                    cols.join(" · "),
+                    theme::ui_medium(13.0),
+                    p.ink_2,
+                );
+                egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(
+                    |ui| {
+                        ui.set_min_width(240.0);
+                        for (id, a, n) in ids.iter().filter(|(id, _, _)| *id != settings.translation) {
+                            let on = settings.parallel.contains(id);
+                            if ui.selectable_label(on, format!("{a} — {n}")).clicked() {
+                                if on {
+                                    settings.parallel.retain(|x| x != id);
+                                } else {
+                                    settings.parallel.push(id.clone());
+                                }
+                            }
+                        }
+                    },
+                );
+            }
+        });
+        ui.add_space(24.0);
+
+        // Installed: the default and parallel ones, the rest of the bundled folded into a line,
+        // then everything imported or online.
+        group_title(ui, p, "Installed");
+        let entries: Vec<std::sync::Arc<bible_core::library::Entry>> = library.entries().to_vec();
+        let featured = |e: &bible_core::library::Entry| {
+            e.meta.id == settings.translation || settings.parallel.contains(&e.meta.id)
+        };
+        let bundled: Vec<_> = entries.iter().filter(|e| matches!(e.kind, EntryKind::Bundled(_))).collect();
+        let mut shown_bundled: Vec<_> = bundled.iter().filter(|e| featured(e)).copied().collect();
+        for e in &bundled {
+            if shown_bundled.len() >= 3 {
+                break;
+            }
+            if !shown_bundled.iter().any(|x| x.meta.id == e.meta.id) {
+                shown_bundled.push(e);
             }
         }
-
-        ui.add_space(14.0);
-        widgets::caption(ui, "Import a translation you own");
-        ui.label(
-            RichText::new(
-                "Licensed translations (NLT, NASB, LSB, ESV, NIV, …) are never bundled. If you have a copy as USFM \
-                 (file, folder or zip), OSIS XML, Zefania XML or a SWORD module, import it here. It is converted and \
-                 stored in your own data folder.",
-            )
-            .color(p.ink_2),
+        shown_bundled.sort_by_key(|e| bundled.iter().position(|b| b.meta.id == e.meta.id));
+        let folded: Vec<_> = bundled
+            .iter()
+            .filter(|e| !shown_bundled.iter().any(|x| x.meta.id == e.meta.id))
+            .copied()
+            .collect();
+        enum Item<'a> {
+            Entry(&'a bible_core::library::Entry),
+            More,
+        }
+        let mut items: Vec<Item<'_>> = Vec::new();
+        let list: Vec<&std::sync::Arc<bible_core::library::Entry>> =
+            if self.show_all_bundled { bundled.clone() } else { shown_bundled.clone() };
+        items.extend(list.iter().map(|e| Item::Entry(e)));
+        if !folded.is_empty() {
+            items.push(Item::More);
+        }
+        items.extend(
+            entries.iter().filter(|e| !matches!(e.kind, EntryKind::Bundled(_))).map(|e| Item::Entry(e)),
         );
-        ui.horizontal(|ui| {
-            ui.label("SWORD unlock key (if locked):");
-            ui.add(egui::TextEdit::singleline(&mut self.unlock_key).desired_width(160.0).password(true));
+        let heights: Vec<f32> =
+            items.iter().map(|it| if matches!(it, Item::More) { 40.0 } else { 52.0 }).collect();
+        let mut remove: Option<String> = None;
+        rows_card(ui, p, &heights, |ui, i, r| {
+            let painter = ui.painter().clone();
+            let right = r.right() - 16.0;
+            match &items[i] {
+                Item::More => {
+                    let label = if self.show_all_bundled {
+                        "Showing every bundled translation".to_string()
+                    } else {
+                        let names: Vec<String> = folded.iter().map(|e| e.meta.abbrev.clone()).collect();
+                        format!("{} — {} more bundled", names.join(", "), names.len())
+                    };
+                    painter.text(
+                        pos2(r.left() + 16.0, r.center().y),
+                        Align2::LEFT_CENTER,
+                        label,
+                        text::SMALL.font(),
+                        p.ink_3,
+                    );
+                    let text = if self.show_all_bundled { "Show Fewer" } else { "Show All" };
+                    if Button::new(Kind::Ghost, text)
+                        .small()
+                        .show_right(ui, p, right, r.center().y, ui.id().with("show-all"))
+                        .1
+                        .clicked()
+                    {
+                        self.show_all_bundled = !self.show_all_bundled;
+                    }
+                }
+                Item::Entry(e) => {
+                    let m = &e.meta;
+                    let default = m.id == settings.translation;
+                    let tile = Rect::from_min_size(pos2(r.left() + 16.0, r.top() + 10.0), vec2(44.0, 32.0));
+                    painter.rect_filled(tile, 8.0, p.fill);
+                    let ink = if default { p.accent } else { p.ink_2 };
+                    painter.text(tile.center(), Align2::CENTER_CENTER, &m.abbrev, theme::ui_bold(11.0), ink);
+                    let detail = match &e.kind {
+                        EntryKind::Bundled(_) => {
+                            let what = bible_core::bundled::description(&m.id)
+                                .map(|d| {
+                                    // "Red letters · modern English" → "red letters, modern English".
+                                    let lower_first = |w: &str| {
+                                        let mut c = w.chars();
+                                        c.next()
+                                            .map(|f| f.to_lowercase().chain(c).collect::<String>())
+                                            .unwrap_or_default()
+                                    };
+                                    d.split(" · ").take(2).map(lower_first).collect::<Vec<_>>().join(", ")
+                                })
+                                .unwrap_or_default();
+                            match bible_core::bundled::year(&m.id) {
+                                Some(y) if !what.is_empty() => format!("{y} · {what}"),
+                                Some(y) => y.to_string(),
+                                None => what,
+                            }
+                        }
+                        EntryKind::Imported(path) => {
+                            let format = match &m.origin {
+                                Origin::Imported { format, .. } => format.clone(),
+                                _ => "Imported".into(),
+                            };
+                            let size = std::fs::metadata(path)
+                                .map(|md| format!("{:.1} MB", md.len() as f64 / 1_048_576.0))
+                                .unwrap_or_default();
+                            format!("{format} · {size}")
+                        }
+                        EntryKind::Online(o) => {
+                            let host = match o.config.provider {
+                                ProviderKind::Esv => "api.esv.org",
+                                ProviderKind::ApiBible { .. } => "api.scripture.api.bible",
+                            };
+                            format!("{host} · {} verses cached", library.cached_verses(&m.id))
+                        }
+                    };
+                    let tx0 = tile.right() + 12.0;
+                    // Trailing: Remove (not for bundled), then the badges, right to left.
+                    let mut x = right;
+                    if !matches!(e.kind, EntryKind::Bundled(_)) {
+                        let (b, resp) = Button::new(Kind::Plain, "Remove").small().show_right(
+                            ui,
+                            p,
+                            x,
+                            r.center().y,
+                            ui.id().with(("remove", &m.id)),
+                        );
+                        if resp.clicked() {
+                            remove = Some(m.id.clone());
+                        }
+                        x = b.left() - 12.0;
+                    }
+                    let mut badges = vec![match e.kind {
+                        EntryKind::Bundled(_) => (widgets::BadgeKind::Neutral, "Bundled"),
+                        EntryKind::Imported(_) => (widgets::BadgeKind::Accent, "Imported"),
+                        EntryKind::Online(_) => (widgets::BadgeKind::Success, "Online"),
+                    }];
+                    if default {
+                        badges.push((widgets::BadgeKind::Solid, "Default"));
+                    }
+                    for (kind, label) in badges.iter().rev() {
+                        let w = widgets::badge_width(&painter, *kind, label);
+                        widgets::badge(&painter, p, x - w, r.center().y, *kind, label);
+                        x -= w + 12.0;
+                    }
+                    let w = x - tx0;
+                    let name = crate::pages::elide(&painter, &m.name, &theme::ui_medium(13.0), w);
+                    crate::pages::text(
+                        &painter,
+                        tx0,
+                        r.top() + 8.0,
+                        20.0,
+                        &name,
+                        theme::ui_medium(13.0),
+                        p.ink,
+                        false,
+                    );
+                    let detail = crate::pages::elide(&painter, &detail, &text::SMALL.font(), w);
+                    crate::pages::text(
+                        &painter,
+                        tx0,
+                        r.top() + 28.0,
+                        16.0,
+                        &detail,
+                        text::SMALL.font(),
+                        p.ink_3,
+                        false,
+                    );
+                }
+            }
         });
-        ui.horizontal(|ui| {
-            if ui.button("Import file…").clicked()
+        if let Some(id) = remove {
+            actions.push(Action::RemoveTranslation(id));
+        }
+        ui.add_space(24.0);
+
+        // Import.
+        group_title(ui, p, "Import");
+        rows_card(ui, p, &[56.0], |ui, _, r| {
+            row_label(ui, p, r, "Add a translation you own", Some("USFM, OSIS, Zefania or SWORD · ⌘I"));
+            let (folder, resp) = Button::new(Kind::Secondary, "Import Folder…")
+                .icon(icons::folder)
+                .show_right(ui, p, r.right() - 16.0, r.center().y, ui.id().with("import-folder"));
+            if resp.clicked()
+                && let Some(path) = rfd::FileDialog::new()
+                    .set_title("Import a USFM folder or an unpacked SWORD module")
+                    .pick_folder()
+            {
+                *import = Some((path, None));
+            }
+            let (_, resp) = Button::new(Kind::Secondary, "Import File…").icon(icons::doc).show_right(
+                ui,
+                p,
+                folder.left() - 8.0,
+                r.center().y,
+                ui.id().with("import-file"),
+            );
+            if resp.clicked()
                 && let Some(path) = rfd::FileDialog::new()
                     .set_title("Import a translation (USFM, OSIS, Zefania, SWORD)")
                     .add_filter("Bible files", &["xml", "osis", "usfm", "sfm", "zip", "conf", "txt"])
                     .pick_file()
             {
-                *import = Some((path, Some(self.unlock_key.clone()).filter(|k| !k.is_empty())));
-            }
-            if ui
-                .button("Import folder…")
-                .on_hover_text("A USFM folder or an unpacked SWORD module")
-                .clicked()
-                && let Some(path) = rfd::FileDialog::new().pick_folder()
-            {
-                *import = Some((path, Some(self.unlock_key.clone()).filter(|k| !k.is_empty())));
-            }
-        });
-
-        ui.add_space(14.0);
-        widgets::caption(ui, "Online translations (your own API key)");
-        ui.label(
-            RichText::new(format!(
-                "Keys are stored in the {}. Fetched text is cached only as each API's terms allow and shown with \
-                 the publisher's copyright notice.",
-                library.secrets().backend_name()
-            ))
-            .color(p.ink_2),
-        );
-        ui.checkbox(&mut self.show_keys, "Show keys");
-        ui.add_space(4.0);
-        // ESV.
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("ESV API").font(theme::ui_medium(13.0)));
-            ui.hyperlink_to("get a key", "https://api.esv.org/");
-        });
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.esv_key)
-                    .desired_width(320.0)
-                    .password(!self.show_keys)
-                    .hint_text("ESV API token"),
-            );
-            if ui.button("Save").clicked() {
-                match library.set_api_key("esv-api-key", &self.esv_key) {
-                    Ok(()) => self.message = Some("ESV key saved".into()),
-                    Err(e) => self.message = Some(format!("Couldn't save key: {e:#}")),
-                }
-            }
-            let has = library
-                .entries()
-                .iter()
-                .any(|e| e.online().is_some_and(|o| o.config.provider == ProviderKind::Esv));
-            if !has && ui.button("Add ESV").clicked() {
-                let cfg = OnlineConfig {
-                    id: "esv".into(),
-                    abbrev: "ESV".into(),
-                    name: "English Standard Version".into(),
-                    provider: ProviderKind::Esv,
-                    copyright: bible_core::online::esv::COPYRIGHT.into(),
-                };
-                match library.add_online(cfg) {
-                    Ok(id) => actions.push(Action::SetTranslation(id)),
-                    Err(e) => self.message = Some(format!("{e:#}")),
-                }
+                *import = Some((path, None));
             }
         });
         ui.add_space(8.0);
-        // API.Bible.
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("API.Bible").font(theme::ui_medium(13.0)));
-            ui.hyperlink_to("get a key", "https://scripture.api.bible/");
-            ui.label(
-                RichText::new("NASB, LSB, NLT and others where your plan and the publisher allow")
-                    .color(p.ink_2),
-            );
-        });
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.apibible_key)
-                    .desired_width(320.0)
-                    .password(!self.show_keys)
-                    .hint_text("API.Bible key"),
-            );
-            if ui.button("Save").clicked() {
-                match library.set_api_key("api-bible-key", &self.apibible_key) {
-                    Ok(()) => self.message = Some("API.Bible key saved".into()),
-                    Err(e) => self.message = Some(format!("Couldn't save key: {e:#}")),
+        footnote(
+            ui,
+            p,
+            "Converted text is stored only on this Mac. Copyrighted translations are never bundled.",
+        );
+        ui.add_space(24.0);
+
+        // API keys.
+        group_title(ui, p, "API keys");
+        let esv_saved = library.api_key("esv-api-key").unwrap_or_default();
+        let bible_saved = library.api_key("api-bible-key").unwrap_or_default();
+        let has_esv = library
+            .entries()
+            .iter()
+            .any(|e| e.online().is_some_and(|o| o.config.provider == ProviderKind::Esv));
+        let mut save_esv = false;
+        let mut add_esv = false;
+        let mut save_bible = false;
+        let mut list_bibles = false;
+        rows_card(ui, p, &[56.0, 56.0, 48.0], |ui, i, r| {
+            let right = r.right() - 16.0;
+            let cy = r.center().y;
+            match i {
+                0 => {
+                    row_label(
+                        ui,
+                        p,
+                        r,
+                        "ESV API (Crossway)",
+                        Some("api.esv.org · free for non-commercial use"),
+                    );
+                    let x = if self.esv_key != esv_saved {
+                        let (b, resp) = Button::new(Kind::Primary, "Save").small().show_right(
+                            ui,
+                            p,
+                            right,
+                            cy,
+                            ui.id().with("save-esv"),
+                        );
+                        save_esv = resp.clicked();
+                        b.left()
+                    } else if !esv_saved.is_empty() && !has_esv {
+                        let (b, resp) = Button::new(Kind::Primary, "Add ESV").small().show_right(
+                            ui,
+                            p,
+                            right,
+                            cy,
+                            ui.id().with("add-esv"),
+                        );
+                        add_esv = resp.clicked();
+                        b.left()
+                    } else if !esv_saved.is_empty() {
+                        let w = widgets::badge_width(ui.painter(), widgets::BadgeKind::Success, "Connected");
+                        widgets::badge(
+                            ui.painter(),
+                            p,
+                            right - w,
+                            cy,
+                            widgets::BadgeKind::Success,
+                            "Connected",
+                        )
+                        .left()
+                    } else {
+                        right + 10.0
+                    };
+                    let field = Rect::from_min_size(pos2(x - 10.0 - 220.0, cy - 16.0), vec2(220.0, 32.0));
+                    key_field(ui, p, field, &mut self.esv_key, "ESV API token", egui::Id::new("esv-key"));
+                }
+                1 => {
+                    row_label(ui, p, r, "API.Bible", Some("scripture.api.bible"));
+                    let x = if self.apibible_key != bible_saved {
+                        let (b, resp) = Button::new(Kind::Primary, "Save").small().show_right(
+                            ui,
+                            p,
+                            right,
+                            cy,
+                            ui.id().with("save-bible"),
+                        );
+                        save_bible = resp.clicked();
+                        b.left()
+                    } else if !bible_saved.is_empty() {
+                        let w = widgets::badge_width(ui.painter(), widgets::BadgeKind::Success, "Connected");
+                        widgets::badge(
+                            ui.painter(),
+                            p,
+                            right - w,
+                            cy,
+                            widgets::BadgeKind::Success,
+                            "Connected",
+                        )
+                        .left()
+                    } else {
+                        right + 10.0
+                    };
+                    let field = Rect::from_min_size(pos2(x - 10.0 - 220.0, cy - 16.0), vec2(220.0, 32.0));
+                    key_field(
+                        ui,
+                        p,
+                        field,
+                        &mut self.apibible_key,
+                        "API.Bible key",
+                        egui::Id::new("api-bible-key"),
+                    );
+                }
+                _ => {
+                    row_label(ui, p, r, "Available with your API.Bible key", None);
+                    let label = if self.loading_bibles { "Listing…" } else { "List My Bibles…" };
+                    let enabled = !self.loading_bibles && !self.apibible_key.trim().is_empty();
+                    let (_, resp) = Button::new(Kind::Secondary, label)
+                        .small()
+                        .icon(icons::list)
+                        .enabled(enabled)
+                        .show_right(ui, p, right, cy, ui.id().with("list-bibles"));
+                    list_bibles = resp.clicked();
                 }
             }
-            if ui
-                .add_enabled(
-                    !self.loading_bibles && !self.apibible_key.trim().is_empty(),
-                    egui::Button::new("List my Bibles"),
-                )
-                .clicked()
-            {
-                self.loading_bibles = true;
-                let key = self.apibible_key.trim().to_string();
-                let base = library.api_bible_base.clone();
-                let tx = tx.clone();
-                let _ = library.set_api_key("api-bible-key", &key);
-                std::thread::spawn(move || {
-                    let r = bible_core::online::apibible::list_bibles(&base, &key, Some("eng"))
-                        .map_err(|e| format!("{e:#}"));
-                    let _ = tx.send(TaskResult::Bibles(r));
-                });
-            }
-            if self.loading_bibles {
-                ui.spinner();
-            }
         });
+        if save_esv {
+            match library.set_api_key("esv-api-key", &self.esv_key) {
+                Ok(()) => self.message = None,
+                Err(e) => self.message = Some(format!("Couldn't save the key: {e:#}")),
+            }
+        }
+        if add_esv {
+            let cfg = OnlineConfig {
+                id: "esv".into(),
+                abbrev: "ESV".into(),
+                name: "English Standard Version".into(),
+                provider: ProviderKind::Esv,
+                copyright: bible_core::online::esv::COPYRIGHT.into(),
+            };
+            match library.add_online(cfg) {
+                Ok(id) => actions.push(Action::SetTranslation(id)),
+                Err(e) => self.message = Some(format!("{e:#}")),
+            }
+        }
+        if save_bible {
+            match library.set_api_key("api-bible-key", &self.apibible_key) {
+                Ok(()) => self.message = None,
+                Err(e) => self.message = Some(format!("Couldn't save the key: {e:#}")),
+            }
+        }
+        if list_bibles {
+            self.loading_bibles = true;
+            let key = self.apibible_key.trim().to_string();
+            let base = library.api_bible_base.clone();
+            let tx = tx.clone();
+            let _ = library.set_api_key("api-bible-key", &key);
+            std::thread::spawn(move || {
+                let r = bible_core::online::apibible::list_bibles(&base, &key, Some("eng"))
+                    .map_err(|e| format!("{e:#}"));
+                let _ = tx.send(TaskResult::Bibles(r));
+            });
+        }
+        ui.add_space(8.0);
+        footnote(
+            ui,
+            p,
+            &format!(
+                "Keys live in the {}. Cached text follows each API’s terms (ESV: at most 500 verses, never half a book).",
+                library.secrets().backend_name()
+            ),
+        );
+        if let Some(m) = &self.message {
+            ui.add_space(8.0);
+            footnote(ui, p, m);
+        }
+
+        // API.Bible's list, once fetched: add any of them.
         match &self.bibles {
             Some(Ok(list)) => {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.bible_filter)
-                        .hint_text("Filter (e.g. NASB, LSB, NLT)")
-                        .desired_width(320.0),
+                ui.add_space(24.0);
+                group_title(ui, p, "Your API.Bible translations");
+                let (fr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+                widgets::text_field(
+                    ui,
+                    p,
+                    fr,
+                    &mut self.bible_filter,
+                    "Filter (e.g. NASB, LSB, NLT)",
+                    Some(icons::search),
+                    false,
+                    false,
+                    egui::Id::new("bible-filter"),
                 );
+                ui.add_space(8.0);
                 let f = self.bible_filter.to_lowercase();
-                let mut add: Option<RemoteBible> = None;
-                egui::ScrollArea::vertical().max_height(220.0).id_salt("bibles").show(ui, |ui| {
-                    for b in list.iter().filter(|b| {
+                let shown: Vec<&RemoteBible> = list
+                    .iter()
+                    .filter(|b| {
                         f.is_empty()
                             || b.name.to_lowercase().contains(&f)
                             || b.abbreviation.to_lowercase().contains(&f)
-                    }) {
-                        ui.horizontal(|ui| {
-                            let installed = library.entries().iter().any(|e| {
-                                e.online().is_some_and(|o| {
-                                    o.config.provider == ProviderKind::ApiBible { bible_id: b.id.clone() }
-                                })
-                            });
-                            if installed {
-                                ui.label(RichText::new("Added").color(p.ink_2));
-                            } else if ui.small_button("Add").clicked() {
-                                add = Some(b.clone());
-                            }
-                            ui.label(
-                                RichText::new(&b.abbreviation).font(theme::ui_medium(12.5)).color(p.accent),
-                            );
-                            ui.label(&b.name);
-                        });
+                    })
+                    .take(40)
+                    .collect();
+                let mut add: Option<RemoteBible> = None;
+                let heights = vec![44.0; shown.len().max(1)];
+                rows_card(ui, p, &heights, |ui, i, r| {
+                    let Some(b) = shown.get(i) else {
+                        row_label(ui, p, r, "No matches", None);
+                        return;
+                    };
+                    let installed = library.entries().iter().any(|e| {
+                        e.online().is_some_and(|o| {
+                            o.config.provider == ProviderKind::ApiBible { bible_id: b.id.clone() }
+                        })
+                    });
+                    let painter = ui.painter().clone();
+                    painter.text(
+                        pos2(r.left() + 16.0, r.center().y),
+                        Align2::LEFT_CENTER,
+                        &b.abbreviation,
+                        theme::ui_bold(11.0),
+                        p.accent,
+                    );
+                    let name = crate::pages::elide(&painter, &b.name, &text::UI.font(), r.width() - 200.0);
+                    painter.text(
+                        pos2(r.left() + 72.0, r.center().y),
+                        Align2::LEFT_CENTER,
+                        name,
+                        text::UI.font(),
+                        p.ink,
+                    );
+                    if installed {
+                        let w = widgets::badge_width(&painter, widgets::BadgeKind::Neutral, "Added");
+                        widgets::badge(
+                            &painter,
+                            p,
+                            r.right() - 16.0 - w,
+                            r.center().y,
+                            widgets::BadgeKind::Neutral,
+                            "Added",
+                        );
+                    } else if Button::new(Kind::Secondary, "Add")
+                        .small()
+                        .show_right(ui, p, r.right() - 16.0, r.center().y, ui.id().with(("add-bible", &b.id)))
+                        .1
+                        .clicked()
+                    {
+                        add = Some((*b).clone());
                     }
                 });
                 if let Some(b) = add {
@@ -458,13 +768,10 @@ impl SettingsUi {
                 }
             }
             Some(Err(e)) => {
-                ui.colored_label(p.rubric, e);
+                ui.add_space(8.0);
+                footnote(ui, p, e);
             }
             None => {}
-        }
-        if let Some(m) = &self.message {
-            ui.add_space(6.0);
-            ui.label(RichText::new(m).color(p.accent));
         }
     }
 }
@@ -1161,4 +1468,33 @@ pub fn quick_text_settings(ui: &mut Ui, settings: &mut Settings, actions: &mut V
         actions.push(Action::OpenSettings(SettingsTab::Reading));
         ui.close();
     }
+}
+
+/// An API key field: monospace, a key glyph, the key shown only while editing.
+fn key_field(ui: &mut Ui, p: &Palette, rect: Rect, value: &mut String, placeholder: &str, id: egui::Id) {
+    let focused = ui.memory(|m| m.has_focus(id));
+    let painter = ui.painter();
+    if focused {
+        painter.rect_filled(rect.expand(3.0), 11.0, p.focus);
+    }
+    painter.rect_filled(rect, 8.0, p.field);
+    let ring = if focused { p.accent } else { p.border };
+    painter.rect_stroke(rect, 8.0, Stroke::new(1.0, ring), egui::StrokeKind::Inside);
+    let icon = Rect::from_min_size(pos2(rect.left() + 10.0, rect.center().y - 8.0), vec2(16.0, 16.0));
+    icons::heavy(|| icons::key(painter, icon, p.ink_3));
+    let edit =
+        Rect::from_min_max(pos2(icon.right() + 8.0, rect.top()), pos2(rect.right() - 10.0, rect.bottom()));
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(edit));
+    child.add_sized(
+        edit.size(),
+        egui::TextEdit::singleline(value)
+            .id(id)
+            .password(!focused)
+            .hint_text(RichText::new(placeholder).color(p.ink_3).font(text::UI.font()))
+            .font(FontId::monospace(13.0))
+            .text_color(p.ink)
+            .frame(egui::Frame::NONE)
+            .margin(egui::Margin::ZERO)
+            .vertical_align(egui::Align::Center),
+    );
 }

@@ -523,6 +523,18 @@ pub fn page(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(7.75, 13.0), (12.25, 13.0)]);
 }
 
+/// A folder.
+pub fn folder(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    let mut pts: Vec<(f32, f32)> = Grid::arc(4.25, 6.25, 1.5, PI, 1.5 * PI).collect();
+    pts.extend([(7.75, 4.75), (9.5, 6.75)]);
+    pts.extend(Grid::arc(15.75, 8.25, 1.5, 1.5 * PI, 2.0 * PI));
+    pts.extend(Grid::arc(15.75, 14.75, 1.5, 0.0, FRAC_PI_2));
+    pts.extend(Grid::arc(4.25, 14.75, 1.5, FRAC_PI_2, PI));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, true);
+}
+
 /// A page with a folded corner (a file).
 pub fn doc(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);
