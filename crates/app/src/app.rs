@@ -39,6 +39,8 @@ pub struct Settings {
     pub chapter: u16,
     pub verse: u8,
     pub whole_words: bool,
+    /// Remind about the day's plan reading at 7:00 while the app is open.
+    pub plan_reminder: bool,
     /// The first-launch screens are done. Settings saved before they existed count as done.
     #[serde(default = "yes")]
     pub onboarded: bool,
@@ -63,6 +65,7 @@ impl Default for Settings {
             chapter: ChapterIdx::new(BookId(42), 1).unwrap().0,
             verse: 1,
             whole_words: false,
+            plan_reminder: false,
             onboarded: false,
         }
     }
@@ -749,6 +752,23 @@ impl BibleApp {
                     self.toast(ctx, format!("Couldn't save note: {e:#}"));
                 }
             }
+            Action::StartPlan(id) => {
+                let today = crate::time::day_start(bible_core::study::now());
+                if let Err(e) = self.study.start_plan(&id, today) {
+                    self.toast(ctx, format!("{e:#}"));
+                }
+            }
+            Action::StopPlan(id) => {
+                if let Err(e) = self.study.stop_plan(&id) {
+                    self.toast(ctx, format!("{e:#}"));
+                }
+            }
+            Action::SetPlanRead { plan, day, passage, read } => {
+                if let Err(e) = self.study.set_plan_read(&plan, day, passage, read) {
+                    self.toast(ctx, format!("{e:#}"));
+                }
+            }
+            Action::SetPlanReminder(on) => self.settings.plan_reminder = on,
             Action::ClearReading(since) => {
                 if let Err(e) = self.study.clear_reading(since) {
                     self.toast(ctx, format!("{e:#}"));
@@ -813,6 +833,11 @@ impl BibleApp {
                 }
             }
             "pick" => self.pages.translations.selected = Some(arg.to_string()),
+            // `plan-day:<plan>@<day>`: a plan's day view.
+            "plan-day" => {
+                let (id, day) = arg.split_once('@').unwrap_or((arg, "1"));
+                self.pages.plans.open = Some((id.to_string(), day.parse().unwrap_or(1)));
+            }
             "note-select" => {
                 if let Some(r) = bible_core::reference::parse(arg) {
                     self.pages.notes.select(r.verse_ref());

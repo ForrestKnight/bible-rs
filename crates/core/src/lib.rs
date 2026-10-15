@@ -10,6 +10,7 @@ pub mod import;
 pub mod library;
 pub mod model;
 pub mod online;
+pub mod plans;
 pub mod reference;
 pub mod search;
 pub mod secrets;

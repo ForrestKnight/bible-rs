@@ -96,6 +96,11 @@ CREATE TABLE IF NOT EXISTS reading(
     started INTEGER PRIMARY KEY, book TEXT NOT NULL, chapter INTEGER NOT NULL,
     translation TEXT NOT NULL, seconds INTEGER NOT NULL, furthest INTEGER NOT NULL,
     verses INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS plans(
+    id TEXT PRIMARY KEY, started INTEGER NOT NULL, finished INTEGER);
+CREATE TABLE IF NOT EXISTS plan_reads(
+    plan TEXT NOT NULL, day INTEGER NOT NULL, passage INTEGER NOT NULL, at INTEGER NOT NULL,
+    PRIMARY KEY(plan, day, passage));
 ";
 
 /// A stretch of reading one chapter: when it started, for how long, and how far it got.
@@ -127,6 +132,14 @@ impl ReadingSession {
     pub fn progress(&self) -> f32 {
         if self.verses == 0 { 0.0 } else { (self.furthest as f32 / self.verses as f32).min(1.0) }
     }
+}
+
+/// A reading plan under way (or finished): which, and when it began (the start of that day).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanProgress {
+    pub id: String,
+    pub started: i64,
+    pub finished: Option<i64>,
 }
 
 pub fn now() -> i64 {
@@ -423,6 +436,73 @@ impl StudyStore {
         Ok(())
     }
 
+    /// Plans started, newest first.
+    pub fn plans(&self) -> Vec<PlanProgress> {
+        let Ok(mut st) =
+            self.conn.prepare_cached("SELECT id, started, finished FROM plans ORDER BY started DESC")
+        else {
+            return Vec::new();
+        };
+        st.query_map([], |r| Ok(PlanProgress { id: r.get(0)?, started: r.get(1)?, finished: r.get(2)? }))
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Starts (or restarts) a plan on the day containing `started`, forgetting earlier progress.
+    pub fn start_plan(&mut self, id: &str, started: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM plan_reads WHERE plan = ?1", [id])?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO plans(id, started, finished) VALUES(?1, ?2, NULL)",
+            params![id, started],
+        )?;
+        self.generation += 1;
+        Ok(())
+    }
+
+    pub fn finish_plan(&mut self, id: &str, at: Option<i64>) -> Result<()> {
+        self.conn.execute("UPDATE plans SET finished = ?2 WHERE id = ?1", params![id, at])?;
+        self.generation += 1;
+        Ok(())
+    }
+
+    pub fn stop_plan(&mut self, id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM plans WHERE id = ?1", [id])?;
+        self.conn.execute("DELETE FROM plan_reads WHERE plan = ?1", [id])?;
+        self.generation += 1;
+        Ok(())
+    }
+
+    /// The passages ticked off in a plan, as (day, passage index) pairs.
+    pub fn plan_reads(&self, id: &str) -> std::collections::HashSet<(u16, u8)> {
+        let Ok(mut st) = self.conn.prepare_cached("SELECT day, passage FROM plan_reads WHERE plan = ?1")
+        else {
+            return Default::default();
+        };
+        st.query_map([id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))
+            .map(|rows| {
+                rows.filter_map(|r| r.ok())
+                    .filter_map(|(d, p)| Some((u16::try_from(d).ok()?, u8::try_from(p).ok()?)))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn set_plan_read(&mut self, id: &str, day: u16, passage: u8, read: bool) -> Result<()> {
+        if read {
+            self.conn.execute(
+                "INSERT OR REPLACE INTO plan_reads(plan, day, passage, at) VALUES(?1, ?2, ?3, ?4)",
+                params![id, day, passage, now()],
+            )?;
+        } else {
+            self.conn.execute(
+                "DELETE FROM plan_reads WHERE plan = ?1 AND day = ?2 AND passage = ?3",
+                params![id, day, passage],
+            )?;
+        }
+        self.generation += 1;
+        Ok(())
+    }
+
     pub fn setting(&self, key: &str) -> Option<String> {
         self.conn
             .query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0))
@@ -681,6 +761,29 @@ fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     let doy = (153 * mp + 2) / 5 + d as i64 - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146_097 + doe - 719_468
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+
+    #[test]
+    fn plans_start_tick_and_stop() {
+        let mut s = StudyStore::open_in_memory().unwrap();
+        s.start_plan("john-21", 1_000).unwrap();
+        s.set_plan_read("john-21", 1, 0, true).unwrap();
+        s.set_plan_read("john-21", 2, 0, true).unwrap();
+        s.set_plan_read("john-21", 2, 0, false).unwrap();
+        assert_eq!(s.plans()[0].id, "john-21");
+        assert_eq!(s.plan_reads("john-21").into_iter().collect::<Vec<_>>(), vec![(1, 0)]);
+        // Restarting forgets progress.
+        s.start_plan("john-21", 2_000).unwrap();
+        assert!(s.plan_reads("john-21").is_empty());
+        s.finish_plan("john-21", Some(3_000)).unwrap();
+        assert_eq!(s.plans()[0].finished, Some(3_000));
+        s.stop_plan("john-21").unwrap();
+        assert!(s.plans().is_empty());
+    }
 }
 
 #[cfg(test)]

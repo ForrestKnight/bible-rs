@@ -6,6 +6,7 @@ pub mod bookmarks;
 pub mod highlights;
 pub mod history;
 pub mod notes;
+pub mod plans;
 pub mod translations;
 
 use eframe::egui::{self, Color32, FontId, Painter, Rect, ScrollArea, Ui, pos2, vec2};
@@ -79,6 +80,7 @@ pub struct Pages {
     pub highlights: highlights::State,
     pub notes: notes::State,
     pub history: history::State,
+    pub plans: plans::State,
     /// Whether the page is scrolled (the toolbar then takes its material).
     pub scrolled: bool,
 }
@@ -119,6 +121,7 @@ impl Pages {
                     Page::Bookmarks => self.bookmarks.show(ui, content, env, actions),
                     Page::Highlights => self.highlights.show(ui, content, env, actions),
                     Page::History => self.history.show(ui, content, env, actions),
+                    Page::Plans => self.plans.show(ui, content, env, actions),
                     _ => content.top(),
                 };
                 ui.allocate_rect(

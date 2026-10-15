@@ -40,6 +40,17 @@ pub enum Action {
     RemoveNote(VerseRef),
     /// Save a note's text (an empty text removes it).
     SaveNote(VerseRef, String),
+    /// Start (or restart) a reading plan today; stop one.
+    StartPlan(String),
+    StopPlan(String),
+    /// Tick a plan's passage (day, index) read or not.
+    SetPlanRead {
+        plan: String,
+        day: u16,
+        passage: u8,
+        read: bool,
+    },
+    SetPlanReminder(bool),
     /// Forget the reading history from this time (Unix seconds) on.
     ClearReading(i64),
     /// Bookmark a verse, or remove its bookmark.

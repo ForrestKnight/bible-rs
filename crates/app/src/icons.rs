@@ -474,6 +474,29 @@ pub fn link(p: &Painter, r: Rect, c: Color32) {
     }
 }
 
+/// A calendar page.
+pub fn calendar(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.rect(3.0, 4.25, 14.0, 12.5, 2.25);
+    g.line(&[(3.0, 8.25), (17.0, 8.25)]);
+    g.line(&[(6.75, 2.75), (6.75, 5.75)]);
+    g.line(&[(13.25, 2.75), (13.25, 5.75)]);
+}
+
+/// A flame (streaks).
+pub fn flame(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    let mut pts: Vec<(f32, f32)> = Vec::new();
+    pts.extend(Grid::cubic((10.0, 17.25), (7.0, 17.25), (4.75, 15.15), (4.75, 12.25)));
+    pts.extend(Grid::cubic((4.75, 12.25), (4.75, 8.65), (8.0, 6.85), (8.5, 3.25)).into_iter().skip(1));
+    pts.extend(Grid::cubic((8.5, 3.25), (11.0, 4.85), (12.5, 6.95), (12.75, 9.25)).into_iter().skip(1));
+    pts.extend(Grid::cubic((12.75, 9.25), (13.5, 8.75), (14.0, 7.85), (14.25, 7.0)).into_iter().skip(1));
+    pts.extend(Grid::cubic((14.25, 7.0), (15.5, 8.3), (16.0, 10.0), (16.0, 12.25)).into_iter().skip(1));
+    pts.extend(Grid::cubic((16.0, 12.25), (16.0, 15.15), (13.5, 17.25), (10.0, 17.25)).into_iter().skip(1));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, true);
+}
+
 /// A page with a folded corner (a file).
 pub fn doc(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);

@@ -398,6 +398,21 @@ impl Sidebar {
                         if r.clicked() {
                             actions.push(Action::OpenPage(crate::pages::Page::History));
                         }
+                        let active = study.plans().iter().filter(|p| p.finished.is_none()).count();
+                        let r = row(
+                            ui,
+                            p,
+                            &Row {
+                                icon: Some(crate::icons::checklist),
+                                label: "Reading Plans",
+                                count: (active > 0).then(|| active.to_string()),
+                                selected: env.page == crate::pages::Page::Plans,
+                                ..Row::default()
+                            },
+                        );
+                        if r.clicked() {
+                            actions.push(Action::OpenPage(crate::pages::Page::Plans));
+                        }
                         section(ui, p, "Library", false);
                         let selected = env.page == crate::pages::Page::Translations;
                         let r = row(
