@@ -29,6 +29,9 @@ eframe = { version = "0.36", default-features = false, features = [
 rfd = "0.17"
 dirs = "6"
 
+# PNG encoding for shared verse images.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
@@ -42,11 +45,18 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSButton",
     "NSControl",
     "NSResponder",
+    "NSSharingService",
     "NSToolbar",
     "NSView",
     "NSWindow",
 ] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry"] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSGeometry",
+    "NSString",
+    "NSURL",
+] }
 raw-window-handle = "0.6"
 winit = { version = "0.30", default-features = false }
 
@@ -55,7 +65,6 @@ serde_json.workspace = true
 
 [dev-dependencies]
 egui_kittest = { version = "0.36", features = ["eframe", "wgpu"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
 [[bench]]

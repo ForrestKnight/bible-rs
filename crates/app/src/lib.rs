@@ -20,6 +20,7 @@ pub mod panel;
 pub mod reader;
 pub mod reading;
 pub mod settings_ui;
+pub mod share_sheet;
 pub mod sidebar;
 pub mod theme;
 pub mod time;

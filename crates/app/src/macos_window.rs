@@ -148,3 +148,25 @@ impl NoDragAreas {
         self.rects = rects.to_vec();
     }
 }
+
+/// Shows the system share picker for a file, pointing at `anchor` (egui points from the window's
+/// top-left; `zoom` is egui's zoom factor).
+pub fn share_file(handle: &impl HasWindowHandle, path: &std::path::Path, anchor: Rect, zoom: f32) {
+    use objc2::AnyThread;
+    use objc2_app_kit::NSSharingServicePicker;
+    use objc2_foundation::{NSArray, NSRectEdge, NSString, NSURL};
+    let (Some(view), Some(path)) = (ns_view(handle), path.to_str()) else { return };
+    let url = NSURL::fileURLWithPath(&NSString::from_str(path));
+    let items = NSArray::from_retained_slice(&[url]);
+    // SAFETY: an array of NSURLs is an array of objects; the picker accepts NSURLs (they conform
+    // to NSPasteboardWriting).
+    let items: Retained<NSArray> = unsafe { Retained::cast_unchecked(items) };
+    let picker = unsafe { NSSharingServicePicker::initWithItems(NSSharingServicePicker::alloc(), &items) };
+    let r = anchor * zoom;
+    // winit's view is flipped (top-left origin), like egui.
+    let rect = NSRect::new(
+        NSPoint::new(r.left().into(), r.top().into()),
+        NSSize::new(r.width().into(), r.height().into()),
+    );
+    picker.showRelativeToRect_ofView_preferredEdge(rect, view, NSRectEdge::MinY);
+}

@@ -39,6 +39,8 @@ pub struct Settings {
     pub chapter: u16,
     pub verse: u8,
     pub whole_words: bool,
+    /// The share sheet's style and options, as last used.
+    pub share: crate::share_sheet::ShareOptions,
     /// Remind about the day's plan reading at 7:00 while the app is open.
     pub plan_reminder: bool,
     /// The first-launch screens are done. Settings saved before they existed count as done.
@@ -66,6 +68,7 @@ impl Default for Settings {
             verse: 1,
             whole_words: false,
             plan_reminder: false,
+            share: Default::default(),
             onboarded: false,
         }
     }
@@ -236,6 +239,8 @@ pub struct BibleApp {
     note_popover: Option<NotePopover>,
     /// The first-launch screens, until they are done.
     onboarding: Option<crate::onboarding::Onboarding>,
+    /// Sharing the selected verses as an image or text (frame 22).
+    share_sheet: Option<crate::share_sheet::ShareSheet>,
     /// Importing a translation (frames 13–15).
     import_sheet: Option<crate::import_sheet::ImportSheet>,
     /// The day the plan reminder last showed.
@@ -342,6 +347,7 @@ impl BibleApp {
             note_popover: None,
             onboarding,
             import_sheet: None,
+            share_sheet: None,
             reminded: None,
             pages: Default::default(),
             demo: std::env::var("BIBLE_RS_DEMO")
@@ -659,7 +665,12 @@ impl BibleApp {
                     self.verse_menu = Some(crate::verse_menu::VerseMenu::new(pos));
                 }
             }
-            Action::ShareImage => self.toast(ctx, "Sharing as an image comes with the share card"),
+            Action::ShareImage => {
+                let refs = self.reader.selected_refs();
+                if !refs.is_empty() {
+                    self.share_sheet = Some(crate::share_sheet::ShareSheet::new(refs));
+                }
+            }
             Action::Copy => {
                 let refs = self.reader.selected_refs();
                 if refs.is_empty() {
@@ -830,6 +841,7 @@ impl BibleApp {
                 let pos = egui::pos2(x.parse().unwrap_or(600.0), y.parse().unwrap_or(352.0));
                 self.verse_menu = Some(crate::verse_menu::VerseMenu::new(pos).with_first_highlighted());
             }
+            "share" => actions.push(Action::ShareImage),
             "page" => {
                 if let Some(page) = crate::pages::Page::from_name(arg) {
                     actions.push(Action::OpenPage(page));
@@ -1827,6 +1839,27 @@ impl eframe::App for BibleApp {
                 crate::import_sheet::Outcome::Install(imported) => {
                     self.import_sheet = None;
                     self.install_import(&ctx, *imported);
+                }
+            }
+        }
+        if let Some(sheet) = &mut self.share_sheet {
+            let t = self.library.load(&self.settings.translation).ok();
+            match sheet.show(&ctx, p, t.as_ref(), &mut self.settings.share) {
+                crate::share_sheet::Outcome::Open => {
+                    if sheet.waiting() {
+                        ctx.request_repaint();
+                    }
+                }
+                crate::share_sheet::Outcome::Close => self.share_sheet = None,
+                crate::share_sheet::Outcome::Toast(msg) => self.toast(&ctx, msg),
+                crate::share_sheet::Outcome::Share { path, anchor } => {
+                    #[cfg(target_os = "macos")]
+                    crate::macos_window::share_file(frame, &path, anchor, ctx.zoom_factor());
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        let _ = anchor;
+                        self.toast(&ctx, format!("Saved the image to {}", path.display()));
+                    }
                 }
             }
         }
