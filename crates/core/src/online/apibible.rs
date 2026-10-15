@@ -95,7 +95,7 @@ pub fn list_bibles(base: &str, key: &str, language: Option<&str>) -> Result<Vec<
             description: i.description.unwrap_or_default(),
         })
         .collect();
-    out.sort_by(|a, b| a.abbreviation.to_lowercase().cmp(&b.abbreviation.to_lowercase()));
+    out.sort_by_key(|a| a.abbreviation.to_lowercase());
     Ok(out)
 }
 

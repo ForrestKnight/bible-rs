@@ -26,3 +26,12 @@ ureq = "3"
 keyring = "4"
 
 [dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "search"
+harness = false
+
+[[bench]]
+name = "load"
+harness = false

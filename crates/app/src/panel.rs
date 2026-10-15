@@ -90,18 +90,34 @@ impl VersePanel {
         close
     }
 
-    fn note_ui(&mut self, ui: &mut Ui, library: &Library, study: &mut StudyStore, settings: &Settings, actions: &mut Vec<Action>) {
+    fn note_ui(
+        &mut self,
+        ui: &mut Ui,
+        library: &Library,
+        study: &mut StudyStore,
+        settings: &Settings,
+        actions: &mut Vec<Action>,
+    ) {
         let p = settings.theme.palette();
-        if let Ok(t) = library.load(&settings.translation) {
-            if let Some(v) = t.find(self.verse) {
-                let mut job = LayoutJob::single_section(
-                    v.plain_text(),
-                    TextFormat { font_id: FontId::new(14.5, theme::family(theme::SERIF_ITALIC)), color: p.muted, ..Default::default() },
-                );
-                job.wrap = TextWrapping { max_width: ui.available_width(), max_rows: 6, overflow_character: Some('…'), ..Default::default() };
-                ui.label(job);
-                ui.add_space(8.0);
-            }
+        if let Ok(t) = library.load(&settings.translation)
+            && let Some(v) = t.find(self.verse)
+        {
+            let mut job = LayoutJob::single_section(
+                v.plain_text(),
+                TextFormat {
+                    font_id: FontId::new(14.5, theme::family(theme::SERIF_ITALIC)),
+                    color: p.muted,
+                    ..Default::default()
+                },
+            );
+            job.wrap = TextWrapping {
+                max_width: ui.available_width(),
+                max_rows: 6,
+                overflow_character: Some('…'),
+                ..Default::default()
+            };
+            ui.label(job);
+            ui.add_space(8.0);
         }
         let edit = egui::TextEdit::multiline(&mut self.note)
             .hint_text("Write a note on this verse…")
@@ -131,7 +147,13 @@ impl VersePanel {
                 self.note.clear();
                 self.save(study, actions);
             }
-            let status = if dirty { "Unsaved" } else if self.saved_note.is_empty() { "" } else { "Saved" };
+            let status = if dirty {
+                "Unsaved"
+            } else if self.saved_note.is_empty() {
+                ""
+            } else {
+                "Saved"
+            };
             ui.label(egui::RichText::new(status).color(p.muted).font(theme::ui_font(11.5)));
         });
         // Autosave a moment after typing stops.
@@ -152,29 +174,30 @@ fn compare(ui: &mut Ui, library: &Library, settings: &Settings, verse: VerseRef,
     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         for e in library.entries() {
             let m = &e.meta;
-            let (text, styles): (String, Vec<(std::ops::Range<usize>, bool)>) = match library.chapter(&m.id, verse.chapter_idx()) {
-                Chapter::Ready(t) => match t.find(verse) {
-                    Some(v) => {
-                        let text = v.plain_text();
-                        // Red-letter ranges, mapped onto the plain text (marks only ever add spaces).
-                        let red: Vec<_> = if settings.typo.red_letters {
-                            v.spans
-                                .iter()
-                                .filter(|s| s.style == Style::WordsOfJesus)
-                                .map(|s| (shift(&v, s.start as usize)..shift(&v, s.end as usize), true))
-                                .collect()
-                        } else {
-                            Vec::new()
-                        };
-                        (text, red)
-                    }
-                    None => ("— (not in this translation)".into(), Vec::new()),
-                },
-                Chapter::Pending => ("Loading…".into(), Vec::new()),
-                Chapter::NoKey => ("Add an API key in Settings → Translations.".into(), Vec::new()),
-                Chapter::Failed(err) => (format!("Couldn't load: {err}"), Vec::new()),
-                Chapter::Missing => ("— (not in this translation)".into(), Vec::new()),
-            };
+            let (text, styles): (String, Vec<(std::ops::Range<usize>, bool)>) =
+                match library.chapter(&m.id, verse.chapter_idx()) {
+                    Chapter::Ready(t) => match t.find(verse) {
+                        Some(v) => {
+                            let text = v.plain_text();
+                            // Red-letter ranges, mapped onto the plain text (marks only ever add spaces).
+                            let red: Vec<_> = if settings.typo.red_letters {
+                                v.spans
+                                    .iter()
+                                    .filter(|s| s.style == Style::WordsOfJesus)
+                                    .map(|s| (shift(&v, s.start as usize)..shift(&v, s.end as usize), true))
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            };
+                            (text, red)
+                        }
+                        None => ("— (not in this translation)".into(), Vec::new()),
+                    },
+                    Chapter::Pending => ("Loading…".into(), Vec::new()),
+                    Chapter::NoKey => ("Add an API key in Settings → Translations.".into(), Vec::new()),
+                    Chapter::Failed(err) => (format!("Couldn't load: {err}"), Vec::new()),
+                    Chapter::Missing => ("— (not in this translation)".into(), Vec::new()),
+                };
             let (rect, resp) = ui.allocate_exact_size(vec2(width, 0.0), Sense::hover());
             let _ = (rect, resp);
             ui.horizontal(|ui| {
@@ -183,12 +206,22 @@ fn compare(ui: &mut Ui, library: &Library, settings: &Settings, verse: VerseRef,
                     ui.label(egui::RichText::new("reading").font(theme::ui_font(10.5)).color(p.faint));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(egui::Button::new(egui::RichText::new("Read").font(theme::ui_font(11.5))).frame(false)).clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(egui::RichText::new("Read").font(theme::ui_font(11.5)))
+                                .frame(false),
+                        )
+                        .clicked()
+                    {
                         actions.push(Action::SetTranslation(m.id.clone()));
                     }
                 });
             });
-            let base = TextFormat { font_id: FontId::new(15.0, theme::family(theme::SERIF)), color: p.text, ..Default::default() };
+            let base = TextFormat {
+                font_id: FontId::new(15.0, theme::family(theme::SERIF)),
+                color: p.text,
+                ..Default::default()
+            };
             let mut job = LayoutJob::default();
             let mut pos = 0;
             for (r, _) in &styles {
@@ -212,9 +245,18 @@ fn compare(ui: &mut Ui, library: &Library, settings: &Settings, verse: VerseRef,
             if !e.is_local() && !copyright.is_empty() {
                 let mut job = LayoutJob::single_section(
                     copyright,
-                    TextFormat { font_id: FontId::new(10.5, theme::family(theme::UI_MEDIUM)), color: p.faint, ..Default::default() },
+                    TextFormat {
+                        font_id: FontId::new(10.5, theme::family(theme::UI_MEDIUM)),
+                        color: p.faint,
+                        ..Default::default()
+                    },
                 );
-                job.wrap = TextWrapping { max_width: width - 4.0, max_rows: 3, overflow_character: Some('…'), ..Default::default() };
+                job.wrap = TextWrapping {
+                    max_width: width - 4.0,
+                    max_rows: 3,
+                    overflow_character: Some('…'),
+                    ..Default::default()
+                };
                 ui.label(job);
             }
             ui.add_space(10.0);

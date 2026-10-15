@@ -195,10 +195,10 @@ impl OnlineTranslation {
             s.mem.push_back(entry);
             return ChapterState::Ready(t);
         }
-        if let Some((err, at)) = s.failed.get(&c) {
-            if at.elapsed() < Duration::from_secs(30) {
-                return ChapterState::Failed(err.clone());
-            }
+        if let Some((err, at)) = s.failed.get(&c)
+            && at.elapsed() < Duration::from_secs(30)
+        {
+            return ChapterState::Failed(err.clone());
         }
         if !self.has_key() {
             return ChapterState::NoKey;

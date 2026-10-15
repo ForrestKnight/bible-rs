@@ -10,7 +10,11 @@ use crate::theme::Theme;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     /// Go somewhere, recording the current position in history.
-    Jump { chapter: ChapterIdx, verse: Option<u8>, flash: bool },
+    Jump {
+        chapter: ChapterIdx,
+        verse: Option<u8>,
+        flash: bool,
+    },
     Back,
     Forward,
     PrevChapter,

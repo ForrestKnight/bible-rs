@@ -94,7 +94,12 @@ impl AppMenu {
         )
         .ok()?;
         let window = Submenu::with_items("Window", true, &[&PredefinedMenuItem::minimize(None)]).ok()?;
-        let help = Submenu::with_items("Help", true, &[&item("shortcuts", "Keyboard Shortcuts", Some("CmdOrCtrl+Slash"))]).ok()?;
+        let help = Submenu::with_items(
+            "Help",
+            true,
+            &[&item("shortcuts", "Keyboard Shortcuts", Some("CmdOrCtrl+Slash"))],
+        )
+        .ok()?;
         menu.append_items(&[&app, &file, &view, &go, &window, &help]).ok()?;
         menu.init_for_nsapp();
         window.set_as_windows_menu_for_nsapp();

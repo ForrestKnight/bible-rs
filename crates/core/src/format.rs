@@ -172,8 +172,8 @@ pub fn decode(bytes: &[u8]) -> Result<Translation> {
     let endsb = r.take(k * 2)?;
     let styles = r.take(k)?;
     let mut spans = Vec::with_capacity(k);
-    for i in 0..k {
-        let style = Style::from_u8(styles[i]).context("unknown style")?;
+    for (i, &st) in styles.iter().enumerate() {
+        let style = Style::from_u8(st).context("unknown style")?;
         spans.push(Span { start: le16(starts, i), end: le16(endsb, i), style });
     }
     for v in &verses {

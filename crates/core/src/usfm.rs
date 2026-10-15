@@ -90,9 +90,8 @@ impl<'b> UsfmParser<'b> {
                 continue;
             }
             let closing = end < bytes.len() && bytes[end] == b'*';
-            if closing {
-                end += 1;
-            } else if end < bytes.len() && (bytes[end] == b' ' || bytes[end] == b'\t') {
+            // A closing `*`, or the single space/tab separating a marker from its text.
+            if closing || (end < bytes.len() && (bytes[end] == b' ' || bytes[end] == b'\t')) {
                 end += 1;
             } else if end < bytes.len() && bytes[end] == b'\r' {
                 end += 1;

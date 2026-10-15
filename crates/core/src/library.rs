@@ -136,14 +136,14 @@ impl Library {
                 .collect();
             paths.sort();
             for p in paths {
-                if let Some(meta) = read_meta_file(&p) {
-                    if !lib.contains(&meta.id) {
-                        lib.entries.push(Arc::new(Entry {
-                            meta,
-                            kind: EntryKind::Imported(p),
-                            local: OnceLock::new(),
-                        }));
-                    }
+                if let Some(meta) = read_meta_file(&p)
+                    && !lib.contains(&meta.id)
+                {
+                    lib.entries.push(Arc::new(Entry {
+                        meta,
+                        kind: EntryKind::Imported(p),
+                        local: OnceLock::new(),
+                    }));
                 }
             }
         }

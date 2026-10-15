@@ -36,7 +36,10 @@ fn commands(settings: &Settings) -> Vec<(&'static str, Action)> {
             },
             Action::ToggleMode,
         ),
-        (if settings.typo.red_letters { "Red letters: off" } else { "Red letters: on" }, Action::ToggleRedLetters),
+        (
+            if settings.typo.red_letters { "Red letters: off" } else { "Red letters: on" },
+            Action::ToggleRedLetters,
+        ),
         ("Bigger text", Action::FontSize(1.0)),
         ("Smaller text", Action::FontSize(-1.0)),
         ("Toggle sidebar", Action::ToggleSidebar),
@@ -54,7 +57,9 @@ impl CommandPalette {
         let q = self.query.trim();
         let mut items = Vec::new();
         let meta = library.get(&settings.translation).map(|e| e.meta.clone());
-        let book_name = |b: bible_core::BookId| meta.as_ref().map(|m| m.ref_name(b).to_string()).unwrap_or_else(|| b.ref_name().into());
+        let book_name = |b: bible_core::BookId| {
+            meta.as_ref().map(|m| m.ref_name(b).to_string()).unwrap_or_else(|| b.ref_name().into())
+        };
         if q.is_empty() {
             for (c, v) in history.recent().take(8) {
                 items.push(Item {
@@ -75,7 +80,11 @@ impl CommandPalette {
                 items.push(Item {
                     title,
                     detail: "Go to".into(),
-                    action: Action::Jump { chapter: r.chapter_idx(), verse: r.verse, flash: r.verse.is_some() },
+                    action: Action::Jump {
+                        chapter: r.chapter_idx(),
+                        verse: r.verse,
+                        flash: r.verse.is_some(),
+                    },
                 });
             }
             items.push(Item {
@@ -143,13 +152,20 @@ impl CommandPalette {
         let screen = ctx.content_rect();
         let mut close = false;
         // Dim the page; clicking outside closes.
-        egui::Area::new(egui::Id::new("palette-backdrop")).order(Order::Middle).fixed_pos(screen.min).show(ctx, |ui| {
-            let (r, resp) = ui.allocate_exact_size(screen.size(), Sense::click());
-            ui.painter().rect_filled(r, 0.0, egui::Color32::from_black_alpha(if settings.theme.is_dark() { 90 } else { 40 }));
-            if resp.clicked() {
-                close = true;
-            }
-        });
+        egui::Area::new(egui::Id::new("palette-backdrop")).order(Order::Middle).fixed_pos(screen.min).show(
+            ctx,
+            |ui| {
+                let (r, resp) = ui.allocate_exact_size(screen.size(), Sense::click());
+                ui.painter().rect_filled(
+                    r,
+                    0.0,
+                    egui::Color32::from_black_alpha(if settings.theme.is_dark() { 90 } else { 40 }),
+                );
+                if resp.clicked() {
+                    close = true;
+                }
+            },
+        );
         let width = 580.0f32.min(screen.width() - 40.0);
         egui::Area::new(egui::Id::new("palette"))
             .order(Order::Foreground)
@@ -197,10 +213,20 @@ impl CommandPalette {
                                 r.left_center() + vec2(10.0, 0.0),
                                 Align2::LEFT_CENTER,
                                 &it.title,
-                                if i == self.selected { theme::ui_medium(14.0) } else { theme::ui_font(14.0) },
+                                if i == self.selected {
+                                    theme::ui_medium(14.0)
+                                } else {
+                                    theme::ui_font(14.0)
+                                },
                                 p.text,
                             );
-                            ui.painter().text(r.right_center() - vec2(10.0, 0.0), Align2::RIGHT_CENTER, &it.detail, theme::ui_font(11.5), p.muted);
+                            ui.painter().text(
+                                r.right_center() - vec2(10.0, 0.0),
+                                Align2::RIGHT_CENTER,
+                                &it.detail,
+                                theme::ui_font(11.5),
+                                p.muted,
+                            );
                             if resp.clicked() {
                                 actions.push(it.action.clone());
                                 close = true;

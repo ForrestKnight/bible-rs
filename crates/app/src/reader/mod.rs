@@ -133,7 +133,9 @@ impl Reader {
     /// Moves a single-verse selection by `delta` verses (within the chapter, else across).
     pub fn step_selection(&mut self, library: &Library, id: &str, delta: i32) {
         let current = self.selection.map(|(a, b)| if delta > 0 { b } else { a });
-        let base = current.unwrap_or_else(|| VerseRef::new(self.location.0.book(), self.location.0.chapter(), self.location.1));
+        let base = current.unwrap_or_else(|| {
+            VerseRef::new(self.location.0.book(), self.location.0.chapter(), self.location.1)
+        });
         let Ok(t) = library.load(id) else { return };
         let c = base.chapter_idx();
         let mut target = None;
@@ -201,10 +203,10 @@ impl Reader {
         c: ChapterIdx,
     ) -> Arc<ChapterLayout> {
         let gen_now = env.online_generation.load(Ordering::Relaxed);
-        if let Some(cached) = self.cache.get(&c) {
-            if cached.provisional.is_none_or(|g| g == gen_now) {
-                return cached.layout.clone();
-            }
+        if let Some(cached) = self.cache.get(&c)
+            && cached.provisional.is_none_or(|g| g == gen_now)
+        {
+            return cached.layout.clone();
         }
         let cx = Ctx::new(env.typo, env.theme, geom.col_w, geom.gutter);
         let mut provisional = false;
@@ -275,13 +277,13 @@ impl Reader {
         // Re-key the cache when anything that affects layout changes, keeping the position.
         let key = Self::layout_key(env, geom.col_w);
         if key != self.key {
-            if self.key != 0 && self.pending_jump.is_none() {
-                if let Some(cached) = self.cache.get(&self.anchor.chapter) {
-                    if let Some(a) = cached.layout.verse_at_y(self.anchor.offset) {
-                        let span = (a.bottom - a.top).max(1.0);
-                        self.reanchor = Some((self.anchor.chapter, a.number, (self.anchor.offset - a.top) / span));
-                    }
-                }
+            if self.key != 0
+                && self.pending_jump.is_none()
+                && let Some(cached) = self.cache.get(&self.anchor.chapter)
+                && let Some(a) = cached.layout.verse_at_y(self.anchor.offset)
+            {
+                let span = (a.bottom - a.top).max(1.0);
+                self.reanchor = Some((self.anchor.chapter, a.number, (self.anchor.offset - a.top) / span));
             }
             self.cache.clear();
             self.key = key;
@@ -320,9 +322,14 @@ impl Reader {
             self.scroll_remaining = 0.0;
         }
         // Scrollbar.
-        let bar = Rect::from_min_max(pos2(rect.right() - 12.0, rect.top() + 4.0), pos2(rect.right() - 2.0, rect.bottom() - 4.0));
+        let bar = Rect::from_min_max(
+            pos2(rect.right() - 12.0, rect.top() + 4.0),
+            pos2(rect.right() - 2.0, rect.bottom() - 4.0),
+        );
         let bar_resp = ui.interact(bar, id.with("bar"), Sense::click_and_drag());
-        if let Some(pos) = bar_resp.interact_pointer_pos().filter(|_| bar_resp.dragged() || bar_resp.clicked()) {
+        if let Some(pos) =
+            bar_resp.interact_pointer_pos().filter(|_| bar_resp.dragged() || bar_resp.clicked())
+        {
             let f = ((pos.y - bar.top()) / bar.height()).clamp(0.0, 0.9999) * CHAPTER_COUNT as f32;
             let c = ChapterIdx(f.floor() as u16);
             let l = self.chapter_layout(ui, env, &geom, c);
@@ -382,10 +389,11 @@ impl Reader {
                     if selected.contains(&vref) {
                         fills.push(p.selection);
                     }
-                    if let (Some((fv, _)), Some(a)) = (self.flash, flash_alpha) {
-                        if fv == vref && a > 0.0 {
-                            fills.push(p.flash.gamma_multiply(a));
-                        }
+                    if let (Some((fv, _)), Some(a)) = (self.flash, flash_alpha)
+                        && fv == vref
+                        && a > 0.0
+                    {
+                        fills.push(p.flash.gamma_multiply(a));
                     }
                     if fills.is_empty() {
                         continue;
@@ -393,7 +401,10 @@ impl Reader {
                     for r in block.char_rects(*start..end) {
                         let r = r.translate(bo);
                         let shrink = ((r.height() - self.em * 1.34) / 2.0).max(0.0);
-                        let r = Rect::from_min_max(pos2(r.left() - 2.0, r.top() + shrink + 1.0), pos2(r.right() + 2.0, r.bottom() - shrink + 1.0));
+                        let r = Rect::from_min_max(
+                            pos2(r.left() - 2.0, r.top() + shrink + 1.0),
+                            pos2(r.right() + 2.0, r.bottom() - shrink + 1.0),
+                        );
                         for f in &fills {
                             painter.rect_filled(r, CornerRadius::same(3), *f);
                         }
@@ -406,7 +417,8 @@ impl Reader {
                 if let Some(ptr) = pointer.filter(|pt| br.expand2(vec2(8.0, 2.0)).contains(*pt)) {
                     let cur = block.galley.cursor_from_pos((ptr - bo).to_vec2());
                     if let Some(vi) = block.verse_at_char(cur.index.0) {
-                        let num = block.verses.iter().find(|(_, v, _)| *v == vi).map(|(_, _, n)| *n).unwrap_or(1);
+                        let num =
+                            block.verses.iter().find(|(_, v, _)| *v == vi).map(|(_, _, n)| *n).unwrap_or(1);
                         hit = Some(VerseRef::new(ch.book(), ch.chapter(), num));
                     }
                 }
@@ -443,16 +455,32 @@ impl Reader {
             if first_visible.is_none() && y + l.height > reading_line {
                 first_visible = Some((ch, l.anchors.first().map_or(1, |a| a.number)));
             }
-            if let Some(o) = env.columns.iter().find_map(|id| env.library.get(id).and_then(|e| e.online().cloned())) {
-                if !l.blocks.is_empty() {
-                    o.displayed(ch);
-                }
+            if let Some(o) =
+                env.columns.iter().find_map(|id| env.library.get(id).and_then(|e| e.online().cloned()))
+                && !l.blocks.is_empty()
+            {
+                o.displayed(ch);
             }
             y += l.height;
             c = ch.next();
         }
         if let Some(fv) = first_visible {
             self.location = fv;
+        }
+        let last_visible = c.and_then(|n| n.prev()).unwrap_or(ChapterIdx::LAST);
+        // While idle, typeset the neighbouring chapters (one per frame) so that scrolling or
+        // turning the page into them never has to lay out text first.
+        let idle = dy == 0.0 && self.scroll_remaining == 0.0 && !resp.dragged();
+        if idle {
+            let wanted = [
+                last_visible.next(),
+                self.anchor.chapter.prev(),
+                last_visible.next().and_then(ChapterIdx::next),
+            ];
+            if let Some(next) = wanted.into_iter().flatten().find(|c| !self.cache.contains_key(c)) {
+                self.chapter_layout(ui, env, &geom, next);
+                ui.ctx().request_repaint();
+            }
         }
 
         // Interaction.
@@ -469,18 +497,17 @@ impl Reader {
                 self.selection = None;
             }
         }
-        if resp.double_clicked() {
-            if let Some(v) = hit {
-                self.selection = Some((v, v));
-                actions.push(Action::EditNote(v));
-            }
+        if resp.double_clicked()
+            && let Some(v) = hit
+        {
+            self.selection = Some((v, v));
+            actions.push(Action::EditNote(v));
         }
-        if resp.secondary_clicked() {
-            if let Some(v) = hit {
-                if !selected.contains(&v) {
-                    self.selection = Some((v, v));
-                }
-            }
+        if resp.secondary_clicked()
+            && let Some(v) = hit
+            && !selected.contains(&v)
+        {
+            self.selection = Some((v, v));
         }
         let has_selection = self.selection.is_some();
         resp.context_menu(|ui| {
@@ -548,15 +575,23 @@ impl Reader {
             painter.rect_filled(bar.expand(1.0), CornerRadius::same(6), p.hover.gamma_multiply(0.8));
         }
         let h = self.cache.get(&self.anchor.chapter).map_or(1.0, |c| c.layout.height.max(1.0));
-        let frac = (self.anchor.chapter.0 as f32 + (self.anchor.offset / h).clamp(0.0, 1.0)) / CHAPTER_COUNT as f32;
+        let frac =
+            (self.anchor.chapter.0 as f32 + (self.anchor.offset / h).clamp(0.0, 1.0)) / CHAPTER_COUNT as f32;
         let thumb_h = 36.0;
         let ty = bar.top() + frac * (bar.height() - thumb_h);
         let thumb = Rect::from_min_size(pos2(bar.left() + 2.0, ty), vec2(bar.width() - 4.0, thumb_h));
-        painter.rect_filled(thumb, CornerRadius::same(4), if active { p.muted } else { p.faint.gamma_multiply(0.7) });
+        painter.rect_filled(
+            thumb,
+            CornerRadius::same(4),
+            if active { p.muted } else { p.faint.gamma_multiply(0.7) },
+        );
         // Testament divider tick.
         let nt = bible_core::books::FIRST_NT_BOOK.first_chapter().0 as f32 / CHAPTER_COUNT as f32;
         let yy = bar.top() + nt * bar.height();
-        painter.line_segment([pos2(bar.left() + 1.0, yy), pos2(bar.right() - 1.0, yy)], Stroke::new(1.0, p.border));
+        painter.line_segment(
+            [pos2(bar.left() + 1.0, yy), pos2(bar.right() - 1.0, yy)],
+            Stroke::new(1.0, p.border),
+        );
         if let Some(pos) = resp.hover_pos() {
             let f = ((pos.y - bar.top()) / bar.height()).clamp(0.0, 0.9999) * CHAPTER_COUNT as f32;
             let c = ChapterIdx(f.floor() as u16);
@@ -566,10 +601,15 @@ impl Reader {
                 .and_then(|id| env.library.get(id))
                 .map(|e| format!("{} {}", e.meta.ref_name(c.book()), c.chapter()))
                 .unwrap_or_else(|| c.display());
-            egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), Id::new("bar-tip"), egui::PopupAnchor::Pointer)
-                .show(|ui| {
-                    ui.label(label);
-                });
+            egui::Tooltip::always_open(
+                ui.ctx().clone(),
+                ui.layer_id(),
+                Id::new("bar-tip"),
+                egui::PopupAnchor::Pointer,
+            )
+            .show(|ui| {
+                ui.label(label);
+            });
         }
     }
 }

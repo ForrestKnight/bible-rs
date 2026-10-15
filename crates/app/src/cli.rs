@@ -7,6 +7,7 @@
 //! bible-rs import <file-or-folder> [--abbrev NASB] [--name "…"] [--key UNLOCK]
 //! bible-rs remove <id>
 //! bible-rs export --markdown|--json [-o file]
+//! bible-rs import-notes <export.json>
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -51,12 +52,22 @@ pub fn run(args: &[String], data_dir: &Path) -> Option<Result<()>> {
         "import" => import(rest, data_dir),
         "remove" => remove(rest, data_dir),
         "export" => export(rest, data_dir),
+        "import-notes" => import_notes(rest, data_dir),
         "--version" | "-V" => {
             println!("bible-rs {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         "--help" | "-h" | "help" => {
-            println!("{}", include_str!("cli.rs").lines().skip(3).take(9).map(|l| l.trim_start_matches("//! ")).collect::<Vec<_>>().join("\n"));
+            println!(
+                "{}",
+                include_str!("cli.rs")
+                    .lines()
+                    .skip(3)
+                    .take(10)
+                    .map(|l| l.trim_start_matches("//! "))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
             Ok(())
         }
         _ => return None,
@@ -68,7 +79,10 @@ fn library(data_dir: &Path) -> Library {
 }
 
 fn translation_id(rest: &[String], lib: &Library) -> String {
-    flag(rest, "--translation").or_else(|| flag(rest, "-t")).filter(|id| lib.contains(id)).unwrap_or_else(|| "kjv".into())
+    flag(rest, "--translation")
+        .or_else(|| flag(rest, "-t"))
+        .filter(|id| lib.contains(id))
+        .unwrap_or_else(|| "kjv".into())
 }
 
 fn read(rest: &[String], data_dir: &Path) -> Result<()> {
@@ -166,7 +180,10 @@ fn import(rest: &[String], data_dir: &Path) -> Result<()> {
     let name = imported.translation.meta.name.clone();
     let mut lib = library(data_dir);
     let id = lib.install(imported)?;
-    println!("Imported {name} ({format}, {verses} verses) as \"{id}\" in {:.0} ms", started.elapsed().as_secs_f64() * 1000.0);
+    println!(
+        "Imported {name} ({format}, {verses} verses) as \"{id}\" in {:.0} ms",
+        started.elapsed().as_secs_f64() * 1000.0
+    );
     println!("Stored in {}", bible_core::import::imports_dir(data_dir).display());
     Ok(())
 }
@@ -195,5 +212,16 @@ fn export(rest: &[String], data_dir: &Path) -> Result<()> {
         Some(path) => std::fs::write(&path, body).with_context(|| path.clone())?,
         None => print!("{body}"),
     }
+    Ok(())
+}
+
+fn import_notes(rest: &[String], data_dir: &Path) -> Result<()> {
+    let path = positional(rest)
+        .first()
+        .map(|s| s.to_string())
+        .context("usage: bible-rs import-notes <export.json>")?;
+    let mut study = StudyStore::open(&data_dir.join("study.sqlite"))?;
+    let (h, n, b) = study.import_json(&std::fs::read_to_string(&path).with_context(|| path.clone())?)?;
+    println!("Imported {h} highlights, {n} notes and {b} bookmarks");
     Ok(())
 }

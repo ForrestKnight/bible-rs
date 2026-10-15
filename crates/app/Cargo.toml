@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "bible_rs"
+path = "src/lib.rs"
+
 [[bin]]
 name = "bible-rs"
 path = "src/main.rs"

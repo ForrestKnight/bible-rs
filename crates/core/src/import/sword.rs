@@ -288,10 +288,10 @@ impl TestamentReader {
     }
 
     fn block(&self, n: usize) -> Result<std::rc::Rc<Vec<u8>>> {
-        if let Some((i, d)) = &*self.cache.borrow() {
-            if *i == n {
-                return Ok(d.clone());
-            }
+        if let Some((i, d)) = &*self.cache.borrow()
+            && *i == n
+        {
+            return Ok(d.clone());
         }
         let rec = self.blocks.get(n * 12..n * 12 + 12).context("block index out of range")?;
         let off = u32::from_le_bytes(rec[0..4].try_into().unwrap()) as usize;
@@ -360,10 +360,10 @@ fn thml(b: &mut TranslationBuilder, src: &str) {
                     continue;
                 }
                 let n = name.to_ascii_lowercase();
-                if let Some(i) = styles.iter().rposition(|(s, _)| *s == n) {
-                    if let (_, Some(s)) = styles.remove(i) {
-                        b.pop_style(s);
-                    }
+                if let Some(i) = styles.iter().rposition(|(s, _)| *s == n)
+                    && let (_, Some(s)) = styles.remove(i)
+                {
+                    b.pop_style(s);
                 }
                 if let (Some(h), true) = (&heading, matches!(n.as_str(), "h1" | "h2" | "h3" | "h4" | "div")) {
                     let h = h.clone();

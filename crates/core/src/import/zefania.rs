@@ -129,10 +129,10 @@ pub fn read(b: &mut TranslationBuilder, src: &str) -> ZefaniaInfo {
                     }
                     "VERS" => b.end_current_verse(),
                     "STYLE" => {
-                        if let Some(i) = styles.iter().rposition(|(n, _)| *n == upper) {
-                            if let (_, Some(s)) = styles.remove(i) {
-                                b.pop_style(s);
-                            }
+                        if let Some(i) = styles.iter().rposition(|(n, _)| *n == upper)
+                            && let (_, Some(s)) = styles.remove(i)
+                        {
+                            b.pop_style(s);
                         }
                     }
                     _ => {}

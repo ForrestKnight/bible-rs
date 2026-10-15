@@ -10,7 +10,9 @@ use anyhow::Result;
 use bible_core::books::{BookId, ChapterIdx, VerseRef};
 use bible_core::library::Library;
 use bible_core::study::StudyStore;
-use eframe::egui::{self, Align2, Color32, CornerRadius, Frame, Id, Key, Margin, Modifiers, Sense, Stroke, Ui, vec2};
+use eframe::egui::{
+    self, Align2, Color32, CornerRadius, Frame, Id, Key, Margin, Modifiers, Sense, Stroke, Ui, vec2,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::actions::{Action, ExportKind, SettingsTab, SidebarTab};
@@ -134,8 +136,17 @@ impl History {
 }
 
 pub enum TaskResult {
-    Imported(Result<bible_core::import::Imported, String>),
+    Imported(Box<Result<bible_core::import::Imported, String>>),
     Bibles(Result<Vec<bible_core::online::apibible::RemoteBible>, String>),
+}
+
+/// `BIBLE_RS_SCROLL_PROBE`: scrolls continuously and records how long each frame's UI takes.
+pub struct ScrollProbe {
+    pub frames: Vec<f64>,
+    pub intervals: Vec<f64>,
+    pub last: Option<Instant>,
+    pub start_chapter: ChapterIdx,
+    pub started: Option<Instant>,
 }
 
 pub struct Startup {
@@ -164,14 +175,21 @@ pub struct BibleApp {
     task_rx: Receiver<TaskResult>,
     pub busy: Option<String>,
     startup: Startup,
-    saved: (ChapterIdx, u8),
+    /// Serialized settings as last written, and when.
+    saved: (String, f64),
     warmed: bool,
+    scroll_probe: Option<ScrollProbe>,
     #[cfg(target_os = "macos")]
     menu: Option<crate::macos_menu::AppMenu>,
 }
 
 impl BibleApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, init: Init, online_gen: Arc<AtomicU64>, startup: Startup) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        init: Init,
+        online_gen: Arc<AtomicU64>,
+        startup: Startup,
+    ) -> Self {
         let Init { data_dir, study, library, settings, elapsed } = init;
         theme::apply(&cc.egui_ctx, settings.theme);
         let chapter = ChapterIdx(settings.chapter.min(ChapterIdx::LAST.0));
@@ -195,8 +213,15 @@ impl BibleApp {
             task_rx,
             busy: None,
             startup: Startup { init: elapsed, ..startup },
-            saved: (chapter, settings.verse),
+            saved: (serde_json::to_string(&settings).unwrap_or_default(), 0.0),
             warmed: false,
+            scroll_probe: std::env::var_os("BIBLE_RS_SCROLL_PROBE").map(|_| ScrollProbe {
+                frames: Vec::new(),
+                intervals: Vec::new(),
+                last: None,
+                start_chapter: chapter,
+                started: None,
+            }),
             settings,
             #[cfg(target_os = "macos")]
             menu: crate::macos_menu::AppMenu::install(),
@@ -238,7 +263,8 @@ impl BibleApp {
     fn poll_tasks(&mut self, ctx: &egui::Context) {
         while let Ok(r) = self.task_rx.try_recv() {
             match r {
-                TaskResult::Imported(Ok(imported)) => {
+                TaskResult::Imported(r) if r.is_ok() => {
+                    let Ok(imported) = *r else { unreachable!() };
                     self.busy = None;
                     let name = imported.translation.meta.name.clone();
                     let verses = imported.translation.verse_count();
@@ -251,7 +277,8 @@ impl BibleApp {
                         Err(e) => self.toast(ctx, format!("Couldn't save the import: {e:#}")),
                     }
                 }
-                TaskResult::Imported(Err(e)) => {
+                TaskResult::Imported(r) => {
+                    let Err(e) = *r else { unreachable!() };
                     self.busy = None;
                     self.toast(ctx, format!("Import failed: {e}"));
                 }
@@ -300,10 +327,19 @@ impl BibleApp {
             key(cmd, Key::D, Action::ToggleBookmark);
             key(cmd, Key::E, Action::Export(ExportKind::Markdown));
             key(cmd, Key::I, Action::ImportTranslation);
-            for (n, k) in
-                [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9]
-                    .into_iter()
-                    .enumerate()
+            for (n, k) in [
+                Key::Num1,
+                Key::Num2,
+                Key::Num3,
+                Key::Num4,
+                Key::Num5,
+                Key::Num6,
+                Key::Num7,
+                Key::Num8,
+                Key::Num9,
+            ]
+            .into_iter()
+            .enumerate()
             {
                 key(cmd, k, Action::TranslationNumber(n));
             }
@@ -354,7 +390,13 @@ impl BibleApp {
 
     fn apply_one(&mut self, ctx: &egui::Context, a: Action) {
         match a {
-            Action::Jump { chapter, verse, flash } => self.jump(chapter, verse, flash),
+            Action::Jump { chapter, verse, flash } => {
+                self.jump(chapter, verse, flash);
+                // Landing on a specific verse selects it, so N/B/C/1–5 act on it right away.
+                if let (Some(v), true) = (verse, flash) {
+                    self.reader.set_selection(Some(VerseRef::new(chapter.book(), chapter.chapter(), v)));
+                }
+            }
             Action::Back => {
                 if let Some((c, v)) = self.history.back(self.here()) {
                     self.reader.jump(c, Some(v), false);
@@ -368,7 +410,11 @@ impl BibleApp {
             Action::PrevChapter => {
                 let (c, _) = self.here();
                 // Within a chapter, ← first returns to its start.
-                let target = if self.reader.anchor.chapter == c && self.reader.anchor.offset > 40.0 { Some(c) } else { c.prev() };
+                let target = if self.reader.anchor.chapter == c && self.reader.anchor.offset > 40.0 {
+                    Some(c)
+                } else {
+                    c.prev()
+                };
                 if let Some(t) = target {
                     self.reader.jump(t, None, false);
                 }
@@ -426,9 +472,9 @@ impl BibleApp {
                 self.panel = Some(VersePanel::new(v, PanelMode::Note, &self.study));
             }
             Action::EditSelectedNote => {
-                if let Some(v) = self.reader.selected_refs().first().copied() {
-                    self.panel = Some(VersePanel::new(v, PanelMode::Note, &self.study));
-                }
+                let v = self.selection_or_location()[0];
+                self.reader.set_selection(Some(v));
+                self.panel = Some(VersePanel::new(v, PanelMode::Note, &self.study));
             }
             Action::ToggleBookmark => {
                 let v = self.selection_or_location()[0];
@@ -461,11 +507,11 @@ impl BibleApp {
                 if refs.is_empty() {
                     return;
                 }
-                if let Ok(t) = self.library.load(&self.settings.translation) {
-                    if let Some(text) = bible_core::copy::format_verses(&t, &refs) {
-                        ctx.copy_text(text);
-                        self.toast(ctx, "Copied with reference");
-                    }
+                if let Ok(t) = self.library.load(&self.settings.translation)
+                    && let Some(text) = bible_core::copy::format_verses(&t, &refs)
+                {
+                    ctx.copy_text(text);
+                    self.toast(ctx, "Copied with reference");
                 }
             }
             Action::Compare => {
@@ -513,8 +559,11 @@ impl BibleApp {
                 self.apply_one(ctx, Action::SetTheme(t));
             }
             Action::ToggleMode => {
-                self.settings.typo.mode =
-                    if self.settings.typo.mode == Mode::Paragraph { Mode::VersePerLine } else { Mode::Paragraph };
+                self.settings.typo.mode = if self.settings.typo.mode == Mode::Paragraph {
+                    Mode::VersePerLine
+                } else {
+                    Mode::Paragraph
+                };
             }
             Action::ToggleRedLetters => self.settings.typo.red_letters = !self.settings.typo.red_letters,
             Action::Export(kind) => self.export(ctx, kind),
@@ -550,11 +599,12 @@ impl BibleApp {
     }
 
     pub fn start_import(&mut self, path: PathBuf, unlock_key: Option<String>, tx: Sender<TaskResult>) {
-        self.busy = Some(format!("Importing {}…", path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
+        self.busy =
+            Some(format!("Importing {}…", path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
         std::thread::spawn(move || {
             let opts = bible_core::import::ImportOptions { unlock_key, ..Default::default() };
             let r = bible_core::import::import_path(&path, &opts).map_err(|e| format!("{e:#}"));
-            let _ = tx.send(TaskResult::Imported(r));
+            let _ = tx.send(TaskResult::Imported(Box::new(r)));
         });
     }
 
@@ -589,23 +639,33 @@ impl BibleApp {
     }
 
     fn import_study(&mut self, ctx: &egui::Context) {
-        let Some(path) = rfd::FileDialog::new().add_filter("bible-rs export", &["json"]).pick_file() else { return };
-        let r = std::fs::read_to_string(&path).map_err(anyhow::Error::from).and_then(|s| self.study.import_json(&s));
+        let Some(path) = rfd::FileDialog::new().add_filter("bible-rs export", &["json"]).pick_file() else {
+            return;
+        };
+        let r = std::fs::read_to_string(&path)
+            .map_err(anyhow::Error::from)
+            .and_then(|s| self.study.import_json(&s));
         match r {
             Ok((h, n, b)) => self.toast(ctx, format!("Imported {h} highlights, {n} notes, {b} bookmarks")),
             Err(e) => self.toast(ctx, format!("Import failed: {e:#}")),
         }
     }
 
+    /// Saves settings (including the reading position) when they change, at most every 1.5 s
+    /// so scrolling never waits on the database.
     fn persist(&mut self, ctx: &egui::Context, force: bool) {
-        let loc = self.reader.location;
         let now = ctx.input(|i| i.time);
-        if force || loc != self.saved {
-            self.settings.chapter = loc.0.0;
-            self.settings.verse = loc.1;
-            self.saved = loc;
-            let _ = now;
-            self.settings.save(&self.study);
+        self.settings.chapter = self.reader.location.0.0;
+        self.settings.verse = self.reader.location.1;
+        let json = serde_json::to_string(&self.settings).unwrap_or_default();
+        if json == self.saved.0 {
+            return;
+        }
+        if force || now - self.saved.1 > 1.5 {
+            let _ = self.study.set_setting("app", &json);
+            self.saved = (json, now);
+        } else {
+            ctx.request_repaint_after(Duration::from_millis(1600));
         }
     }
 
@@ -618,7 +678,9 @@ impl BibleApp {
         ui.add_space(0.0);
         ui.horizontal_centered(|ui| {
             ui.add_space(inset);
-            if widgets::icon_button(ui, "Sidebar (⌘B)", self.settings.sidebar_open, crate::icons::sidebar).clicked() {
+            if widgets::icon_button(ui, "Sidebar (⌘B)", self.settings.sidebar_open, crate::icons::sidebar)
+                .clicked()
+            {
                 actions.push(Action::ToggleSidebar);
             }
             ui.add_enabled_ui(self.history.can_back(), |ui| {
@@ -633,35 +695,55 @@ impl BibleApp {
             });
             let right_w = 150.0;
             let center_w = ui.available_width() - right_w;
-            ui.allocate_ui_with_layout(vec2(center_w, 30.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                let (c, v) = self.reader.location;
-                let tmeta = self.library.get(&self.settings.translation).map(|e| e.meta.clone());
-                let title = format!(
-                    "{} {}",
-                    tmeta.as_ref().map(|m| m.ref_name(c.book()).to_string()).unwrap_or_else(|| c.book().ref_name().into()),
-                    c.chapter()
-                );
-                let label_w = 260.0;
-                ui.add_space(((ui.available_width() - label_w) / 2.0).max(0.0));
-                let loc = widgets::pill(ui, &title, true, "Jump to a book or chapter (⌘K)");
-                crate::sidebar::book_picker_popup(ui, &loc, &self.library, &self.settings.translation, actions);
-                let _ = v;
-                let abbrev = tmeta.as_ref().map(|m| m.abbrev.clone()).unwrap_or_default();
-                let tr = widgets::pill(ui, &abbrev, true, "Translation (⌘1…⌘9)");
-                egui::Popup::menu(&tr).show(|ui| {
-                    ui.set_min_width(300.0);
-                    translation_menu(ui, &self.library, &self.settings, actions);
-                });
-            });
+            ui.allocate_ui_with_layout(
+                vec2(center_w, 30.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    let (c, v) = self.reader.location;
+                    let tmeta = self.library.get(&self.settings.translation).map(|e| e.meta.clone());
+                    let title = format!(
+                        "{} {}",
+                        tmeta
+                            .as_ref()
+                            .map(|m| m.ref_name(c.book()).to_string())
+                            .unwrap_or_else(|| c.book().ref_name().into()),
+                        c.chapter()
+                    );
+                    let label_w = 260.0;
+                    ui.add_space(((ui.available_width() - label_w) / 2.0).max(0.0));
+                    let loc = widgets::pill(ui, &title, true, "Jump to a book or chapter (⌘K)");
+                    crate::sidebar::book_picker_popup(
+                        ui,
+                        &loc,
+                        &self.library,
+                        &self.settings.translation,
+                        actions,
+                    );
+                    let _ = v;
+                    let abbrev = tmeta.as_ref().map(|m| m.abbrev.clone()).unwrap_or_default();
+                    let tr = widgets::pill(ui, &abbrev, true, "Translation (⌘1…⌘9)");
+                    egui::Popup::menu(&tr).show(|ui| {
+                        ui.set_min_width(300.0);
+                        translation_menu(ui, &self.library, &self.settings, actions);
+                    });
+                },
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(10.0);
                 let aa = widgets::icon_button(ui, "Text & theme", false, crate::icons::text_size);
-                egui::Popup::menu(&aa).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-                    ui.set_min_width(250.0);
-                    crate::settings_ui::quick_text_settings(ui, &mut self.settings, actions);
-                });
-                if widgets::icon_button(ui, "Parallel translations (⌘⇧P)", self.settings.parallel_on, crate::icons::columns)
-                    .clicked()
+                egui::Popup::menu(&aa).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(
+                    |ui| {
+                        ui.set_min_width(250.0);
+                        crate::settings_ui::quick_text_settings(ui, &mut self.settings, actions);
+                    },
+                );
+                if widgets::icon_button(
+                    ui,
+                    "Parallel translations (⌘⇧P)",
+                    self.settings.parallel_on,
+                    crate::icons::columns,
+                )
+                .clicked()
                 {
                     actions.push(Action::ToggleParallel);
                 }
@@ -700,7 +782,8 @@ impl BibleApp {
                                 if on || resp.hovered() {
                                     ui.painter().circle_stroke(r.center(), 9.5, Stroke::new(1.5, p.text));
                                 }
-                                if resp.on_hover_text(format!("Highlight {} ({})", c.name(), i + 1)).clicked() {
+                                if resp.on_hover_text(format!("Highlight {} ({})", c.name(), i + 1)).clicked()
+                                {
                                     actions.push(Action::Highlight(if on { None } else { Some(c) }));
                                 }
                             }
@@ -711,11 +794,14 @@ impl BibleApp {
                                 ("Copy", "Copy with reference (⌘C)", Action::Copy),
                                 ("Compare", "Compare translations (C)", Action::Compare),
                             ] {
-                                if ui.add(egui::Button::new(label).frame(false)).on_hover_text(tip).clicked() {
+                                if ui.add(egui::Button::new(label).frame(false)).on_hover_text(tip).clicked()
+                                {
                                     actions.push(a);
                                 }
                             }
-                            if widgets::icon_button(ui, "Clear selection (Esc)", false, crate::icons::close).clicked() {
+                            if widgets::icon_button(ui, "Clear selection (Esc)", false, crate::icons::close)
+                                .clicked()
+                            {
                                 actions.push(Action::ClearSelection);
                             }
                         });
@@ -812,7 +898,9 @@ impl BibleApp {
                     for (title, rows) in groups {
                         ui.vertical(|ui| {
                             ui.set_width(250.0);
-                            ui.label(egui::RichText::new(*title).font(theme::ui_medium(13.0)).color(p.accent));
+                            ui.label(
+                                egui::RichText::new(*title).font(theme::ui_medium(13.0)).color(p.accent),
+                            );
                             ui.add_space(4.0);
                             egui::Grid::new(*title).num_columns(2).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
                                 for (k, d) in *rows {
@@ -857,7 +945,11 @@ fn translation_menu(ui: &mut Ui, library: &Library, settings: &Settings, actions
         let on = settings.parallel_on && settings.parallel.contains(&m.id);
         let mut checked = on;
         if ui.checkbox(&mut checked, format!("{} — side by side", m.abbrev)).changed() {
-            actions.push(if checked { Action::AddParallel(m.id.clone()) } else { Action::RemoveParallel(m.id.clone()) });
+            actions.push(if checked {
+                Action::AddParallel(m.id.clone())
+            } else {
+                Action::RemoveParallel(m.id.clone())
+            });
         }
     }
     ui.separator();
@@ -869,7 +961,23 @@ fn translation_menu(ui: &mut Ui, library: &Library, settings: &Settings, actions
 
 impl eframe::App for BibleApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        let frame_start = Instant::now();
+        if self.startup.frames < 2 {
+            crate::trace(self.startup.t0, &format!("frame {} start", self.startup.frames));
+        }
         let ctx = ui.ctx().clone();
+        if let Some(sp) = &mut self.scroll_probe {
+            // ~2,200 px/s at 60 fps: a fast, continuous fling through many chapters.
+            if self.startup.frames > 2 {
+                self.reader.anchor.offset += 37.0;
+                if let Some(last) = sp.last {
+                    sp.intervals.push(last.elapsed().as_secs_f64() * 1000.0);
+                }
+                sp.last = Some(Instant::now());
+                sp.started.get_or_insert_with(Instant::now);
+            }
+            ctx.request_repaint();
+        }
         self.poll_tasks(&ctx);
         let mut actions = Vec::new();
         self.shortcuts(&ctx, &mut actions);
@@ -918,7 +1026,11 @@ impl eframe::App for BibleApp {
             }
         }
         let mut reader_rect = egui::Rect::NOTHING;
+        let first = self.startup.frames == 0;
         egui::CentralPanel::default().frame(Frame::NONE.fill(p.page)).show(ui, |ui| {
+            if first {
+                crate::trace(self.startup.t0, "toolbar laid out");
+            }
             reader_rect = ui.max_rect();
             let cols = self.columns();
             let keyboard = !ctx.egui_wants_keyboard_input() && self.palette.is_none();
@@ -932,6 +1044,9 @@ impl eframe::App for BibleApp {
                 online_generation: &self.online_gen,
             };
             self.reader.show(ui, &env, &mut actions);
+            if first {
+                crate::trace(self.startup.t0, "reader laid out and painted");
+            }
         });
         self.selection_bar(ui, reader_rect, &mut actions);
 
@@ -944,7 +1059,15 @@ impl eframe::App for BibleApp {
         if let Some(s) = &mut self.settings_ui {
             let tx = self.task_tx.clone();
             let mut import: Option<(PathBuf, Option<String>)> = None;
-            let open = s.show(&ctx, &mut self.library, &mut self.settings, &self.study, &mut actions, &tx, &mut import);
+            let open = s.show(
+                &ctx,
+                &mut self.library,
+                &mut self.settings,
+                &self.study,
+                &mut actions,
+                &tx,
+                &mut import,
+            );
             if let Some((path, key)) = import {
                 self.start_import(path, key, tx);
             }
@@ -963,14 +1086,21 @@ impl eframe::App for BibleApp {
         self.persist(&ctx, false);
 
         // Startup bookkeeping: warm other translations once the first frame is up.
+        if self.startup.frames < 2 {
+            crate::trace(self.startup.t0, &format!("frame {} built", self.startup.frames));
+        }
         self.startup.frames += 1;
-        if self.startup.first_ui.is_none() {
+        let Some(first_ui) = self.startup.first_ui else {
             self.startup.first_ui = Some(self.startup.t0.elapsed());
             ctx.request_repaint();
-        } else if !self.warmed {
+            return;
+        };
+        if !self.warmed {
             self.warmed = true;
             let mut ids = self.columns();
-            ids.extend(self.library.entries().iter().filter(|e| e.is_local()).map(|e| e.meta.id.clone()).take(3));
+            ids.extend(
+                self.library.entries().iter().filter(|e| e.is_local()).map(|e| e.meta.id.clone()).take(3),
+            );
             self.library.warm(&ids);
             if self.startup.probe {
                 let presented = self.startup.t0.elapsed();
@@ -981,11 +1111,38 @@ impl eframe::App for BibleApp {
                 println!(
                     "{{\"init_ms\":{:.2},\"first_frame_built_ms\":{:.2},\"first_frame_presented_ms\":{:.2},\"epoch_ms\":{:.3}}}",
                     self.startup.init.as_secs_f64() * 1000.0,
-                    self.startup.first_ui.unwrap().as_secs_f64() * 1000.0,
+                    first_ui.as_secs_f64() * 1000.0,
                     presented.as_secs_f64() * 1000.0,
                     epoch_ms
                 );
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+        if let Some(sp) = &mut self.scroll_probe {
+            if self.startup.frames > 3 {
+                sp.frames.push(frame_start.elapsed().as_secs_f64() * 1000.0);
+            }
+            if sp.frames.len() >= 900 {
+                let stats = |v: &mut Vec<f64>| {
+                    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    let pct = |p: f64| v[((v.len() as f64 - 1.0) * p).round() as usize];
+                    (
+                        v.iter().sum::<f64>() / v.len() as f64,
+                        pct(0.5),
+                        pct(0.95),
+                        pct(0.99),
+                        *v.last().unwrap(),
+                    )
+                };
+                let (mean, p50, p95, p99, max) = stats(&mut sp.frames);
+                let (imean, ip50, ip95, _, imax) = stats(&mut sp.intervals);
+                let chapters = self.reader.anchor.chapter.0 as i32 - sp.start_chapter.0 as i32;
+                println!(
+                    "{{\"frames\":{},\"chapters_crossed\":{chapters},\"ui_ms\":{{\"mean\":{mean:.3},\"p50\":{p50:.3},\"p95\":{p95:.3},\"p99\":{p99:.3},\"max\":{max:.3}}},\"frame_interval_ms\":{{\"mean\":{imean:.3},\"p50\":{ip50:.3},\"p95\":{ip95:.3},\"max\":{imax:.3}}}}}",
+                    sp.frames.len()
+                );
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                self.scroll_probe = None;
             }
         }
         let _ = Color32::TRANSPARENT;

@@ -15,7 +15,7 @@ use eframe::egui::{Align, Color32, FontId, Galley, Rect, Vec2, pos2, vec2};
 use eframe::epaint::text::FontsView;
 use serde::{Deserialize, Serialize};
 
-use crate::theme::{self, Palette, SERIF, SERIF_DISPLAY, SERIF_ITALIC, SERIF_SEMIBOLD, Theme, UI_MEDIUM};
+use crate::theme::{self, Palette, SERIF, SERIF_DISPLAY, SERIF_ITALIC, SERIF_SEMIBOLD, Theme, UI, UI_MEDIUM};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Mode {
@@ -129,7 +129,11 @@ pub struct ChapterLayout {
 
 impl ChapterLayout {
     pub fn anchor(&self, column: usize, number: u8) -> Option<&VerseAnchor> {
-        self.anchors.iter().filter(|a| a.column == column).find(|a| a.number >= number).or_else(|| self.anchors.last())
+        self.anchors
+            .iter()
+            .filter(|a| a.column == column)
+            .find(|a| a.number >= number)
+            .or_else(|| self.anchors.last())
     }
 
     /// The verse (first column) whose top is at or above `y`.
@@ -159,7 +163,10 @@ pub struct Ctx<'a> {
 }
 
 fn ascent(fonts: &mut FontsView<'_>, font: FontId) -> f32 {
-    let g = fonts.layout_job(LayoutJob::single_section("H".into(), TextFormat { font_id: font, ..Default::default() }));
+    let g = fonts.layout_job(LayoutJob::single_section(
+        "H".into(),
+        TextFormat { font_id: font, ..Default::default() },
+    ));
     g.rows.first().and_then(|r| r.glyphs.first()).map_or(0.0, |gl| gl.pos.y)
 }
 
@@ -204,13 +211,17 @@ impl Ctx<'_> {
         } else {
             SERIF
         };
-        let color = if self.typo.red_letters && styles & Style::WordsOfJesus.bit() != 0 { p.red_letter } else { p.text };
+        let color = if self.typo.red_letters && styles & Style::WordsOfJesus.bit() != 0 {
+            p.red_letter
+        } else {
+            p.text
+        };
         self.fmt(family, self.typo.size, color)
     }
 
     fn verse_number_fmt(&self) -> TextFormat {
         TextFormat {
-            font_id: FontId::new((self.typo.size * 0.56).round(), theme::family(UI_MEDIUM)),
+            font_id: FontId::new((self.typo.size * 0.56).round(), theme::family(UI)),
             color: self.p().verse_num,
             line_height: Some(self.lh()),
             valign: Align::TOP,
@@ -219,13 +230,37 @@ impl Ctx<'_> {
     }
 }
 
+/// `job.append`, but extends the previous section when the format is identical: every section
+/// is shaped as its own run, so fewer sections means less shaping work.
+fn append(job: &mut LayoutJob, text: &str, format: TextFormat) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(last) = job.sections.last_mut()
+        && last.format == format
+        && last.byte_range.end.0 == job.text.len()
+    {
+        job.text.push_str(text);
+        last.byte_range.end.0 = job.text.len();
+        return;
+    }
+    job.append(text, 0.0, format);
+}
+
 /// Appends verse text with styles applied (faux small caps for the divine name).
 fn push_styled(job: &mut LayoutJob, cx: &Ctx<'_>, text: &str, styles_at: &dyn Fn(usize) -> u8, base: usize) {
     push_styled_lead(job, cx, text, styles_at, base, 0.0);
 }
 
 /// Like [`push_styled`], with `lead` points of leading space before the first character.
-fn push_styled_lead(job: &mut LayoutJob, cx: &Ctx<'_>, text: &str, styles_at: &dyn Fn(usize) -> u8, base: usize, lead: f32) {
+fn push_styled_lead(
+    job: &mut LayoutJob,
+    cx: &Ctx<'_>,
+    text: &str,
+    styles_at: &dyn Fn(usize) -> u8,
+    base: usize,
+    lead: f32,
+) {
     let sections_before = job.sections.len();
     // Split into runs of constant style.
     let mut run_start = 0usize;
@@ -239,7 +274,7 @@ fn push_styled_lead(job: &mut LayoutJob, cx: &Ctx<'_>, text: &str, styles_at: &d
         if st & (Style::DivineName.bit() | Style::SmallCaps.bit()) != 0 {
             small_caps(job, cx, chunk, st);
         } else {
-            job.append(chunk, 0.0, cx.body(st));
+            append(job, chunk, cx.body(st));
         }
     };
     for &(i, _) in &bytes {
@@ -257,10 +292,10 @@ fn push_styled_lead(job: &mut LayoutJob, cx: &Ctx<'_>, text: &str, styles_at: &d
     if let Some(st) = run_style {
         flush(job, run_start, text.len(), st);
     }
-    if lead > 0.0 {
-        if let Some(sec) = job.sections.get_mut(sections_before) {
-            sec.leading_space = lead;
-        }
+    if lead > 0.0
+        && let Some(sec) = job.sections.get_mut(sections_before)
+    {
+        sec.leading_space = lead;
     }
 }
 
@@ -276,9 +311,9 @@ fn small_caps(job: &mut LayoutJob, cx: &Ctx<'_>, text: &str, styles: u8) {
     let mut word_start = true;
     let mut buf = String::new();
     let mut buf_small = false;
-    let mut emit = |job: &mut LayoutJob, buf: &mut String, is_small: bool| {
+    let emit = |job: &mut LayoutJob, buf: &mut String, is_small: bool| {
         if !buf.is_empty() {
-            job.append(buf, 0.0, if is_small { small.clone() } else { full.clone() });
+            append(job, buf, if is_small { small.clone() } else { full.clone() });
             buf.clear();
         }
     };
@@ -346,13 +381,15 @@ impl Builder<'_, '_> {
 
     fn start(&mut self, kind: Kind) {
         self.flush();
-        let mut job = LayoutJob::default();
-        job.wrap = TextWrapping { max_width: self.cx.width, ..Default::default() };
-        job.justify = self.cx.typo.justify && matches!(kind, Kind::Prose { .. });
-        job.halign = match kind {
-            Kind::Right => Align::RIGHT,
-            Kind::Center => Align::Center,
-            _ => Align::LEFT,
+        let job = LayoutJob {
+            wrap: TextWrapping { max_width: self.cx.width, ..Default::default() },
+            justify: self.cx.typo.justify && matches!(kind, Kind::Prose { .. }),
+            halign: match kind {
+                Kind::Right => Align::RIGHT,
+                Kind::Center => Align::Center,
+                _ => Align::LEFT,
+            },
+            ..Default::default()
         };
         self.pending = Some(Pending { job, chars: 0, verses: Vec::new(), kind, gutter: None });
     }
@@ -374,10 +411,10 @@ impl Builder<'_, '_> {
             Kind::Poetry(level) => (em * 1.4 * (level.saturating_sub(1)) as f32, em * 1.4),
             _ => (0.0, 0.0),
         };
-        if let Kind::Prose { indent: true } = p.kind {
-            if let Some(s) = p.job.sections.first_mut() {
-                s.leading_space = em * 1.5;
-            }
+        if let Kind::Prose { indent: true } = p.kind
+            && let Some(s) = p.job.sections.first_mut()
+        {
+            s.leading_space = em * 1.5;
         }
         p.job.wrap.max_width = (self.cx.width - indent - hang).max(em * 6.0);
         let gap = match p.kind {
@@ -395,7 +432,9 @@ impl Builder<'_, '_> {
             galley = hanging(galley, hang);
         }
         let x = match p.kind {
-            Kind::Right | Kind::Center => self.x0 + if p.kind == Kind::Right { self.cx.width } else { self.cx.width / 2.0 },
+            Kind::Right | Kind::Center => {
+                self.x0 + if p.kind == Kind::Right { self.cx.width } else { self.cx.width / 2.0 }
+            }
             _ => self.x0 + indent,
         };
         let pos = vec2(x, self.y);
@@ -435,8 +474,12 @@ impl Builder<'_, '_> {
         let mut job = LayoutJob::default();
         job.wrap.max_width = self.cx.width;
         let (fmt, before, after, center) = match (kind, level) {
-            (MarkKind::PsalmTitle, _) => (self.cx.fmt(SERIF_ITALIC, (em * 0.88).round(), p.muted), em * 0.2, em * 0.5, false),
-            (MarkKind::Speaker, _) => (self.cx.fmt(SERIF_ITALIC, (em * 0.88).round(), p.muted), em * 0.6, em * 0.15, false),
+            (MarkKind::PsalmTitle, _) => {
+                (self.cx.fmt(SERIF_ITALIC, (em * 0.88).round(), p.muted), em * 0.2, em * 0.5, false)
+            }
+            (MarkKind::Speaker, _) => {
+                (self.cx.fmt(SERIF_ITALIC, (em * 0.88).round(), p.muted), em * 0.6, em * 0.15, false)
+            }
             (MarkKind::Heading, 0) => {
                 let mut f = self.cx.fmt(UI_MEDIUM, (em * 0.62).round(), p.accent);
                 f.extra_letter_spacing = 1.6;
@@ -449,7 +492,11 @@ impl Builder<'_, '_> {
             }
             _ => (self.cx.fmt(SERIF_SEMIBOLD, (em * 0.92).round(), p.heading), em * 1.25, em * 0.35, false),
         };
-        let text = if matches!((kind, level), (MarkKind::Heading, 0 | 3)) { text.to_uppercase() } else { text.to_string() };
+        let text = if matches!((kind, level), (MarkKind::Heading, 0 | 3)) {
+            text.to_uppercase()
+        } else {
+            text.to_string()
+        };
         let mut fmt = fmt;
         fmt.line_height = None;
         job.append(&text, 0.0, fmt);
@@ -488,7 +535,11 @@ fn hanging(galley: Arc<Galley>, hang: f32) -> Arc<Galley> {
 }
 
 fn chapter_title(c: ChapterIdx) -> String {
-    if c.book() == BookId::PSALMS { format!("PSALM {}", c.chapter()) } else { format!("CHAPTER {}", c.chapter()) }
+    if c.book() == BookId::PSALMS {
+        format!("PSALM {}", c.chapter())
+    } else {
+        format!("CHAPTER {}", c.chapter())
+    }
 }
 
 /// Book title + chapter heading at the top of a chapter.
@@ -496,7 +547,8 @@ fn chapter_head(b: &mut Builder<'_, '_>, t: Option<&Translation>, c: ChapterIdx,
     let em = b.em();
     let p = b.cx.p();
     if c.chapter() == 1 {
-        let short = t.map(|t| t.meta.book_short(c.book()).to_string()).unwrap_or_else(|| c.book().name().to_string());
+        let short =
+            t.map(|t| t.meta.book_short(c.book()).to_string()).unwrap_or_else(|| c.book().name().to_string());
         let mut job = LayoutJob::default();
         let mut f = b.cx.fmt(SERIF_DISPLAY, (em * if single_column { 2.4 } else { 1.8 }).round(), p.heading);
         f.line_height = None;
@@ -507,7 +559,9 @@ fn chapter_head(b: &mut Builder<'_, '_>, t: Option<&Translation>, c: ChapterIdx,
             pos.x = b.x0 + b.cx.width / 2.0;
             let _ = g;
         }
-        let long = t.map(|t| t.meta.books.get(c.book().index()).map(|b| b.long.clone()).unwrap_or_default()).unwrap_or_default();
+        let long = t
+            .map(|t| t.meta.books.get(c.book().index()).map(|b| b.long.clone()).unwrap_or_default())
+            .unwrap_or_default();
         if !long.is_empty() && long != short && single_column {
             let mut job = LayoutJob::default();
             job.wrap.max_width = b.cx.width;
@@ -542,7 +596,12 @@ fn chapter_head(b: &mut Builder<'_, '_>, t: Option<&Translation>, c: ChapterIdx,
 }
 
 /// Lays out one chapter of one translation in a single column.
-pub fn layout_chapter(fonts: &mut FontsView<'_>, cx: &Ctx<'_>, t: &Translation, c: ChapterIdx) -> ChapterLayout {
+pub fn layout_chapter(
+    fonts: &mut FontsView<'_>,
+    cx: &Ctx<'_>,
+    t: &Translation,
+    c: ChapterIdx,
+) -> ChapterLayout {
     let cx = &cx.measured(fonts);
     let mut b = Builder {
         cx,
@@ -624,7 +683,7 @@ pub fn layout_chapter(fonts: &mut FontsView<'_>, cx: &Ctx<'_>, t: &Translation, 
                 let p = b.ensure(kind);
                 // Separate this verse from the previous one in the same paragraph.
                 if p.chars > 0 && !p.job.text.ends_with([' ', '\u{a0}', '\n']) {
-                    p.job.append(" ", 0.0, cx.body(0));
+                    append(&mut p.job, " ", cx.body(0));
                     p.chars += 1;
                 }
                 p.verses.push((p.chars, v.index, v.number));
@@ -638,10 +697,8 @@ pub fn layout_chapter(fonts: &mut FontsView<'_>, cx: &Ctx<'_>, t: &Translation, 
                             v.number.to_string()
                         };
                         let n = label.chars().count() + 1;
-                        p.job.append(&label, 0.0, cx.verse_number_fmt());
-                        let mut nb = cx.verse_number_fmt();
-                        nb.font_id.size = (cx.typo.size * 0.5).round();
-                        p.job.append("\u{a0}", 0.0, nb);
+                        // The no-break space keeps the number with its verse at line ends.
+                        p.job.append(&format!("{label}\u{a0}"), 0.0, cx.verse_number_fmt());
                         p.chars += n;
                     }
                 }
@@ -679,7 +736,8 @@ fn anchors_for(blocks: &[Block]) -> Vec<VerseAnchor> {
     let mut anchors: Vec<VerseAnchor> = Vec::new();
     for bl in blocks {
         for (start, v, number) in &bl.verses {
-            let top = bl.pos.y + bl.galley.pos_from_cursor(eframe::epaint::text::cursor::CCursor::new(*start)).min.y;
+            let top = bl.pos.y
+                + bl.galley.pos_from_cursor(eframe::epaint::text::cursor::CCursor::new(*start)).min.y;
             match anchors.iter_mut().find(|a| a.index == *v && a.column == bl.column) {
                 Some(a) => a.bottom = a.bottom.max(bl.pos.y + bl.galley.size().y),
                 None => anchors.push(VerseAnchor {
@@ -802,11 +860,7 @@ pub fn layout_parallel(
                 job.append(&format!("{}\n", t.mark_text(m)), 0.0, f);
             }
             if cx.typo.verse_numbers {
-                let label = v.number.to_string();
-                job.append(&label, 0.0, cx.verse_number_fmt());
-                let mut nb = cx.verse_number_fmt();
-                nb.font_id.size = (em * 0.5).round();
-                job.append("\u{a0}", 0.0, nb);
+                job.append(&format!("{}\u{a0}", v.number), 0.0, cx.verse_number_fmt());
             }
             let styles = style_mask(&v);
             let mut cursor = 0usize;
@@ -818,7 +872,11 @@ pub fn layout_parallel(
                     cursor = at;
                     job.append("\n", 0.0, cx.body(0));
                     // Indent the next line (poetry level 2+) via leading space on its first section.
-                    lead = if m.kind == MarkKind::Poetry { em * 1.2 * m.level.saturating_sub(1) as f32 } else { 0.0 };
+                    lead = if m.kind == MarkKind::Poetry {
+                        em * 1.2 * m.level.saturating_sub(1) as f32
+                    } else {
+                        0.0
+                    };
                 }
             }
             if cursor < v.text.len() {
@@ -841,7 +899,12 @@ pub fn layout_parallel(
 }
 
 /// A short message laid out where a chapter would be (loading, missing text, …).
-pub fn layout_message(fonts: &mut FontsView<'_>, cx: &Ctx<'_>, c: ChapterIdx, message: &str) -> ChapterLayout {
+pub fn layout_message(
+    fonts: &mut FontsView<'_>,
+    cx: &Ctx<'_>,
+    c: ChapterIdx,
+    message: &str,
+) -> ChapterLayout {
     let mut b = Builder {
         cx,
         fonts,
@@ -865,5 +928,11 @@ pub fn layout_message(fonts: &mut FontsView<'_>, cx: &Ctx<'_>, c: ChapterIdx, me
         pos.x = cx.width / 2.0;
     }
     let y = b.y;
-    ChapterLayout { chapter: c, height: y + em * 4.0, blocks: Vec::new(), anchors: Vec::new(), labels: b.labels }
+    ChapterLayout {
+        chapter: c,
+        height: y + em * 4.0,
+        blocks: Vec::new(),
+        anchors: Vec::new(),
+        labels: b.labels,
+    }
 }

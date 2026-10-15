@@ -34,19 +34,40 @@ pub fn note(p: &Painter, r: Rect, c: Color32) {
 pub fn chevron_left(p: &Painter, r: Rect, c: Color32) {
     let m = r.center();
     let s = r.height() * 0.22;
-    p.add(Shape::line(vec![pos2(m.x + s * 0.6, m.y - s * 1.3), pos2(m.x - s * 0.7, m.y), pos2(m.x + s * 0.6, m.y + s * 1.3)], stroke(c)));
+    p.add(Shape::line(
+        vec![
+            pos2(m.x + s * 0.6, m.y - s * 1.3),
+            pos2(m.x - s * 0.7, m.y),
+            pos2(m.x + s * 0.6, m.y + s * 1.3),
+        ],
+        stroke(c),
+    ));
 }
 
 pub fn chevron_right(p: &Painter, r: Rect, c: Color32) {
     let m = r.center();
     let s = r.height() * 0.22;
-    p.add(Shape::line(vec![pos2(m.x - s * 0.6, m.y - s * 1.3), pos2(m.x + s * 0.7, m.y), pos2(m.x - s * 0.6, m.y + s * 1.3)], stroke(c)));
+    p.add(Shape::line(
+        vec![
+            pos2(m.x - s * 0.6, m.y - s * 1.3),
+            pos2(m.x + s * 0.7, m.y),
+            pos2(m.x - s * 0.6, m.y + s * 1.3),
+        ],
+        stroke(c),
+    ));
 }
 
 pub fn chevron_down(p: &Painter, r: Rect, c: Color32) {
     let m = r.center();
     let s = r.height() * 0.16;
-    p.add(Shape::line(vec![pos2(m.x - s * 1.4, m.y - s * 0.6), pos2(m.x, m.y + s * 0.7), pos2(m.x + s * 1.4, m.y - s * 0.6)], stroke(c)));
+    p.add(Shape::line(
+        vec![
+            pos2(m.x - s * 1.4, m.y - s * 0.6),
+            pos2(m.x, m.y + s * 0.7),
+            pos2(m.x + s * 1.4, m.y - s * 0.6),
+        ],
+        stroke(c),
+    ));
 }
 
 pub fn search(p: &Painter, r: Rect, c: Color32) {
@@ -76,10 +97,19 @@ pub fn text_size(p: &Painter, r: Rect, c: Color32) {
     let big = r.height() * 0.5;
     let small = r.height() * 0.32;
     let x = r.center().x - big * 0.55;
-    p.add(Shape::line(vec![pos2(x - big * 0.4, base), pos2(x, base - big), pos2(x + big * 0.4, base)], stroke(c)));
-    p.line_segment([pos2(x - big * 0.22, base - big * 0.4), pos2(x + big * 0.22, base - big * 0.4)], Stroke::new(1.2, c));
+    p.add(Shape::line(
+        vec![pos2(x - big * 0.4, base), pos2(x, base - big), pos2(x + big * 0.4, base)],
+        stroke(c),
+    ));
+    p.line_segment(
+        [pos2(x - big * 0.22, base - big * 0.4), pos2(x + big * 0.22, base - big * 0.4)],
+        Stroke::new(1.2, c),
+    );
     let x2 = r.center().x + small * 0.9;
-    p.add(Shape::line(vec![pos2(x2 - small * 0.4, base), pos2(x2, base - small), pos2(x2 + small * 0.4, base)], stroke(c)));
+    p.add(Shape::line(
+        vec![pos2(x2 - small * 0.4, base), pos2(x2, base - small), pos2(x2 + small * 0.4, base)],
+        stroke(c),
+    ));
 }
 
 pub fn close(p: &Painter, r: Rect, c: Color32) {
@@ -93,11 +123,21 @@ pub fn book(p: &Painter, r: Rect, c: Color32) {
     let r = Rect::from_center_size(r.center(), vec2(r.height() * 0.8, r.height() * 0.58));
     let m = r.center().x;
     p.add(Shape::closed_line(
-        vec![pos2(m, r.top() + 2.0), pos2(r.left(), r.top()), pos2(r.left(), r.bottom()), pos2(m, r.bottom() + 1.0)],
+        vec![
+            pos2(m, r.top() + 2.0),
+            pos2(r.left(), r.top()),
+            pos2(r.left(), r.bottom()),
+            pos2(m, r.bottom() + 1.0),
+        ],
         stroke(c),
     ));
     p.add(Shape::closed_line(
-        vec![pos2(m, r.top() + 2.0), pos2(r.right(), r.top()), pos2(r.right(), r.bottom()), pos2(m, r.bottom() + 1.0)],
+        vec![
+            pos2(m, r.top() + 2.0),
+            pos2(r.right(), r.top()),
+            pos2(r.right(), r.bottom()),
+            pos2(m, r.bottom() + 1.0),
+        ],
         stroke(c),
     ));
 }

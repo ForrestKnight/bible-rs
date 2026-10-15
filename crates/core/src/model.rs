@@ -70,7 +70,7 @@ pub struct TranslationMeta {
 }
 
 impl TranslationMeta {
-    pub fn book_short<'a>(&'a self, book: BookId) -> &'a str {
+    pub fn book_short(&self, book: BookId) -> &str {
         match self.books.get(book.index()) {
             Some(t) if !t.short.is_empty() => &t.short,
             _ => book.name(),
@@ -78,7 +78,7 @@ impl TranslationMeta {
     }
 
     /// Book name for a chapter or verse reference ("Psalm 23", not "Psalms 23").
-    pub fn ref_name<'a>(&'a self, book: BookId) -> &'a str {
+    pub fn ref_name(&self, book: BookId) -> &str {
         let short = self.book_short(book);
         if book == BookId::PSALMS && short.starts_with("Psalm") { "Psalm" } else { short }
     }
@@ -468,11 +468,11 @@ impl TranslationBuilder {
         // Breaks left over from the previous chapter are meaningless; headings may precede `\c`.
         self.pending_marks.retain(|(k, _, _)| k.has_text());
         self.chapter = self.book.and_then(|b| u8::try_from(chapter).ok().and_then(|c| ChapterIdx::new(b, c)));
-        if self.chapter.is_none() {
-            if let Some(b) = self.book {
-                self.warnings
-                    .push(format!("{} {chapter}: chapter outside the canonical grid, skipped", b.name()));
-            }
+        if self.chapter.is_none()
+            && let Some(b) = self.book
+        {
+            self.warnings
+                .push(format!("{} {chapter}: chapter outside the canonical grid, skipped", b.name()));
         }
         self.chapter.is_some()
     }
@@ -610,10 +610,10 @@ impl TranslationBuilder {
         let len = self.verse_len();
         // Styles still open continue into the next verse; close this verse's part.
         for (style, start) in self.open_styles.iter_mut() {
-            if let Some(s) = start.take() {
-                if (len as u16) > s {
-                    self.cur_spans.push(Span { start: s, end: len as u16, style: *style });
-                }
+            if let Some(s) = start.take()
+                && (len as u16) > s
+            {
+                self.cur_spans.push(Span { start: s, end: len as u16, style: *style });
             }
         }
         let (_, v) = self.verses.last_mut().expect("verse in progress");
@@ -631,16 +631,15 @@ impl TranslationBuilder {
         let verse_text = &self.text[self.verse_start..];
         let mut merged: Vec<Span> = Vec::with_capacity(self.cur_spans.len());
         for s in self.cur_spans.drain(..) {
-            if let Some(last) = merged.last_mut() {
-                if last.style == s.style
-                    && s.start >= last.start
-                    && verse_text
-                        .get(last.end.min(s.start) as usize..s.start.max(last.end) as usize)
-                        .is_some_and(|gap| gap.chars().all(char::is_whitespace))
-                {
-                    last.end = last.end.max(s.end);
-                    continue;
-                }
+            if let Some(last) = merged.last_mut()
+                && last.style == s.style
+                && s.start >= last.start
+                && verse_text
+                    .get(last.end.min(s.start) as usize..s.start.max(last.end) as usize)
+                    .is_some_and(|gap| gap.chars().all(char::is_whitespace))
+            {
+                last.end = last.end.max(s.end);
+                continue;
             }
             merged.push(s);
         }

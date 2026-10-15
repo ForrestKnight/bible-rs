@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use bible_core::study::HighlightColor;
 use eframe::egui::{
-    self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Shadow, Stroke, TextStyle,
-    Visuals,
+    self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Shadow, Stroke,
+    TextStyle, Visuals,
 };
 use eframe::epaint::text::{FontTweak, VariationCoords};
 use serde::{Deserialize, Serialize};
@@ -105,7 +105,13 @@ pub static LIGHT: Palette = Palette {
     field: hex(0xFFFFFF),
     search_hit: rgba(0xF2C94C, 150),
     flash: rgba(0xC9A25E, 90),
-    highlights: [rgba(0xF5D451, 110), rgba(0x7ED39F, 95), rgba(0x6CC9F0, 90), rgba(0xF49CBB, 95), rgba(0xBC9CEB, 95)],
+    highlights: [
+        rgba(0xF5D451, 110),
+        rgba(0x7ED39F, 95),
+        rgba(0x6CC9F0, 90),
+        rgba(0xF49CBB, 95),
+        rgba(0xBC9CEB, 95),
+    ],
     swatches: SWATCHES,
 };
 
@@ -126,7 +132,13 @@ pub static SEPIA: Palette = Palette {
     field: hex(0xFBF6EA),
     search_hit: rgba(0xE8B94A, 150),
     flash: rgba(0xC49A57, 100),
-    highlights: [rgba(0xF1CB45, 115), rgba(0x86C795, 100), rgba(0x74BEDF, 95), rgba(0xEB98B0, 100), rgba(0xB49BDE, 100)],
+    highlights: [
+        rgba(0xF1CB45, 115),
+        rgba(0x86C795, 100),
+        rgba(0x74BEDF, 95),
+        rgba(0xEB98B0, 100),
+        rgba(0xB49BDE, 100),
+    ],
     swatches: SWATCHES,
 };
 
@@ -147,7 +159,13 @@ pub static DARK: Palette = Palette {
     field: hex(0x26262B),
     search_hit: rgba(0xD9A93E, 110),
     flash: rgba(0xD2AE6D, 70),
-    highlights: [rgba(0xD8B13A, 80), rgba(0x4FA873, 80), rgba(0x3E9CC6, 80), rgba(0xC86A8E, 80), rgba(0x8E6CC6, 85)],
+    highlights: [
+        rgba(0xD8B13A, 80),
+        rgba(0x4FA873, 80),
+        rgba(0x3E9CC6, 80),
+        rgba(0xC86A8E, 80),
+        rgba(0x8E6CC6, 85),
+    ],
     swatches: SWATCHES,
 };
 
@@ -167,6 +185,7 @@ pub const SERIF_ITALIC: &str = "serif-italic";
 pub const SERIF_SEMIBOLD: &str = "serif-semibold";
 pub const SERIF_DISPLAY: &str = "serif-display";
 pub const UI_MEDIUM: &str = "ui-medium";
+pub const UI: &str = "ui";
 
 pub fn family(name: &str) -> FontFamily {
     FontFamily::Name(name.into())
@@ -185,7 +204,10 @@ static LITERATA_ITALIC: &[u8] = include_bytes!("../assets/fonts/Literata-Italic.
 static INTER: &[u8] = include_bytes!("../assets/fonts/Inter.ttf");
 
 fn variable(bytes: &'static [u8], coords: &[(&[u8; 4], f32)]) -> Arc<FontData> {
-    let tweak = FontTweak { coords: VariationCoords::new(coords.iter().map(|(t, v)| (**t, *v))), ..Default::default() };
+    let tweak = FontTweak {
+        coords: VariationCoords::new(coords.iter().map(|(t, v)| (**t, *v))),
+        ..Default::default()
+    };
     Arc::new(FontData::from_static(bytes).tweak(tweak))
 }
 
@@ -194,12 +216,15 @@ fn variable(bytes: &'static [u8], coords: &[(&[u8; 4], f32)]) -> Arc<FontData> {
 pub fn font_definitions() -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
     let fallbacks: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+    // Body text, italics and the interface use each font's *default* instance: pinning axis
+    // values makes egui build a variation instance for every shaped run, which costs more than
+    // the rest of shaping. Only headings (few runs) pin weight and optical size.
     let data = [
-        ("literata", variable(LITERATA, &[(b"wght", 400.0), (b"opsz", 14.0)])),
-        ("literata-italic", variable(LITERATA_ITALIC, &[(b"wght", 400.0), (b"opsz", 14.0)])),
+        ("literata", Arc::new(FontData::from_static(LITERATA))),
+        ("literata-italic", Arc::new(FontData::from_static(LITERATA_ITALIC))),
         ("literata-semibold", variable(LITERATA, &[(b"wght", 600.0), (b"opsz", 16.0)])),
         ("literata-display", variable(LITERATA, &[(b"wght", 300.0), (b"opsz", 60.0)])),
-        ("inter", variable(INTER, &[(b"wght", 420.0), (b"opsz", 14.0)])),
+        ("inter", Arc::new(FontData::from_static(INTER))),
         ("inter-medium", variable(INTER, &[(b"wght", 560.0), (b"opsz", 14.0)])),
     ];
     for (name, d) in data {
@@ -211,6 +236,7 @@ pub fn font_definitions() -> FontDefinitions {
         v
     };
     fonts.families.insert(FontFamily::Proportional, with_fallbacks("inter"));
+    fonts.families.insert(family(UI), with_fallbacks("inter"));
     fonts.families.insert(family(UI_MEDIUM), with_fallbacks("inter-medium"));
     fonts.families.insert(family(SERIF), with_fallbacks("literata"));
     fonts.families.insert(family(SERIF_ITALIC), with_fallbacks("literata-italic"));
@@ -250,10 +276,18 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
         v.window_stroke = Stroke::new(1.0, p.border);
         v.window_corner_radius = CornerRadius::same(12);
         v.menu_corner_radius = CornerRadius::same(8);
-        v.window_shadow =
-            Shadow { offset: [0, 10], blur: 32, spread: 0, color: Color32::from_black_alpha(if dark { 120 } else { 40 }) };
-        v.popup_shadow =
-            Shadow { offset: [0, 6], blur: 18, spread: 0, color: Color32::from_black_alpha(if dark { 100 } else { 30 }) };
+        v.window_shadow = Shadow {
+            offset: [0, 10],
+            blur: 32,
+            spread: 0,
+            color: Color32::from_black_alpha(if dark { 120 } else { 40 }),
+        };
+        v.popup_shadow = Shadow {
+            offset: [0, 6],
+            blur: 18,
+            spread: 0,
+            color: Color32::from_black_alpha(if dark { 100 } else { 30 }),
+        };
         v.extreme_bg_color = p.field;
         v.text_edit_bg_color = Some(p.field);
         v.faint_bg_color = p.hover;
@@ -265,12 +299,15 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
         v.override_text_color = Some(p.text);
         v.weak_text_color = Some(p.muted);
         v.indent_has_left_vline = false;
-        let radius = CornerRadius::same(6);
+        let radius = CornerRadius::same(5);
         let w = &mut v.widgets;
         let quiet = Stroke::new(1.0, p.border);
+        // `bg_fill` is used for slider rails and checkbox interiors, so it must differ from the
+        // window colour; buttons use the (transparent) `weak_bg_fill` instead.
+        let rail = if dark { hex(0x34343B) } else { p.border };
         for (state, fill) in [
             (&mut w.noninteractive, p.page),
-            (&mut w.inactive, p.chrome),
+            (&mut w.inactive, rail),
             (&mut w.hovered, p.hover),
             (&mut w.active, p.hover),
             (&mut w.open, p.hover),

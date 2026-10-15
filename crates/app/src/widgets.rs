@@ -1,6 +1,8 @@
 //! Small custom widgets shared across the UI.
 
-use eframe::egui::{self, Color32, CornerRadius, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, vec2};
+use eframe::egui::{
+    self, Color32, CornerRadius, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, vec2,
+};
 
 use crate::theme;
 
@@ -32,12 +34,18 @@ pub fn pill(ui: &mut Ui, text: &str, chevron: bool, tooltip: &str) -> Response {
     let v = ui.visuals();
     if resp.hovered() || resp.is_pointer_button_down_on() {
         ui.painter().rect_filled(rect, CornerRadius::same(8), v.widgets.hovered.bg_fill);
-        ui.painter().rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color), StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            rect,
+            CornerRadius::same(8),
+            Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color),
+            StrokeKind::Inside,
+        );
     }
     let text_pos = egui::pos2(rect.left() + 10.0, rect.center().y - galley.size().y / 2.0);
     ui.painter().galley(text_pos, galley, v.text_color());
     if chevron {
-        let r = Rect::from_center_size(egui::pos2(rect.right() - 13.0, rect.center().y + 1.0), vec2(12.0, 12.0));
+        let r =
+            Rect::from_center_size(egui::pos2(rect.right() - 13.0, rect.center().y + 1.0), vec2(12.0, 12.0));
         crate::icons::chevron_down(ui.painter(), r, v.weak_text_color());
     }
     resp.on_hover_text(tooltip)
@@ -53,11 +61,17 @@ pub fn segmented(ui: &mut Ui, labels: &[&str], selected: usize) -> Option<usize>
     ui.painter().rect_filled(rect, CornerRadius::same(7), v.widgets.hovered.bg_fill);
     let seg_w = w / labels.len() as f32;
     for (i, label) in labels.iter().enumerate() {
-        let r = Rect::from_min_size(egui::pos2(rect.left() + seg_w * i as f32, rect.top()), vec2(seg_w, h)).shrink(2.0);
+        let r = Rect::from_min_size(egui::pos2(rect.left() + seg_w * i as f32, rect.top()), vec2(seg_w, h))
+            .shrink(2.0);
         let resp = ui.interact(r, ui.id().with(("seg", label)), Sense::click());
         if i == selected {
             ui.painter().rect_filled(r, CornerRadius::same(6), v.panel_fill);
-            ui.painter().rect_stroke(r, CornerRadius::same(6), Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color), StrokeKind::Inside);
+            ui.painter().rect_stroke(
+                r,
+                CornerRadius::same(6),
+                Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color),
+                StrokeKind::Inside,
+            );
         }
         let color = if i == selected { v.text_color() } else { v.weak_text_color() };
         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, *label, theme::ui_medium(12.5), color);
@@ -70,5 +84,10 @@ pub fn segmented(ui: &mut Ui, labels: &[&str], selected: usize) -> Option<usize>
 
 /// Muted section caption.
 pub fn caption(ui: &mut Ui, text: &str) {
-    ui.label(egui::RichText::new(text.to_uppercase()).font(theme::ui_medium(10.5)).color(ui.visuals().weak_text_color()).extra_letter_spacing(0.8));
+    ui.label(
+        egui::RichText::new(text.to_uppercase())
+            .font(theme::ui_medium(10.5))
+            .color(ui.visuals().weak_text_color())
+            .extra_letter_spacing(0.8),
+    );
 }
