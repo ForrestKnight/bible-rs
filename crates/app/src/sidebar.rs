@@ -1255,9 +1255,9 @@ fn result_entries(ui: &Ui, t: &bible_core::Translation, results: &[u32], query: 
             .count();
         out.push(Entry { kind: EntryKind::Header(book, count), y, height: 28.0 });
         y += 28.0;
-        for k in i..i + count {
+        for (k, vi) in results.iter().enumerate().skip(i).take(count) {
             let rows = if k < 2000 {
-                let text = t.verse_view(results[k]).map(|v| v.plain_text()).unwrap_or_default();
+                let text = t.verse_view(*vi).map(|v| v.plain_text()).unwrap_or_default();
                 let start = kwic_start(&text, &hit_ranges(&text, query));
                 let w: f32 = ui.fonts_mut(|f| text[start..].chars().map(|c| f.glyph_width(&font, c)).sum());
                 if w + if start > 0 { 12.0 } else { 0.0 } <= width { 1 } else { 2 }
