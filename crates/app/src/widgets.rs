@@ -4,23 +4,39 @@ use eframe::egui::{
     self, Color32, CornerRadius, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, vec2,
 };
 
-use crate::theme::{self, metrics};
+use crate::theme::{self, Palette, metrics};
 
-/// A borderless toolbar button with a painted icon.
-pub fn icon_button(ui: &mut Ui, tooltip: &str, active: bool, paint: fn(&Painter, Rect, Color32)) -> Response {
+/// The fill behind a borderless button or row: fades in on hover, darker while pressed.
+pub fn hover_fill(ui: &Ui, resp: &Response, p: &Palette, on: bool) -> Option<Color32> {
+    if !ui.is_enabled() {
+        return None;
+    }
+    if resp.is_pointer_button_down_on() {
+        return Some(p.pressed);
+    }
+    let t = ui.ctx().animate_bool_with_time(resp.id.with("hover"), resp.hovered() || on, 0.1);
+    (t > 0.0).then(|| p.hover.gamma_multiply(t))
+}
+
+/// A borderless toolbar button with a painted icon. `on` marks a toggled-on state (accent icon).
+pub fn icon_button(
+    ui: &mut Ui,
+    p: &Palette,
+    tooltip: &str,
+    on: bool,
+    paint: fn(&Painter, Rect, Color32),
+) -> Response {
     let [w, h] = metrics::TOOLBAR_BUTTON;
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
-    let v = ui.visuals();
-    let enabled = ui.is_enabled();
-    if enabled && (resp.hovered() || active) {
-        ui.painter().rect_filled(rect, CornerRadius::same(6), v.widgets.hovered.bg_fill);
+    if let Some(fill) = hover_fill(ui, &resp, p, on) {
+        ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
     }
-    let color = if !enabled {
-        v.weak_text_color().gamma_multiply(0.5)
-    } else if active {
-        v.hyperlink_color
+    let color = if !ui.is_enabled() {
+        p.faint
+    } else if on {
+        p.accent
     } else {
-        v.text_color()
+        p.icon
     };
     paint(ui.painter(), Rect::from_center_size(rect.center(), Vec2::splat(metrics::ICON)), color);
     resp.on_hover_text(tooltip)
@@ -38,22 +54,20 @@ pub fn pill_width(ui: &Ui, text: &str) -> f32 {
 }
 
 /// A rounded, clickable label with a disclosure chevron (location and translation pickers).
-pub fn pill(ui: &mut Ui, text: &str, tooltip: &str) -> Response {
-    let font = theme::ui_medium(PILL_FONT);
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font, ui.visuals().text_color());
+pub fn pill(ui: &mut Ui, p: &Palette, text: &str, tooltip: &str) -> Response {
+    let galley = ui.painter().layout_no_wrap(text.to_string(), theme::ui_medium(PILL_FONT), p.text);
     let size = vec2(pill_width(ui, text), metrics::TOOLBAR_BUTTON[1]);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    let v = ui.visuals();
-    if resp.hovered() || resp.is_pointer_button_down_on() {
-        ui.painter().rect_filled(rect, CornerRadius::same(6), v.widgets.hovered.bg_fill);
+    if let Some(fill) = hover_fill(ui, &resp, p, false) {
+        ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
     }
-    let text_pos = egui::pos2(rect.left() + PILL_PAD, rect.center().y - galley.size().y / 2.0);
-    ui.painter().galley(text_pos, galley, v.text_color());
-    let r = Rect::from_center_size(
-        egui::pos2(rect.right() - PILL_PAD - PILL_CHEVRON / 2.0 + 3.0, rect.center().y),
-        vec2(10.0, 10.0),
+    let text_pos = egui::pos2(rect.left() + PILL_PAD, (rect.center().y - galley.size().y / 2.0).round());
+    ui.painter().galley(text_pos, galley, p.text);
+    let chevron = Rect::from_center_size(
+        egui::pos2(rect.right() - PILL_PAD - PILL_CHEVRON / 2.0 + 2.0, rect.center().y),
+        Vec2::splat(10.0),
     );
-    crate::icons::chevron_down(ui.painter(), r, v.weak_text_color());
+    crate::icons::chevron_down(ui.painter(), chevron, p.muted);
     resp.on_hover_text(tooltip)
 }
 
@@ -61,7 +75,7 @@ pub fn pill(ui: &mut Ui, text: &str, tooltip: &str) -> Response {
 pub fn segmented(ui: &mut Ui, labels: &[&str], selected: usize) -> Option<usize> {
     let mut out = None;
     let v = ui.visuals().clone();
-    let h = 26.0;
+    let h = 24.0;
     let w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
     ui.painter().rect_filled(rect, CornerRadius::same(7), v.widgets.hovered.bg_fill);
@@ -88,12 +102,7 @@ pub fn segmented(ui: &mut Ui, labels: &[&str], selected: usize) -> Option<usize>
     out
 }
 
-/// Muted section caption.
+/// A section caption, in the style of a macOS source list header.
 pub fn caption(ui: &mut Ui, text: &str) {
-    ui.label(
-        egui::RichText::new(text.to_uppercase())
-            .font(theme::ui_medium(10.5))
-            .color(ui.visuals().weak_text_color())
-            .extra_letter_spacing(0.8),
-    );
+    ui.label(egui::RichText::new(text).font(theme::ui_medium(11.5)).color(ui.visuals().weak_text_color()));
 }

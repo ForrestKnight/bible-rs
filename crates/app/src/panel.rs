@@ -66,7 +66,7 @@ impl VersePanel {
                         .color(p.text),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if widgets::icon_button(ui, "Close", false, crate::icons::close).clicked() {
+                    if widgets::icon_button(ui, p, "Close", false, crate::icons::close).clicked() {
                         close = true;
                     }
                 });

@@ -66,7 +66,13 @@ pub struct Palette {
     pub selection: Color32,
     /// Outline around selected verses (drawn over highlights, so colours never mix).
     pub selection_line: Color32,
+    /// Hover and press fills for borderless buttons and rows.
     pub hover: Color32,
+    pub pressed: Color32,
+    /// The selected row of a list (the current book).
+    pub row_selected: Color32,
+    /// Toolbar and sidebar icons: a little softer than text, as AppKit draws them.
+    pub icon: Color32,
     pub field: Color32,
     pub search_hit: Color32,
     pub flash: Color32,
@@ -105,6 +111,9 @@ pub static LIGHT: Palette = Palette {
     selection: rgba(0x6E8BC4, 34),
     selection_line: hex(0x6E8BC4),
     hover: hex(0xEBE6DB),
+    pressed: hex(0xE1DACC),
+    row_selected: hex(0xE8DFCF),
+    icon: hex(0x4A463D),
     field: hex(0xFFFFFF),
     search_hit: rgba(0xF2C94C, 150),
     flash: rgba(0xC9A25E, 90),
@@ -133,6 +142,9 @@ pub static SEPIA: Palette = Palette {
     selection: rgba(0x7D8FB0, 38),
     selection_line: hex(0x7486AA),
     hover: hex(0xE5D9BF),
+    pressed: hex(0xDBCDAE),
+    row_selected: hex(0xE2D3B4),
+    icon: hex(0x5C4A37),
     field: hex(0xFBF6EA),
     search_hit: rgba(0xE8B94A, 150),
     flash: rgba(0xC49A57, 100),
@@ -160,7 +172,10 @@ pub static DARK: Palette = Palette {
     red_letter: hex(0xEC7F72),
     selection: rgba(0x7F9BD8, 40),
     selection_line: hex(0x8FA9E0),
-    hover: hex(0x2A2A30),
+    hover: hex(0x2C2C32),
+    pressed: hex(0x36363D),
+    row_selected: hex(0x33302B),
+    icon: hex(0xC4C0B7),
     field: hex(0x26262B),
     search_hit: rgba(0xD9A93E, 110),
     flash: rgba(0xD2AE6D, 70),
@@ -335,7 +350,7 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
             (&mut w.noninteractive, p.page),
             (&mut w.inactive, rail),
             (&mut w.hovered, p.hover),
-            (&mut w.active, p.hover),
+            (&mut w.active, p.pressed),
             (&mut w.open, p.hover),
         ] {
             state.bg_fill = fill;

@@ -14,6 +14,11 @@ use crate::actions::{Action, ExportKind, SidebarTab};
 use crate::theme::{self, Theme};
 use crate::widgets;
 
+/// Source-list geometry: row highlights inset from the sidebar's edges, text further in.
+const ROW_INSET: f32 = 12.0;
+const TEXT_INSET: f32 = 20.0;
+const ROW_HEIGHT: f32 = 28.0;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum StudyTab {
     Bookmarks,
@@ -32,6 +37,8 @@ pub struct Sidebar {
     selected: usize,
     scroll_to_selected: bool,
     study_tab: StudyTab,
+    /// The book last scrolled into view in the Books list.
+    revealed: Option<BookId>,
 }
 
 impl Sidebar {
@@ -47,6 +54,7 @@ impl Sidebar {
             selected: 0,
             scroll_to_selected: false,
             study_tab: StudyTab::Bookmarks,
+            revealed: None,
         }
     }
 
@@ -78,8 +86,8 @@ impl Sidebar {
         location: (ChapterIdx, u8),
         actions: &mut Vec<Action>,
     ) {
-        ui.add_space(10.0);
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| {
+        ui.add_space(4.0);
+        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(ROW_INSET as i8, 0)).show(ui, |ui| {
             let idx = match tab {
                 SidebarTab::Books => 0,
                 SidebarTab::Search => 1,
@@ -115,42 +123,51 @@ impl Sidebar {
         let meta = library.get(translation).map(|e| e.meta.clone());
         let current_book = location.0.book();
         ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 0)).show(ui, |ui| {
+            egui::Frame::NONE.inner_margin(egui::Margin::symmetric(ROW_INSET as i8, 0)).show(ui, |ui| {
                 for (title, range) in
                     [("Old Testament", 0..FIRST_NT_BOOK.0), ("New Testament", FIRST_NT_BOOK.0..66)]
                 {
-                    ui.add_space(6.0);
+                    ui.add_space(if range.start == 0 { 4.0 } else { 16.0 });
                     ui.horizontal(|ui| {
-                        ui.add_space(6.0);
+                        ui.add_space(TEXT_INSET - ROW_INSET);
                         widgets::caption(ui, title);
                     });
                     ui.add_space(2.0);
+                    // Rows touch, like a source list's.
+                    ui.spacing_mut().item_spacing.y = 0.0;
                     for b in range.map(BookId) {
                         let name = meta
                             .as_ref()
                             .map(|m| m.book_short(b).to_string())
                             .unwrap_or_else(|| b.name().into());
                         let open = self.expanded == Some(b);
+                        let here = b == current_book;
                         let (rect, resp) =
-                            ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
-                        if resp.hovered() || open {
-                            ui.painter().rect_filled(rect, CornerRadius::same(6), p.hover);
+                            ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
+                        let fill =
+                            if here { Some(p.row_selected) } else { widgets::hover_fill(ui, &resp, p, open) };
+                        if let Some(fill) = fill {
+                            ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
                         }
-                        let color = if b == current_book { p.accent } else { p.text };
+                        let pad = TEXT_INSET - ROW_INSET;
                         ui.painter().text(
-                            rect.left_center() + vec2(10.0, 0.0),
+                            rect.left_center() + vec2(pad, 0.0),
                             egui::Align2::LEFT_CENTER,
                             &name,
-                            if b == current_book { theme::ui_medium(13.5) } else { theme::ui_font(13.5) },
-                            color,
+                            if here { theme::ui_medium(13.5) } else { theme::ui_font(13.5) },
+                            p.text,
                         );
                         ui.painter().text(
-                            rect.right_center() - vec2(10.0, 0.0),
+                            rect.right_center() - vec2(pad, 0.0),
                             egui::Align2::RIGHT_CENTER,
                             b.chapters().to_string(),
                             theme::ui_font(11.5),
-                            p.faint,
+                            if here { p.muted } else { p.faint },
                         );
+                        if here && self.revealed != Some(b) {
+                            self.revealed = Some(b);
+                            resp.scroll_to_me(Some(Align::Center));
+                        }
                         if resp.clicked() {
                             if b.chapters() == 1 {
                                 actions.push(Action::Jump {
@@ -163,8 +180,9 @@ impl Sidebar {
                             }
                         }
                         if open {
-                            chapter_grid(ui, b, location.0, theme, actions);
                             ui.add_space(4.0);
+                            chapter_grid(ui, b, location.0, theme, actions);
+                            ui.add_space(8.0);
                         }
                     }
                 }
@@ -192,7 +210,7 @@ impl Sidebar {
             return;
         };
         let mut jump_to: Option<u32> = None;
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(ROW_INSET as i8, 0)).show(ui, |ui| {
             let edit = egui::TextEdit::singleline(&mut self.query)
                 .hint_text("Search the Bible…  (\"exact phrase\", -exclude)")
                 .desired_width(f32::INFINITY)
@@ -267,7 +285,7 @@ impl Sidebar {
         }
         let query = Query::parse(&self.query, *whole_words);
         ui.add_space(6.0);
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(14, 0)).show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(TEXT_INSET as i8, 0)).show(ui, |ui| {
             let status = if self.query.trim().is_empty() {
                 "Type to search as you go".to_string()
             } else {
@@ -300,10 +318,11 @@ impl Sidebar {
                 let vi = results[i];
                 let Some(v) = t.verse_view(vi) else { continue };
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
-                if i == self.selected || resp.hovered() {
-                    ui.painter().rect_filled(rect.shrink2(vec2(6.0, 2.0)), CornerRadius::same(8), p.hover);
+                let fill = widgets::hover_fill(ui, &resp, p, i == self.selected);
+                if let Some(fill) = fill {
+                    ui.painter().rect_filled(rect.shrink2(vec2(ROW_INSET, 2.0)), CornerRadius::same(8), fill);
                 }
-                let inner = rect.shrink2(vec2(18.0, 8.0));
+                let inner = rect.shrink2(vec2(TEXT_INSET, 8.0));
                 let reference =
                     format!("{} {}:{}", t.meta.ref_name(v.chapter.book()), v.chapter.chapter(), v.number);
                 ui.painter().text(
@@ -343,7 +362,7 @@ impl Sidebar {
         let p = theme.palette();
         let t = library.load(translation).ok();
         let (nh, nn, nb) = study.counts();
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(ROW_INSET as i8, 0)).show(ui, |ui| {
             let labels = [format!("Bookmarks {nb}"), format!("Highlights {nh}"), format!("Notes {nn}")];
             let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
             let idx = match self.study_tab {
@@ -369,21 +388,24 @@ impl Sidebar {
         let list_h = (ui.available_height() - footer_h).max(80.0);
         ScrollArea::vertical().auto_shrink(false).max_height(list_h).id_salt("study-list").show(ui, |ui| {
             if items.is_empty() {
-                egui::Frame::NONE.inner_margin(egui::Margin::symmetric(16, 12)).show(ui, |ui| {
-                    let hint = match self.study_tab {
-                        StudyTab::Bookmarks => "No bookmarks yet. Select a verse and press B (or ⌘D).",
-                        StudyTab::Highlights => "No highlights yet. Select a verse and press 1–5.",
-                        StudyTab::Notes => "No notes yet. Select a verse and press N.",
-                    };
-                    ui.label(egui::RichText::new(hint).color(p.muted));
-                });
+                egui::Frame::NONE.inner_margin(egui::Margin::symmetric(TEXT_INSET as i8, 12)).show(
+                    ui,
+                    |ui| {
+                        let hint = match self.study_tab {
+                            StudyTab::Bookmarks => "No bookmarks yet. Select a verse and press B (or ⌘D).",
+                            StudyTab::Highlights => "No highlights yet. Select a verse and press 1–5.",
+                            StudyTab::Notes => "No notes yet. Select a verse and press N.",
+                        };
+                        ui.label(egui::RichText::new(hint).color(p.muted));
+                    },
+                );
             }
             for (v, swatch, extra) in items {
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
-                if resp.hovered() {
-                    ui.painter().rect_filled(rect.shrink2(vec2(6.0, 2.0)), CornerRadius::same(8), p.hover);
+                if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+                    ui.painter().rect_filled(rect.shrink2(vec2(ROW_INSET, 2.0)), CornerRadius::same(8), fill);
                 }
-                let inner = rect.shrink2(vec2(18.0, 8.0));
+                let inner = rect.shrink2(vec2(TEXT_INSET, 8.0));
                 let mut x = inner.left();
                 if let Some(c) = swatch {
                     ui.painter().circle_filled(egui::pos2(x + 5.0, inner.top() + 8.0), 5.0, c);
@@ -446,7 +468,7 @@ impl Sidebar {
         });
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            ui.add_space(12.0);
+            ui.add_space(ROW_INSET);
             if ui.button("Export Markdown…").clicked() {
                 actions.push(Action::Export(ExportKind::Markdown));
             }
@@ -528,12 +550,14 @@ pub fn snippet_job(text: &str, query: &Query, width: f32, theme: Theme) -> Layou
 fn chapter_grid(ui: &mut Ui, book: BookId, current: ChapterIdx, theme: Theme, actions: &mut Vec<Action>) {
     let p = theme.palette();
     let n = book.chapters() as usize;
-    let cols = ((ui.available_width() - 16.0) / 38.0).floor().max(4.0) as usize;
-    let size = vec2(34.0, 28.0);
+    let gap = 4.0;
+    // Columns of about 36 pt that span the row exactly, so the grid lines up with the rows.
+    let width = ui.available_width();
+    let cols = ((width + gap) / 40.0).floor().max(4.0) as usize;
+    let size = vec2((width - gap * (cols - 1) as f32) / cols as f32, ROW_HEIGHT);
     for row in 0..n.div_ceil(cols) {
         ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.spacing_mut().item_spacing.x = gap;
             for k in 0..cols {
                 let ch = row * cols + k + 1;
                 if ch > n {
@@ -542,16 +566,15 @@ fn chapter_grid(ui: &mut Ui, book: BookId, current: ChapterIdx, theme: Theme, ac
                 let idx = ChapterIdx::new(book, ch as u8).unwrap();
                 let (r, resp) = ui.allocate_exact_size(size, Sense::click());
                 let here = idx == current;
-                if here {
-                    ui.painter().rect_filled(r, CornerRadius::same(6), p.accent);
-                } else if resp.hovered() {
-                    ui.painter().rect_filled(r, CornerRadius::same(6), p.hover);
+                let fill = if here { Some(p.accent) } else { widgets::hover_fill(ui, &resp, p, false) };
+                if let Some(fill) = fill {
+                    ui.painter().rect_filled(r, CornerRadius::same(6), fill);
                 }
                 ui.painter().text(
                     r.center(),
                     egui::Align2::CENTER_CENTER,
                     ch.to_string(),
-                    theme::ui_font(12.5),
+                    if here { theme::ui_medium(12.5) } else { theme::ui_font(12.5) },
                     if here { p.page } else { p.text },
                 );
                 if resp.clicked() {
@@ -559,7 +582,7 @@ fn chapter_grid(ui: &mut Ui, book: BookId, current: ChapterIdx, theme: Theme, ac
                 }
             }
         });
-        ui.add_space(2.0);
+        ui.add_space(gap - ui.spacing().item_spacing.y);
     }
 }
 
