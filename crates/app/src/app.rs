@@ -238,6 +238,8 @@ pub struct BibleApp {
     onboarding: Option<crate::onboarding::Onboarding>,
     /// Importing a translation (frames 13–15).
     import_sheet: Option<crate::import_sheet::ImportSheet>,
+    /// The day the plan reminder last showed.
+    reminded: Option<i64>,
     /// The page in the main area (the reader unless a library or study page is open).
     pub pages: crate::pages::Pages,
     /// `BIBLE_RS_DEMO`: steps that put the window into a given state (screenshots), one per frame.
@@ -340,6 +342,7 @@ impl BibleApp {
             note_popover: None,
             onboarding,
             import_sheet: None,
+            reminded: None,
             pages: Default::default(),
             demo: std::env::var("BIBLE_RS_DEMO")
                 .map(|s| s.split(';').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
@@ -942,6 +945,32 @@ impl BibleApp {
 
     /// Saves settings (including the reading position) when they change, at most every 1.5 s
     /// so scrolling never waits on the database.
+    /// The daily plan reminder: once a day from 7:00, while a plan has today's reading to do.
+    fn plan_reminder(&mut self, ctx: &egui::Context) {
+        if !self.settings.plan_reminder || self.startup.frames < 3 {
+            return;
+        }
+        let now = bible_core::study::now();
+        let today = crate::time::day_start(now);
+        if self.reminded == Some(today) || now - today < 7 * 3600 {
+            return;
+        }
+        self.reminded = Some(today);
+        let due = self.study.plans().into_iter().filter(|p| p.finished.is_none()).find_map(|p| {
+            let plan = bible_core::plans::get(&p.id)?;
+            let day = ((today - p.started) / 86_400 + 1) as usize;
+            let reads = self.study.plan_reads(&p.id);
+            let todo = (0..plan.day(day).len()).any(|i| !reads.contains(&(day as u16, i as u8)));
+            todo.then(|| {
+                let name = |b: bible_core::BookId| b.ref_name().to_string();
+                format!("Today's reading: {}", bible_core::plans::label(plan.day(day), name))
+            })
+        });
+        if let Some(msg) = due {
+            self.toast(ctx, msg);
+        }
+    }
+
     fn persist(&mut self, ctx: &egui::Context, force: bool) {
         let now = ctx.input(|i| i.time);
         self.settings.chapter = self.reader.location.0.0;
@@ -1802,6 +1831,7 @@ impl eframe::App for BibleApp {
             }
         }
         self.shortcuts_help(&ctx);
+        self.plan_reminder(&ctx);
         self.toasts(&ctx);
         self.end_frame(&ctx, frame, frame_start, actions);
     }
