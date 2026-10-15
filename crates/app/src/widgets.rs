@@ -279,3 +279,183 @@ pub fn keycap_width(painter: &Painter, label: &str) -> f32 {
     let w = painter.layout_no_wrap(label.to_string(), theme::ui_medium(11.0), Color32::PLACEHOLDER).size().x;
     (w + 10.0).max(20.0).round()
 }
+
+/// A slider (`ds-14`): a 4 pt track in `fill_strong` with the active part in the accent, a 20 pt
+/// white knob with the knob shadow (a halo on hover, the focus ring while dragged), and optional
+/// ticks under the track. `rect` is the slider's 24 pt high box; returns whether the value changed.
+pub fn slider(
+    ui: &mut Ui,
+    p: &Palette,
+    rect: Rect,
+    id: egui::Id,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    step: f32,
+    ticks: usize,
+) -> bool {
+    let resp = ui.interact(rect, id, Sense::click_and_drag());
+    let (lo, hi) = (*range.start(), *range.end());
+    let track = Rect::from_min_max(
+        pos2(rect.left() + 10.0, rect.center().y - 2.0),
+        pos2(rect.right() - 10.0, rect.center().y + 2.0),
+    );
+    let mut changed = false;
+    if let Some(pos) = resp.interact_pointer_pos()
+        && (resp.dragged() || resp.clicked())
+    {
+        let t = ((pos.x - track.left()) / track.width()).clamp(0.0, 1.0);
+        let v = ((lo + t * (hi - lo)) / step).round() * step;
+        if (v - *value).abs() > f32::EPSILON {
+            *value = v.clamp(lo, hi);
+            changed = true;
+        }
+    }
+    let t = ((*value - lo) / (hi - lo)).clamp(0.0, 1.0);
+    let x = track.left() + t * track.width();
+    let painter = ui.painter();
+    painter.rect_filled(track, 2.0, p.fill_strong);
+    painter.rect_filled(Rect::from_min_max(track.min, pos2(x, track.bottom())), 2.0, p.accent);
+    if ticks > 1 {
+        for k in 0..ticks {
+            let tx = track.left() + track.width() * k as f32 / (ticks - 1) as f32;
+            painter.rect_filled(
+                Rect::from_min_size(pos2(tx - 1.0, rect.top() + 17.0), vec2(2.0, 4.0)),
+                1.0,
+                p.ink_3,
+            );
+        }
+    }
+    let knob = Rect::from_center_size(pos2(x, rect.center().y), vec2(20.0, 20.0));
+    if resp.dragged() || resp.has_focus() {
+        painter.circle_filled(knob.center(), 10.0 + 3.0, p.focus);
+    } else if resp.hovered() {
+        painter.circle_filled(knob.center(), 10.0 + 4.0, p.fill_strong);
+    }
+    p.shadows.knob.paint(painter, knob, 10.0);
+    painter.circle_filled(knob.center(), 10.0, Color32::WHITE);
+    changed
+}
+
+/// A switch (`ds-14`): 40 × 24, accent when on, `fill_strong` when off, a 20 pt white knob.
+/// Draws at `rect`'s right edge, centred vertically; returns the response.
+pub fn toggle(ui: &mut Ui, p: &Palette, right_center: egui::Pos2, id: egui::Id, on: &mut bool) -> Response {
+    let r = Rect::from_min_size(pos2(right_center.x - 40.0, right_center.y - 12.0), vec2(40.0, 24.0));
+    let resp = ui.interact(r, id, Sense::click());
+    if resp.clicked() {
+        *on = !*on;
+    }
+    let t = ui.ctx().animate_bool_with_time(id, *on, 0.12);
+    let track = if *on { p.accent } else { p.fill_strong };
+    ui.painter().rect_filled(r, 12.0, track);
+    if resp.hovered() {
+        ui.painter().rect_filled(r, 12.0, Color32::from_black_alpha(12));
+    }
+    let knob = Rect::from_center_size(pos2(r.left() + 12.0 + t * 16.0, r.center().y), vec2(20.0, 20.0));
+    p.shadows.knob.paint(ui.painter(), knob, 10.0);
+    ui.painter().circle_filled(knob.center(), 10.0, Color32::WHITE);
+    resp
+}
+
+/// A secondary button (`ds-07`): a 32 pt capsule in `raised` with the control shadow, 13 pt medium.
+pub fn secondary_button(ui: &mut Ui, p: &Palette, rect: Rect, label: &str, id: egui::Id) -> Response {
+    let resp = ui.interact(rect, id, Sense::click());
+    let r = rect.height() / 2.0;
+    p.shadows.control.paint(ui.painter(), rect, r);
+    ui.painter().rect_filled(rect, r, p.raised);
+    if let Some(fill) = hover_fill(ui, &resp, p, false) {
+        ui.painter().rect_filled(rect, r, fill);
+    }
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        theme::ui_medium(text::UI.size),
+        p.ink,
+    );
+    resp
+}
+
+/// Width of a [`secondary_button`] for `label` (14 pt either side).
+pub fn secondary_button_width(ui: &Ui, label: &str) -> f32 {
+    ui.painter().layout_no_wrap(label.into(), theme::ui_medium(text::UI.size), Color32::PLACEHOLDER).size().x
+        + 28.0
+}
+
+/// A pop-up button (`ds-14` select): the field colour, a hairline and soft drop, an optional
+/// leading glyph, the value and up-down chevrons.
+pub fn select_field(
+    ui: &mut Ui,
+    p: &Palette,
+    r: Rect,
+    value: &str,
+    icon: Option<fn(&Painter, Rect, Color32)>,
+    id: egui::Id,
+) -> Response {
+    let resp = ui.interact(r, id, Sense::click());
+    let painter = ui.painter();
+    painter.add(
+        eframe::epaint::RectShape::filled(r.translate(vec2(0.0, 1.0)), 8.0, Color32::from_black_alpha(15))
+            .with_blur_width(2.0),
+    );
+    painter.rect_filled(r, 8.0, if resp.hovered() { p.raised } else { p.field });
+    painter.rect_stroke(r, 8.0, Stroke::new(0.5, p.border), StrokeKind::Outside);
+    let cy = r.center().y;
+    let mut x = r.left() + 12.0;
+    if let Some(icon) = icon {
+        crate::icons::heavy(|| {
+            icon(painter, Rect::from_center_size(pos2(x + 8.0, cy), vec2(16.0, 16.0)), p.ink_2)
+        });
+        x += 16.0 + 8.0;
+    }
+    painter.text(pos2(x, cy), egui::Align2::LEFT_CENTER, value, text::UI.font(), p.ink);
+    crate::icons::heavy(|| {
+        crate::icons::chevrons_up_down(
+            painter,
+            Rect::from_center_size(pos2(r.right() - 8.0 - 8.0, cy), vec2(16.0, 16.0)),
+            p.ink_2,
+        )
+    });
+    resp
+}
+
+/// A segmented control sized to its labels (`ds-14`), right-aligned at `right_center`.
+/// Returns the newly selected index if it changed.
+pub fn segmented_fit(
+    ui: &mut Ui,
+    p: &Palette,
+    right_center: egui::Pos2,
+    id: egui::Id,
+    labels: &[&str],
+    selected: usize,
+) -> Option<usize> {
+    let font = text::UI_STRONG.font();
+    let widths: Vec<f32> = labels
+        .iter()
+        .map(|l| {
+            ui.painter().layout_no_wrap(l.to_string(), font.clone(), Color32::PLACEHOLDER).size().x + 26.0
+        })
+        .collect();
+    let total: f32 = widths.iter().sum::<f32>() + 4.0;
+    let track = Rect::from_min_size(pos2(right_center.x - total, right_center.y - 16.0), vec2(total, 32.0));
+    ui.painter().rect_filled(track, 16.0, p.fill);
+    let mut x = track.left() + 2.0;
+    let mut out = None;
+    for (i, (label, w)) in labels.iter().zip(widths).enumerate() {
+        let r = Rect::from_min_size(pos2(x, track.top() + 2.0), vec2(w, 28.0));
+        let resp = ui.interact(r, id.with(i), Sense::click());
+        if i == selected {
+            p.shadows.knob.paint(ui.painter(), r, 14.0);
+            ui.painter().rect_filled(r, 14.0, p.raised);
+        } else if let Some(fill) = hover_fill(ui, &resp, p, false) {
+            ui.painter().rect_filled(r, 14.0, fill);
+        }
+        let (f, c) =
+            if i == selected { (font.clone(), p.ink) } else { (theme::ui_medium(text::UI.size), p.ink_2) };
+        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, *label, f, c);
+        if resp.clicked() && i != selected {
+            out = Some(i);
+        }
+        x += w;
+    }
+    out
+}

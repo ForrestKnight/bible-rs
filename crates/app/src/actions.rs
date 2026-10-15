@@ -85,8 +85,11 @@ pub enum SidebarTab {
 pub enum SettingsTab {
     #[default]
     Reading,
+    Appearance,
     Translations,
+    Shortcuts,
     Data,
+    About,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -37,6 +37,22 @@ pub fn install_unified_toolbar(handle: &impl HasWindowHandle) {
     window.setTitlebarSeparatorStyle(NSTitlebarSeparatorStyle::None);
 }
 
+/// Gives the app's window titled `title` (another viewport, such as Settings) the same unified
+/// 52 pt title bar as the main window, once.
+pub fn unify_window_titled(title: &str) {
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+    for window in app.windows().iter() {
+        if window.title().to_string() == title && window.toolbar().is_none() {
+            let toolbar = NSToolbar::new(mtm);
+            toolbar.setAllowsUserCustomization(false);
+            window.setToolbar(Some(&toolbar));
+            window.setToolbarStyle(NSWindowToolbarStyle::Unified);
+            window.setTitlebarSeparatorStyle(NSTitlebarSeparatorStyle::None);
+        }
+    }
+}
+
 /// The traffic lights' bounding box in window points, measured from the top-left corner;
 /// `None` in full screen, where they are hidden.
 ///

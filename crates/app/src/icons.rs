@@ -343,6 +343,48 @@ pub fn trash(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(5.25, 5.5), (6.0, 16.25), (7.0, 17.2), (13.0, 17.2), (14.0, 16.25), (14.75, 5.5)]);
 }
 
+/// A sun (appearance).
+pub fn sun(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.circle(10.0, 10.0, 3.25);
+    for k in 0..8 {
+        let a = k as f32 * PI / 4.0;
+        g.line(&[(10.0 + 5.6 * a.cos(), 10.0 + 5.6 * a.sin()), (10.0 + 7.4 * a.cos(), 10.0 + 7.4 * a.sin())]);
+    }
+}
+
+/// A keyboard (shortcuts).
+pub fn keyboard(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.rect(2.25, 5.25, 15.5, 10.0, 2.0);
+    for (x0, x1, y) in [
+        (5.5, 6.0, 8.5),
+        (8.25, 8.75, 8.5),
+        (11.25, 11.75, 8.5),
+        (14.0, 14.5, 8.5),
+        (5.5, 6.0, 11.75),
+        (14.0, 14.5, 11.75),
+        (8.25, 11.75, 11.75),
+    ] {
+        g.line(&[(x0, y), (x1, y)]);
+    }
+}
+
+/// An inbox tray (data).
+pub fn tray(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.closed(&[(2.75, 11.25), (5.0, 4.75), (15.0, 4.75), (17.25, 11.25), (17.25, 15.25), (2.75, 15.25)]);
+    g.line(&[(2.75, 11.25), (6.75, 11.25), (7.75, 13.25), (12.25, 13.25), (13.25, 11.25), (17.25, 11.25)]);
+}
+
+/// An "i" in a circle (about).
+pub fn info(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.circle(10.0, 10.0, 7.25);
+    g.line(&[(10.0, 9.25), (10.0, 13.75)]);
+    g.dot(10.0, 6.45, 0.9);
+}
+
 pub fn ellipsis(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);
     for x in [5.0, 10.0, 15.0] {

@@ -34,6 +34,8 @@ pub struct Settings {
     pub typo: Typography,
     pub sidebar_open: bool,
     pub sidebar_tab: SidebarTab,
+    /// Follow the system's light or dark appearance instead of `theme`.
+    pub theme_system: bool,
     pub chapter: u16,
     pub verse: u8,
     pub whole_words: bool,
@@ -49,6 +51,7 @@ impl Default for Settings {
             typo: Typography::default(),
             sidebar_open: false,
             sidebar_tab: SidebarTab::Books,
+            theme_system: false,
             // John 1 is a friendlier first page than Genesis 1.
             chapter: ChapterIdx::new(BookId(42), 1).unwrap().0,
             verse: 1,
@@ -90,6 +93,46 @@ pub fn initialize(data_dir: PathBuf, notify: Arc<dyn Fn() + Send + Sync>) -> Res
     let _ = library.load(&settings.translation);
     Ok(Init { data_dir, study, library, settings, elapsed: t.elapsed() })
 }
+
+/// Every keyboard shortcut, by group (the help overlay and Settings → Shortcuts).
+pub const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
+    (
+        "Navigate",
+        &[
+            ("⌘K", "Jump to a reference (\"jn 3:16\", \"Rom 8\")"),
+            ("← / →", "Previous / next chapter"),
+            ("↑ ↓ Space", "Scroll"),
+            ("⌘[ / ⌘]", "Back / forward"),
+            ("⌘F or /", "Search"),
+            ("⌘B", "Books & study sidebar"),
+        ],
+    ),
+    (
+        "Verses",
+        &[
+            ("Click, ⇧-click", "Select a verse / range"),
+            ("J / K", "Select next / previous verse"),
+            ("1–6, 0", "Highlight colour, remove"),
+            ("N", "Note"),
+            ("B or ⌘D", "Bookmark"),
+            ("⌘C, ⇧⌘C", "Copy, copy with reference"),
+            ("Right-click", "Verse menu"),
+            ("C", "Compare translations"),
+        ],
+    ),
+    (
+        "View",
+        &[
+            ("⌘1…⌘9", "Switch translation"),
+            ("⌘⇧P", "Parallel translations"),
+            ("⌘+ / ⌘− / ⌘0", "Text size"),
+            ("⌘L", "Paragraphs / verse per line"),
+            ("⌘R", "Red letters"),
+            ("⌘⇧L", "Light / sepia / dark"),
+            ("⌘,", "Settings"),
+        ],
+    ),
+];
 
 /// Back/forward navigation history.
 #[derive(Default)]
@@ -1155,44 +1198,7 @@ impl BibleApp {
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
             .frame(Frame::window(&ctx.style_of(ctx.theme())).fill(p.surface))
             .show(ctx, |ui| {
-                let groups: &[(&str, &[(&str, &str)])] = &[
-                    (
-                        "Navigate",
-                        &[
-                            ("⌘K", "Jump to a reference (\"jn 3:16\", \"Rom 8\")"),
-                            ("← / →", "Previous / next chapter"),
-                            ("↑ ↓ Space", "Scroll"),
-                            ("⌘[ / ⌘]", "Back / forward"),
-                            ("⌘F or /", "Search"),
-                            ("⌘B", "Books & study sidebar"),
-                        ],
-                    ),
-                    (
-                        "Verses",
-                        &[
-                            ("Click, ⇧-click", "Select a verse / range"),
-                            ("J / K", "Select next / previous verse"),
-                            ("1–6, 0", "Highlight colour, remove"),
-                            ("N", "Note"),
-                            ("B or ⌘D", "Bookmark"),
-                            ("⌘C, ⇧⌘C", "Copy, copy with reference"),
-                            ("Right-click", "Verse menu"),
-                            ("C", "Compare translations"),
-                        ],
-                    ),
-                    (
-                        "View",
-                        &[
-                            ("⌘1…⌘9", "Switch translation"),
-                            ("⌘⇧P", "Parallel translations"),
-                            ("⌘+ / ⌘− / ⌘0", "Text size"),
-                            ("⌘L", "Paragraphs / verse per line"),
-                            ("⌘R", "Red letters"),
-                            ("⌘⇧L", "Light / sepia / dark"),
-                            ("⌘,", "Settings"),
-                        ],
-                    ),
-                ];
+                let groups = SHORTCUTS;
                 ui.horizontal_top(|ui| {
                     for (title, rows) in groups {
                         ui.vertical(|ui| {
@@ -1316,6 +1322,12 @@ impl eframe::App for BibleApp {
         {
             self.demo_step(&step, &mut actions);
             ctx.request_repaint();
+        }
+        if self.settings.theme_system {
+            let t = if ctx.system_theme() == Some(egui::Theme::Dark) { Theme::Dark } else { Theme::Light };
+            if t != self.settings.theme {
+                actions.push(Action::SetTheme(t));
+            }
         }
         let p = self.settings.theme.palette();
 

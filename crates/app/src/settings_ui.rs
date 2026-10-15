@@ -1,4 +1,6 @@
-//! Settings window (reading, translations & API keys, data) and the toolbar's text popover.
+//! The Settings window (frame 09 in the design): Reading, Appearance, Translations, Shortcuts,
+//! Data and About, as icon tabs under a 52 pt title bar. It is a window of its own; when the app
+//! renders offscreen (screenshots) it fills the main window instead.
 
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
@@ -8,13 +10,34 @@ use bible_core::model::Origin;
 use bible_core::online::apibible::RemoteBible;
 use bible_core::online::{OnlineConfig, ProviderKind};
 use bible_core::study::StudyStore;
-use eframe::egui::{self, Align2, Frame, Key, RichText, ScrollArea, Ui, vec2};
+use eframe::egui::text::{LayoutJob, TextFormat, TextWrapping};
+use eframe::egui::{
+    self, Align2, Color32, FontId, Painter, Rect, RichText, ScrollArea, Sense, Stroke, Ui, pos2, vec2,
+};
 
 use crate::actions::{Action, ExportKind, SettingsTab};
 use crate::app::{Settings, TaskResult};
+use crate::icons;
 use crate::reader::layout::{Mode, Typography};
-use crate::theme::{self, Theme};
+use crate::theme::{self, Palette, Theme, text};
 use crate::widgets;
+
+/// The window's width, its title bar and its tab strip (icon tabs 76 × 52, 12 pt below).
+const WIDTH: f32 = 720.0;
+const TITLE_BAR: f32 = 52.0;
+const HEADER: f32 = TITLE_BAR + 52.0 + 12.0;
+const MARGIN: f32 = 32.0;
+
+type IconFn = fn(&Painter, Rect, Color32);
+
+const TABS: [(SettingsTab, &str, IconFn); 6] = [
+    (SettingsTab::Reading, "Reading", icons::text_size),
+    (SettingsTab::Appearance, "Appearance", icons::sun),
+    (SettingsTab::Translations, "Translations", icons::book),
+    (SettingsTab::Shortcuts, "Shortcuts", icons::keyboard),
+    (SettingsTab::Data, "Data", icons::tray),
+    (SettingsTab::About, "About", icons::info),
+];
 
 pub struct SettingsUi {
     tab: SettingsTab,
@@ -48,7 +71,11 @@ impl SettingsUi {
         self.bibles = Some(r);
     }
 
-    /// Returns `false` once closed.
+    fn title(&self) -> &'static str {
+        TABS.iter().find(|(t, _, _)| *t == self.tab).map_or("Settings", |(_, l, _)| l)
+    }
+
+    /// Shows the window; returns `false` once it is closed.
     #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
@@ -60,37 +87,145 @@ impl SettingsUi {
         tx: &Sender<TaskResult>,
         import: &mut Option<(PathBuf, Option<String>)>,
     ) -> bool {
-        let mut open = true;
-        let p = settings.theme.palette();
-        egui::Window::new("Settings")
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(true)
-            .default_size(vec2(700.0, 700.0))
-            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-            .frame(Frame::window(&ctx.style_of(ctx.theme())).fill(p.surface))
-            .show(ctx, |ui| {
-                let idx = match self.tab {
-                    SettingsTab::Reading => 0,
-                    SettingsTab::Translations => 1,
-                    SettingsTab::Data => 2,
-                };
-                if let Some(i) = widgets::segmented(ui, p, &["Reading", "Translations", "Data"], idx) {
-                    self.tab = [SettingsTab::Reading, SettingsTab::Translations, SettingsTab::Data][i];
-                }
-                ui.add_space(10.0);
-                ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match self.tab {
-                    SettingsTab::Reading => reading(ui, settings, actions),
-                    SettingsTab::Translations => {
-                        self.translations(ui, library, settings, actions, tx, import)
-                    }
-                    SettingsTab::Data => data(ui, library, study, actions),
+        if crate::offscreen() {
+            // A screenshot of the window: fill the main window with it.
+            let screen = ctx.content_rect();
+            egui::Area::new(egui::Id::new("settings-offscreen"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(screen.min)
+                .show(ctx, |ui| {
+                    ui.set_min_size(screen.size());
+                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(screen));
+                    self.window(&mut child, library, settings, study, actions, tx, import);
                 });
-            });
-        if ctx.input(|i| i.key_pressed(Key::Escape)) && !ctx.egui_wants_keyboard_input() {
-            open = false;
+            return true;
         }
+        let mut open = true;
+        let mut builder = egui::ViewportBuilder::default()
+            .with_title("Settings")
+            .with_inner_size([WIDTH, 860.0])
+            .with_min_inner_size([WIDTH, 420.0])
+            .with_max_inner_size([WIDTH, 4000.0]);
+        if cfg!(target_os = "macos") {
+            builder =
+                builder.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
+        }
+        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("settings"), builder, |ui, _class| {
+            #[cfg(target_os = "macos")]
+            crate::macos_window::unify_window_titled("Settings");
+            if ui.ctx().input(|i| i.viewport().close_requested() || i.key_pressed(egui::Key::Escape))
+                && !ui.ctx().egui_wants_keyboard_input()
+            {
+                open = false;
+            }
+            if ui.ctx().input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::W)) {
+                open = false;
+            }
+            let rect = ui.max_rect();
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+            self.window(&mut child, library, settings, study, actions, tx, import);
+        });
         open
+    }
+
+    /// The window's content: title bar, tabs, then the tab's settings.
+    #[allow(clippy::too_many_arguments)]
+    fn window(
+        &mut self,
+        ui: &mut Ui,
+        library: &mut Library,
+        settings: &mut Settings,
+        study: &StudyStore,
+        actions: &mut Vec<Action>,
+        tx: &Sender<TaskResult>,
+        import: &mut Option<(PathBuf, Option<String>)>,
+    ) {
+        let p = settings.theme.palette();
+        let rect = ui.max_rect();
+        ui.painter().rect_filled(rect, 0.0, p.sidebar);
+        // Header: the title over the tabs, in the toolbar material with a hairline.
+        let header = Rect::from_min_size(rect.min, vec2(rect.width(), HEADER));
+        ui.painter().rect_filled(header, 0.0, p.paper);
+        ui.painter().rect_filled(header, 0.0, p.toolbar);
+        ui.painter().hline(header.x_range(), header.bottom() - 0.5, Stroke::new(1.0, p.separator));
+        ui.painter().text(
+            pos2(header.center().x, rect.top() + TITLE_BAR / 2.0),
+            Align2::CENTER_CENTER,
+            self.title(),
+            text::UI_STRONG.font(),
+            p.ink,
+        );
+        let tabs_w = TABS.len() as f32 * 76.0 + (TABS.len() - 1) as f32 * 4.0;
+        let mut x = header.center().x - tabs_w / 2.0;
+        for (tab, label, icon) in TABS {
+            let r = Rect::from_min_size(pos2(x, rect.top() + TITLE_BAR), vec2(76.0, 52.0));
+            let resp = ui.interact(r, ui.id().with(("settings-tab", label)), Sense::click());
+            let on = self.tab == tab;
+            if on {
+                ui.painter().rect_filled(r, 10.0, p.accent_soft);
+            } else if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+                ui.painter().rect_filled(r, 10.0, fill);
+            }
+            let top = r.top() + (52.0 - 38.0) / 2.0;
+            icon(
+                ui.painter(),
+                Rect::from_min_size(pos2(r.center().x - 10.0, top), vec2(20.0, 20.0)),
+                if on { p.accent } else { p.ink_2 },
+            );
+            let (font, color) =
+                if on { (theme::ui_semibold(11.0), p.accent) } else { (theme::ui_medium(11.0), p.ink_2) };
+            ui.painter().text(
+                pos2(r.center().x, top + 20.0 + 2.0 + 8.0),
+                Align2::CENTER_CENTER,
+                label,
+                font,
+                color,
+            );
+            if resp.clicked() {
+                self.tab = tab;
+            }
+            x += 76.0 + 4.0;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            // The title bar moves the window; the tabs don't (see `macos_window::NoDragAreas`).
+        }
+
+        let body = Rect::from_min_max(pos2(rect.left(), header.bottom()), rect.max);
+        let mut child = ui.new_child(
+            egui::UiBuilder::new().max_rect(body).layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        child.set_clip_rect(body);
+        ScrollArea::vertical().auto_shrink(false).id_salt(("settings", self.title())).show(
+            &mut child,
+            |ui| {
+                egui::Frame::NONE
+                    .inner_margin(egui::Margin {
+                        left: MARGIN as i8,
+                        right: MARGIN as i8,
+                        top: 24,
+                        bottom: 32,
+                    })
+                    .show(ui, |ui| {
+                        ui.set_width(body.width() - 2.0 * MARGIN);
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        match self.tab {
+                            SettingsTab::Reading => reading(ui, library, settings, actions),
+                            SettingsTab::Appearance => appearance(ui, settings, actions),
+                            SettingsTab::Translations => {
+                                ui.spacing_mut().item_spacing.y = 6.0;
+                                self.translations(ui, library, settings, actions, tx, import)
+                            }
+                            SettingsTab::Shortcuts => shortcuts(ui, p),
+                            SettingsTab::Data => {
+                                ui.spacing_mut().item_spacing.y = 6.0;
+                                data(ui, library, study, actions)
+                            }
+                            SettingsTab::About => about(ui, p),
+                        }
+                    });
+            },
+        );
     }
 
     fn translations(
@@ -334,55 +469,429 @@ impl SettingsUi {
     }
 }
 
-fn reading(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
+/// A group: a 13 pt semibold title, then its content 8 pt below; groups are 24 pt apart.
+fn group_title(ui: &mut Ui, p: &Palette, title: &str) {
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+    ui.painter().text(r.left_center(), Align2::LEFT_CENTER, title, text::UI_STRONG.font(), p.ink);
+    ui.add_space(8.0);
+}
+
+/// A card of rows (`ds-14` form group): the surface colour with a hairline ring, radius 12; rows
+/// are at least 44 pt, separated by hairlines inset 16 pt.
+fn rows_card(ui: &mut Ui, p: &Palette, rows: &[f32], mut row: impl FnMut(&mut Ui, usize, Rect)) {
+    let width = ui.available_width();
+    let height: f32 = rows.iter().sum::<f32>() + (rows.len().saturating_sub(1)) as f32;
+    let (card, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    ui.painter().rect_filled(card, 12.0, p.surface);
+    ui.painter().rect_stroke(card, 12.0, Stroke::new(0.5, p.border), egui::StrokeKind::Outside);
+    let mut y = card.top();
+    for (i, h) in rows.iter().enumerate() {
+        if i > 0 {
+            ui.painter().hline(card.left() + 16.0..=card.right(), y + 0.5, Stroke::new(1.0, p.separator));
+            y += 1.0;
+        }
+        row(ui, i, Rect::from_min_size(pos2(card.left(), y), vec2(width, *h)));
+        y += h;
+    }
+}
+
+/// A row's label (13 pt) and optional detail (12 pt tertiary) at the row's left.
+fn row_label(ui: &Ui, p: &Palette, r: Rect, label: &str, detail: Option<&str>) {
+    let x = r.left() + 16.0;
+    match detail {
+        None => {
+            ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, label, text::UI.font(), p.ink);
+        }
+        Some(d) => {
+            ui.painter().text(
+                pos2(x, r.center().y - 8.0),
+                Align2::LEFT_CENTER,
+                label,
+                text::UI.font(),
+                p.ink,
+            );
+            ui.painter().text(
+                pos2(x, r.center().y + 10.0),
+                Align2::LEFT_CENTER,
+                d,
+                text::SMALL.font(),
+                p.ink_3,
+            );
+        }
+    }
+}
+
+/// Line length shown in characters; stored as the measure in ems (66 characters ≈ 32 em).
+const CHARS_PER_EM: f32 = 66.0 / 32.0;
+
+fn reading(ui: &mut Ui, library: &Library, settings: &mut Settings, actions: &mut Vec<Action>) {
     let p = settings.theme.palette();
-    widgets::caption(ui, "Theme");
-    ui.horizontal(|ui| {
-        for t in Theme::ALL {
-            if ui.selectable_label(settings.theme == t, t.label()).clicked() {
-                actions.push(Action::SetTheme(t));
+
+    // Preview: John 1:1–2 as the reader would set it.
+    let typo = settings.typo.clone();
+    let width = ui.available_width();
+    let inner = width - 48.0;
+    let (v1, v2) = library
+        .load(&settings.translation)
+        .ok()
+        .map(|t| {
+            let get = |v| {
+                t.find(bible_core::VerseRef::new(bible_core::BookId(42), 1, v))
+                    .map(|v| v.plain_text())
+                    .unwrap_or_default()
+            };
+            (get(1), get(2))
+        })
+        .unwrap_or_default();
+    let lh = (typo.size * typo.line_height).round();
+    let mut job = LayoutJob::default();
+    let body = TextFormat {
+        font_id: FontId::new(typo.size, theme::family(theme::SERIF)),
+        color: p.ink,
+        line_height: Some(lh),
+        ..Default::default()
+    };
+    if typo.verse_numbers {
+        job.append(
+            "1\u{a0}",
+            0.0,
+            TextFormat {
+                font_id: FontId::new((typo.size * 0.55).round(), theme::family(theme::UI_SEMIBOLD)),
+                color: p.verse,
+                line_height: Some(lh),
+                valign: egui::Align::TOP,
+                ..Default::default()
+            },
+        );
+    }
+    job.append(&format!("{v1} {v2}"), 0.0, body);
+    job.wrap =
+        TextWrapping { max_width: inner.min(typo.size * typo.measure), max_rows: 4, ..Default::default() };
+    job.justify = typo.justify;
+    let galley = ui.painter().layout_job(job);
+    let card_h = 16.0 + 16.0 + 8.0 + galley.size().y + 20.0;
+    let (card, _) = ui.allocate_exact_size(vec2(width, card_h), Sense::hover());
+    ui.painter().rect_filled(card, 12.0, p.paper);
+    ui.painter().rect_stroke(card, 12.0, Stroke::new(0.5, p.border), egui::StrokeKind::Outside);
+    let label_font = theme::ui_semibold(text::LABEL.size);
+    let mut label = LayoutJob::single_section(
+        "JOHN 1".into(),
+        TextFormat {
+            font_id: label_font,
+            color: p.accent,
+            extra_letter_spacing: 0.12 * 11.0,
+            ..Default::default()
+        },
+    );
+    label.wrap.max_width = f32::INFINITY;
+    let lg = ui.painter().layout_job(label);
+    ui.painter().galley(
+        pos2(card.left() + 24.0, card.top() + 16.0 + (16.0 - lg.size().y) / 2.0),
+        lg,
+        p.accent,
+    );
+    ui.painter().galley(pos2(card.left() + 24.0, card.top() + 16.0 + 16.0 + 8.0), galley, p.ink);
+    ui.add_space(8.0);
+    let (r, _) = ui.allocate_exact_size(vec2(width, 16.0), Sense::hover());
+    ui.painter().text(
+        pos2(r.left() + 8.0, r.center().y),
+        Align2::LEFT_CENTER,
+        "Preview updates as you change settings.",
+        text::SMALL.font(),
+        p.ink_3,
+    );
+    ui.add_space(24.0);
+
+    // Theme cards.
+    group_title(ui, p, "Theme");
+    theme_cards(ui, settings, actions);
+    ui.add_space(24.0);
+
+    // Text.
+    group_title(ui, p, "Text");
+    let typo = &mut settings.typo;
+    rows_card(ui, p, &[44.0, 44.0, 44.0, 44.0], |ui, i, r| {
+        let right = r.right() - 16.0;
+        let cy = r.center().y;
+        match i {
+            0 => {
+                row_label(ui, p, r, "Font", None);
+                let field = Rect::from_min_size(pos2(right - 220.0, cy - 16.0), vec2(220.0, 32.0));
+                let resp = widgets::select_field(ui, p, field, "Literata", None, ui.id().with("font"));
+                egui::Popup::menu(&resp).show(|ui| {
+                    let _ = ui.selectable_label(true, "Literata");
+                });
+            }
+            1 => {
+                row_label(ui, p, r, "Size", None);
+                let value = format!("{:.0} pt", typo.size);
+                ui.painter().text(
+                    pos2(right, cy),
+                    Align2::RIGHT_CENTER,
+                    value,
+                    theme::ui_medium(text::UI.size),
+                    p.ink_2,
+                );
+                let big_a = right - 44.0 - 12.0;
+                ui.painter().text(
+                    pos2(big_a, cy),
+                    Align2::RIGHT_CENTER,
+                    "A",
+                    FontId::new(19.0, theme::family(theme::SERIF)),
+                    p.ink_2,
+                );
+                let slider =
+                    Rect::from_min_size(pos2(big_a - 12.0 - 12.0 - 200.0, cy - 12.0), vec2(200.0, 24.0));
+                ui.painter().text(
+                    pos2(slider.left() - 12.0, cy),
+                    Align2::RIGHT_CENTER,
+                    "A",
+                    FontId::new(13.0, theme::family(theme::SERIF)),
+                    p.ink_2,
+                );
+                widgets::slider(ui, p, slider, ui.id().with("size"), &mut typo.size, 14.0..=32.0, 1.0, 7);
+            }
+            2 => {
+                row_label(ui, p, r, "Line spacing", None);
+                let value = format!("{}", (typo.line_height * 100.0).round() / 100.0);
+                ui.painter().text(
+                    pos2(right, cy),
+                    Align2::RIGHT_CENTER,
+                    value,
+                    theme::ui_medium(text::UI.size),
+                    p.ink_2,
+                );
+                let slider =
+                    Rect::from_min_size(pos2(right - 44.0 - 12.0 - 256.0, cy - 12.0), vec2(256.0, 24.0));
+                widgets::slider(
+                    ui,
+                    p,
+                    slider,
+                    ui.id().with("spacing"),
+                    &mut typo.line_height,
+                    1.3..=2.0,
+                    0.05,
+                    0,
+                );
+            }
+            _ => {
+                row_label(ui, p, r, "Line length", None);
+                let mut chars = (typo.measure * CHARS_PER_EM).round();
+                let value = format!("{chars:.0} ch");
+                ui.painter().text(
+                    pos2(right, cy),
+                    Align2::RIGHT_CENTER,
+                    value,
+                    theme::ui_medium(text::UI.size),
+                    p.ink_2,
+                );
+                let slider =
+                    Rect::from_min_size(pos2(right - 44.0 - 12.0 - 256.0, cy - 12.0), vec2(256.0, 24.0));
+                if widgets::slider(ui, p, slider, ui.id().with("length"), &mut chars, 45.0..=90.0, 1.0, 0) {
+                    typo.measure = chars / CHARS_PER_EM;
+                }
             }
         }
     });
-    ui.add_space(10.0);
-    widgets::caption(ui, "Text");
-    let typo = &mut settings.typo;
-    egui::Grid::new("typo").num_columns(2).spacing(vec2(16.0, 10.0)).show(ui, |ui| {
-        ui.label("Size");
-        ui.add(egui::Slider::new(&mut typo.size, 12.0..=34.0).step_by(1.0).suffix(" pt"));
-        ui.end_row();
-        ui.label("Line spacing");
-        ui.add(egui::Slider::new(&mut typo.line_height, 1.3..=2.1).step_by(0.02));
-        ui.end_row();
-        ui.label("Line length");
-        ui.add(egui::Slider::new(&mut typo.measure, 24.0..=52.0).step_by(1.0).suffix(" em"));
-        ui.end_row();
-        ui.label("Layout");
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut typo.mode, Mode::Paragraph, "Paragraphs");
-            ui.selectable_value(&mut typo.mode, Mode::VersePerLine, "Verse per line");
-        });
-        ui.end_row();
-        ui.label("Show");
-        ui.vertical(|ui| {
-            ui.checkbox(&mut typo.red_letters, "Words of Christ in red");
-            ui.checkbox(&mut typo.verse_numbers, "Verse numbers");
-            ui.checkbox(&mut typo.headings, "Section headings");
-            ui.checkbox(&mut typo.justify, "Justify paragraphs");
-        });
-        ui.end_row();
+    ui.add_space(24.0);
+
+    // Layout.
+    group_title(ui, p, "Layout");
+    let mut red = typo.red_letters;
+    rows_card(ui, p, &[44.0, 48.0, 44.0, 48.0, 44.0], |ui, i, r| {
+        let right = pos2(r.right() - 16.0, r.center().y);
+        match i {
+            0 => {
+                row_label(ui, p, r, "Verses", None);
+                let selected = usize::from(typo.mode == Mode::VersePerLine);
+                if let Some(k) = widgets::segmented_fit(
+                    ui,
+                    p,
+                    right,
+                    ui.id().with("verses"),
+                    &["Paragraphs", "Verse per line"],
+                    selected,
+                ) {
+                    typo.mode = if k == 0 { Mode::Paragraph } else { Mode::VersePerLine };
+                }
+            }
+            1 => {
+                row_label(ui, p, r, "Words of Christ in red", Some("⌘R"));
+                widgets::toggle(ui, p, right, ui.id().with("red"), &mut red);
+            }
+            2 => {
+                row_label(ui, p, r, "Verse numbers", None);
+                widgets::toggle(ui, p, right, ui.id().with("numbers"), &mut typo.verse_numbers);
+            }
+            3 => {
+                row_label(ui, p, r, "Section headings", Some("Where the translation has them (BSB, WEB)"));
+                widgets::toggle(ui, p, right, ui.id().with("headings"), &mut typo.headings);
+            }
+            _ => {
+                row_label(ui, p, r, "Justify text", None);
+                widgets::toggle(ui, p, right, ui.id().with("justify"), &mut typo.justify);
+            }
+        }
     });
-    ui.add_space(6.0);
-    if ui.button("Reset text settings").clicked() {
+    typo.red_letters = red;
+    ui.add_space(24.0);
+
+    // Footer: the fonts' licence, and a reset.
+    let (r, _) = ui.allocate_exact_size(vec2(width, 32.0), Sense::hover());
+    ui.painter().text(
+        r.left_center(),
+        Align2::LEFT_CENTER,
+        "Literata and Inter are bundled under the SIL Open Font License.",
+        text::SMALL.font(),
+        p.ink_3,
+    );
+    let label = "Reset to Defaults";
+    let w = widgets::secondary_button_width(ui, label);
+    let b = Rect::from_min_size(pos2(r.right() - w, r.top()), vec2(w, 32.0));
+    if widgets::secondary_button(ui, p, b, label, ui.id().with("reset")).clicked() {
         *typo = Typography::default();
     }
+}
+
+/// The four theme cards: Light, Sepia, Dark, Match System (`ds-14` theme picker).
+fn theme_cards(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
+    let p = settings.theme.palette();
+    let width = ui.available_width();
+    let (row, _) = ui.allocate_exact_size(vec2(width, 108.0), Sense::hover());
+    let gap = (width - 4.0 * 136.0) / 3.0;
+    let options: [(Option<Theme>, &str); 4] = [
+        (Some(Theme::Light), "Light"),
+        (Some(Theme::Sepia), "Sepia"),
+        (Some(Theme::Dark), "Dark"),
+        (None, "Match System"),
+    ];
+    for (i, (t, label)) in options.into_iter().enumerate() {
+        let card =
+            Rect::from_min_size(pos2(row.left() + i as f32 * (136.0 + gap), row.top()), vec2(136.0, 84.0));
+        let resp = ui.interact(
+            card.union(Rect::from_min_size(card.left_bottom(), vec2(136.0, 24.0))),
+            ui.id().with(("theme", i)),
+            Sense::click(),
+        );
+        let on = match t {
+            Some(t) => !settings.theme_system && settings.theme == t,
+            None => settings.theme_system,
+        };
+        if on {
+            ui.painter().rect_filled(card.expand(5.0), 15.0, p.focus);
+            ui.painter().rect_filled(card.expand(2.0), 12.0, p.accent);
+        } else if resp.hovered() {
+            ui.painter().rect_filled(card.expand(3.0), 13.0, p.fill_strong);
+        }
+        match t {
+            Some(t) => {
+                let tp = t.palette();
+                ui.painter().rect_filled(card, 10.0, tp.paper);
+                let strip = Rect::from_min_size(card.min, vec2(28.0, card.height()));
+                ui.painter().rect_filled(
+                    strip,
+                    egui::CornerRadius { nw: 10, sw: 10, ne: 0, se: 0 },
+                    tp.sidebar,
+                );
+                let x = strip.right() + 12.0;
+                ui.painter().text(
+                    pos2(x, card.top() + 10.0 + 10.0),
+                    Align2::LEFT_CENTER,
+                    "Aa",
+                    FontId::new(15.0, theme::family(theme::SERIF)),
+                    tp.ink,
+                );
+                for (k, w) in [64.0, 72.0, 56.0].into_iter().enumerate() {
+                    let y = card.top() + 10.0 + 20.0 + 6.0 + k as f32 * 10.0;
+                    ui.painter().rect_filled(
+                        Rect::from_min_size(pos2(x, y), vec2(w, 4.0)),
+                        2.0,
+                        tp.ink.gamma_multiply(0.55),
+                    );
+                }
+            }
+            None => {
+                let half = card.width() / 2.0;
+                ui.painter().rect_filled(
+                    Rect::from_min_size(card.min, vec2(half, card.height())),
+                    egui::CornerRadius { nw: 10, sw: 10, ne: 0, se: 0 },
+                    crate::theme::LIGHT.paper,
+                );
+                ui.painter().rect_filled(
+                    Rect::from_min_size(pos2(card.left() + half, card.top()), vec2(half, card.height())),
+                    egui::CornerRadius { nw: 0, sw: 0, ne: 10, se: 10 },
+                    crate::theme::DARK.paper,
+                );
+            }
+        }
+        ui.painter().rect_stroke(card, 10.0, Stroke::new(0.5, p.border), egui::StrokeKind::Outside);
+        let (font, color) =
+            if on { (theme::ui_semibold(text::SMALL.size), p.accent) } else { (text::SMALL.font(), p.ink_2) };
+        ui.painter().text(
+            pos2(card.center().x, card.bottom() + 8.0 + 8.0),
+            Align2::CENTER_CENTER,
+            label,
+            font,
+            color,
+        );
+        if resp.clicked() {
+            match t {
+                Some(t) => {
+                    settings.theme_system = false;
+                    actions.push(Action::SetTheme(t));
+                }
+                None => settings.theme_system = true,
+            }
+        }
+    }
+}
+
+/// Appearance (frame 24 refines it): the theme.
+fn appearance(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
+    let p = settings.theme.palette();
+    group_title(ui, p, "Theme");
+    theme_cards(ui, settings, actions);
+}
+
+/// Every keyboard shortcut, by group.
+fn shortcuts(ui: &mut Ui, p: &Palette) {
+    for (title, rows) in crate::app::SHORTCUTS {
+        group_title(ui, p, title);
+        let heights: Vec<f32> = rows.iter().map(|_| 44.0).collect();
+        rows_card(ui, p, &heights, |ui, i, r| {
+            let (keys, what) = rows[i];
+            row_label(ui, p, r, what, None);
+            let w = widgets::keycap_width(ui.painter(), keys);
+            widgets::keycap(ui.painter(), p, r.right() - 16.0 - w, r.center().y, keys);
+        });
+        ui.add_space(24.0);
+    }
+}
+
+/// The app, its version and its licences.
+fn about(ui: &mut Ui, p: &Palette) {
+    let width = ui.available_width();
+    let (r, _) = ui.allocate_exact_size(vec2(width, 120.0), Sense::hover());
+    ui.painter().text(
+        pos2(r.center().x, r.top() + 40.0),
+        Align2::CENTER_CENTER,
+        "bible-rs",
+        FontId::new(28.0, theme::family(theme::SERIF_HEADING)),
+        p.ink,
+    );
+    ui.painter().text(
+        pos2(r.center().x, r.top() + 76.0),
+        Align2::CENTER_CENTER,
+        format!("Version {}", env!("CARGO_PKG_VERSION")),
+        text::UI.font(),
+        p.ink_2,
+    );
     ui.add_space(8.0);
     ui.label(
         RichText::new(
-            "Literata (reading) and Inter (interface) are bundled under the SIL Open Font License.",
+            "A fast, native Bible reader. Bundled translations are in the public domain; Literata and Inter are under the SIL Open Font License; the app is MIT-licensed.",
         )
-        .color(p.ink_2)
-        .font(theme::ui_font(11.5)),
+        .color(p.ink_2),
     );
 }
 
