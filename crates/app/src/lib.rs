@@ -19,6 +19,7 @@ pub mod settings_ui;
 pub mod sidebar;
 pub mod theme;
 pub mod time;
+pub mod verse_menu;
 pub mod widgets;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};

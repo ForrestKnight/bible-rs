@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use bible_core::books::{CHAPTER_COUNT, ChapterIdx, VerseRef};
 use bible_core::library::{Chapter, Library};
-use bible_core::study::{HighlightColor, StudyStore};
+use bible_core::study::StudyStore;
 use eframe::egui::{self, Color32, CornerRadius, CursorIcon, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
 
 use self::layout::{ChapterLayout, ColumnText, Ctx, Typography};
@@ -600,18 +600,14 @@ impl Reader {
         }
         if resp.secondary_clicked()
             && let Some(v) = hit
-            && !selected.contains(&v)
         {
-            self.selection = Some((v, v));
-        }
-        let has_selection = self.selection.is_some();
-        resp.context_menu(|ui| {
-            if !has_selection {
-                ui.label("Click a verse to select it");
-                return;
+            if !selected.contains(&v) {
+                self.selection = Some((v, v));
             }
-            context_menu(ui, env, actions);
-        });
+            if let Some(pos) = resp.interact_pointer_pos() {
+                actions.push(Action::OpenVerseMenu(pos));
+            }
+        }
 
         self.paint_scrollbar(ui, &bar, &bar_resp, p, env);
     }
@@ -715,45 +711,6 @@ impl Reader {
                 ui.label(label);
             });
         }
-    }
-}
-
-fn context_menu(ui: &mut Ui, env: &Env<'_>, actions: &mut Vec<Action>) {
-    let p = env.theme.palette();
-    ui.set_min_width(190.0);
-    ui.horizontal(|ui| {
-        for c in HighlightColor::ALL {
-            let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
-            ui.painter().circle_filled(r.center(), 8.0, p.swatch(c));
-            if resp.hovered() {
-                ui.painter().circle_stroke(r.center(), 10.0, Stroke::new(1.5, p.accent));
-            }
-            if resp.on_hover_text(format!("Highlight {}", c.name())).clicked() {
-                actions.push(Action::Highlight(Some(c)));
-                ui.close();
-            }
-        }
-    });
-    ui.separator();
-    if ui.button("Remove highlight").clicked() {
-        actions.push(Action::Highlight(None));
-        ui.close();
-    }
-    if ui.button("Note…").clicked() {
-        actions.push(Action::EditSelectedNote);
-        ui.close();
-    }
-    if ui.button("Bookmark").clicked() {
-        actions.push(Action::ToggleBookmark);
-        ui.close();
-    }
-    if ui.button("Copy with reference").clicked() {
-        actions.push(Action::Copy);
-        ui.close();
-    }
-    if ui.button("Compare translations").clicked() {
-        actions.push(Action::Compare);
-        ui.close();
     }
 }
 

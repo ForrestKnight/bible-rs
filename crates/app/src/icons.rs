@@ -282,6 +282,59 @@ pub fn plus(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(4.25, 10.0), (15.75, 10.0)]);
 }
 
+/// Two quotation marks (copy with reference).
+pub fn quote(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    for x in [0.0, 7.0] {
+        // "M4.25 11.5c0-3.25 1.5-5.25 4-6": a tail curling up to the right.
+        let pts: Vec<Pos2> = (0..=8)
+            .map(|i| {
+                let t = i as f32 / 8.0;
+                let (x0, y0, x1, y1, x2, y2) = (4.25, 11.5, 4.25, 7.0, 8.25, 5.5);
+                let a = (1.0 - t) * (1.0 - t);
+                let b = 2.0 * (1.0 - t) * t;
+                let d = t * t;
+                g.p(x + a * x0 + b * x1 + d * x2, a * y0 + b * y1 + d * y2)
+            })
+            .collect();
+        g.polyline(pts, false);
+        g.circle(6.0 + x, 13.0, 1.75);
+    }
+}
+
+/// A tray with an arrow out of it (share).
+pub fn share(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(10.0, 2.75), (10.0, 12.75)]);
+    g.line(&[(6.75, 6.0), (10.0, 2.75), (13.25, 6.0)]);
+    let mut pts = vec![(6.5, 8.75), (5.75, 8.75)];
+    pts.extend(Grid::arc(5.75, 10.25, 1.5, -FRAC_PI_2, -PI));
+    pts.push((4.25, 15.75));
+    pts.extend(Grid::arc(5.75, 15.75, 1.5, PI, FRAC_PI_2));
+    pts.push((14.25, 17.25));
+    pts.extend(Grid::arc(14.25, 15.75, 1.5, FRAC_PI_2, 0.0));
+    pts.push((15.75, 10.25));
+    pts.extend(Grid::arc(14.25, 10.25, 1.5, 0.0, -FRAC_PI_2));
+    pts.push((13.5, 8.75));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, false);
+}
+
+/// An I-beam (select a range of text).
+pub fn text_cursor(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(10.0, 4.0), (10.0, 16.0)]);
+    g.line(&[(7.5, 4.0), (12.5, 4.0)]);
+    g.line(&[(7.5, 16.0), (12.5, 16.0)]);
+}
+
+/// A circle struck through (clear, none).
+pub fn slash_circle(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.circle(10.0, 10.0, 7.25);
+    g.line(&[(4.9, 15.1), (15.1, 4.9)]);
+}
+
 pub fn ellipsis(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);
     for x in [5.0, 10.0, 15.0] {

@@ -178,6 +178,7 @@ pub struct BibleApp {
     warmed: bool,
     scroll_probe: Option<ScrollProbe>,
     reading: crate::reading::Tracker,
+    verse_menu: Option<crate::verse_menu::VerseMenu>,
     /// `BIBLE_RS_DEMO`: steps that put the window into a given state (screenshots), one per frame.
     demo: std::collections::VecDeque<String>,
     chrome: Chrome,
@@ -269,6 +270,7 @@ impl BibleApp {
                 started: None,
             }),
             reading: Default::default(),
+            verse_menu: None,
             demo: std::env::var("BIBLE_RS_DEMO")
                 .map(|s| s.split(';').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
                 .unwrap_or_default(),
@@ -401,7 +403,8 @@ impl BibleApp {
             if typing {
                 return;
             }
-            key(cmd, Key::C, Action::Copy);
+            key(cmd_shift, Key::C, Action::Copy);
+            key(cmd, Key::C, Action::CopyText);
             key(Modifiers::NONE, Key::ArrowLeft, Action::PrevChapter);
             key(Modifiers::NONE, Key::ArrowRight, Action::NextChapter);
             key(Modifiers::NONE, Key::ArrowDown, Action::ScrollLines(3.0));
@@ -583,6 +586,23 @@ impl BibleApp {
                     self.panel = None;
                 }
             }
+            Action::CopyText => {
+                let refs = self.reader.selected_refs();
+                if let Ok(t) = self.library.load(&self.settings.translation) {
+                    let text: Vec<String> =
+                        refs.iter().filter_map(|v| t.find(*v)).map(|v| v.plain_text()).collect();
+                    if !text.is_empty() {
+                        ctx.copy_text(text.join(" "));
+                        self.toast(ctx, "Copied");
+                    }
+                }
+            }
+            Action::OpenVerseMenu(pos) => {
+                if !self.reader.selected_refs().is_empty() {
+                    self.verse_menu = Some(crate::verse_menu::VerseMenu::new(pos));
+                }
+            }
+            Action::ShareImage => self.toast(ctx, "Sharing as an image comes with the share card"),
             Action::Copy => {
                 let refs = self.reader.selected_refs();
                 if refs.is_empty() {
@@ -697,6 +717,14 @@ impl BibleApp {
                 actions.push(Action::Compare);
             }
             "study" => self.sidebar.open_study(arg),
+            // `menu:<reference>@x,y`: select the verse and open its menu there.
+            "menu" => {
+                let (r, at) = arg.split_once('@').unwrap_or((arg, "600,352"));
+                let (x, y) = at.split_once(',').unwrap_or(("600", "352"));
+                self.reader.set_selection(bible_core::reference::parse(r).map(|r| r.verse_ref()));
+                let pos = egui::pos2(x.parse().unwrap_or(600.0), y.parse().unwrap_or(352.0));
+                self.verse_menu = Some(crate::verse_menu::VerseMenu::new(pos).with_first_highlighted());
+            }
             "settings" => actions.push(Action::OpenSettings(match arg {
                 "translations" => SettingsTab::Translations,
                 "data" => SettingsTab::Data,
@@ -1145,7 +1173,8 @@ impl BibleApp {
                             ("1–6, 0", "Highlight colour, remove"),
                             ("N", "Note"),
                             ("B or ⌘D", "Bookmark"),
-                            ("⌘C", "Copy with reference"),
+                            ("⌘C, ⇧⌘C", "Copy, copy with reference"),
+                            ("Right-click", "Verse menu"),
                             ("C", "Compare translations"),
                         ],
                     ),
@@ -1428,6 +1457,12 @@ impl eframe::App for BibleApp {
             }
         });
 
+        if let Some(menu) = &mut self.verse_menu {
+            let refs = self.reader.selected_refs();
+            if menu.show(&ctx, p, &self.study, &refs, &mut actions) {
+                self.verse_menu = None;
+            }
+        }
         if let Some(pal) = &mut self.palette {
             let close = pal.show(&ctx, &self.library, &self.study, &self.settings, &mut actions);
             if close {

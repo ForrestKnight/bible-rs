@@ -38,7 +38,13 @@ pub enum Action {
     RemoveBookmark(VerseRef),
     RemoveHighlight(VerseRef),
     RemoveNote(VerseRef),
+    /// Copy the selected verses' text; `Copy` adds the reference.
+    CopyText,
     Copy,
+    /// Open the verse menu at a point (a right-click on the selection).
+    OpenVerseMenu(eframe::egui::Pos2),
+    /// Make an image of the selected verses to share.
+    ShareImage,
     Compare,
     ClearSelection,
     SelectNext,
