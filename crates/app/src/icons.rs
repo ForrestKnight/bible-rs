@@ -448,6 +448,45 @@ pub fn key(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(12.5, 7.0), (14.0, 8.5)]);
 }
 
+/// A page with a folded corner (a file).
+pub fn doc(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.closed(&[(5.25, 2.75), (11.5, 2.75), (14.75, 6.0), (14.75, 17.25), (5.25, 17.25)]);
+    g.line(&[(11.5, 2.75), (11.5, 6.0), (14.75, 6.0)]);
+}
+
+/// A padlock (locked modules, unlock keys).
+pub fn lock(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.rect(4.25, 8.75, 11.5, 8.5, 2.0);
+    let mut pts = vec![(6.75, 8.75), (6.75, 6.5)];
+    pts.extend(Grid::arc(10.0, 6.5, 3.25, PI, 2.0 * PI));
+    pts.push((13.25, 8.75));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, false);
+}
+
+/// A warning triangle with an exclamation mark.
+pub fn warning(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    let mut pts = Vec::new();
+    pts.extend(Grid::arc(10.0, 4.35, 1.5, PI + 0.52, 2.0 * PI - 0.52));
+    pts.extend(Grid::arc(16.0, 14.75, 1.5, -0.52, FRAC_PI_2));
+    pts.extend(Grid::arc(4.0, 14.75, 1.5, FRAC_PI_2, PI + 0.52));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, true);
+    g.line(&[(10.0, 7.75), (10.0, 11.0)]);
+    g.dot(10.0, 13.65, g.width / g.scale / 2.0 + 0.1);
+}
+
+/// A circular arrow (try again).
+pub fn retry(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    let pts: Vec<Pos2> = Grid::arc(10.0, 10.0, 6.1, 0.208, 5.475).map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, false);
+    g.line(&[(14.75, 2.75), (14.75, 6.25), (11.25, 6.25)]);
+}
+
 /// An "i" in a circle (about).
 pub fn info(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);

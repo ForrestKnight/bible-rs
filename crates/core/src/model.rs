@@ -399,6 +399,10 @@ pub struct TranslationBuilder {
     open_styles: Vec<(Style, Option<u16>)>,
     seen: std::collections::HashSet<(u16, u8)>,
     pub warnings: Vec<String>,
+    /// Books in the source outside the 66-book canon, by the source's own id ("TOB", "Sir").
+    pub skipped_books: Vec<String>,
+    /// Called as each book begins (import progress).
+    pub on_book: Option<Box<dyn FnMut(BookId) + Send>>,
 }
 
 impl TranslationBuilder {
@@ -425,6 +429,16 @@ impl TranslationBuilder {
             open_styles: Vec::new(),
             seen: Default::default(),
             warnings: Vec::new(),
+            skipped_books: Vec::new(),
+            on_book: None,
+        }
+    }
+
+    /// Notes a book that isn't part of the canon and so isn't imported.
+    pub fn skip_book(&mut self, id: &str) {
+        let id = id.trim();
+        if !id.is_empty() && !self.skipped_books.iter().any(|b| b == id) {
+            self.skipped_books.push(id.to_string());
         }
     }
 
@@ -445,6 +459,9 @@ impl TranslationBuilder {
     }
 
     pub fn begin_book(&mut self, book: BookId) {
+        if let Some(f) = &mut self.on_book {
+            f(book);
+        }
         self.end_verse();
         self.pending_marks.clear();
         self.book = Some(book);

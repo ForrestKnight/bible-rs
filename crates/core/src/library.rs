@@ -423,7 +423,7 @@ mod tests {
         b.begin_chapter(3);
         b.begin_verse(16, 16);
         b.text("Imported text.");
-        Imported { translation: b.finish(), format: Format::Usfm, warnings: vec![] }
+        Imported { translation: b.finish(), format: Format::Usfm, warnings: vec![], skipped_books: vec![] }
     }
 
     #[test]

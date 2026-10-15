@@ -165,7 +165,16 @@ impl<'b> UsfmParser<'b> {
                         self.skip_book = false;
                         self.b.begin_book(book);
                     }
-                    None => self.skip_book = true,
+                    None => {
+                        self.skip_book = true;
+                        // Front and back matter aren't books; anything else is (Tobit, Sirach…).
+                        let code = arg.split_whitespace().next().unwrap_or("");
+                        if !matches!(code, "FRT" | "BAK" | "OTH" | "INT" | "CNC" | "GLO" | "TDX" | "NDX" | "")
+                            && !code.starts_with("XX")
+                        {
+                            self.b.skip_book(code);
+                        }
+                    }
                 }
                 self.ctx = Ctx::Ignore;
             }

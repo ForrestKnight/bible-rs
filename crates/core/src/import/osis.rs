@@ -138,12 +138,16 @@ impl<'b> OsisHandler<'b> {
             "div" if !self.fragment => {
                 if ty == "book" {
                     let id = a("osisID").unwrap_or_default();
-                    match BookId::from_osis(id.split('.').next().unwrap_or("")) {
+                    let code = id.split('.').next().unwrap_or("");
+                    match BookId::from_osis(code) {
                         Some(book) => {
                             self.skip_book = false;
                             self.b.begin_book(book);
                         }
-                        None => self.skip_book = true,
+                        None => {
+                            self.skip_book = true;
+                            self.b.skip_book(code);
+                        }
                     }
                 }
                 Effect::None

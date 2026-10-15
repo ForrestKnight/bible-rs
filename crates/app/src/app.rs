@@ -186,7 +186,6 @@ impl History {
 }
 
 pub enum TaskResult {
-    Imported(Box<Result<bible_core::import::Imported, String>>),
     Bibles(Result<Vec<bible_core::online::apibible::RemoteBible>, String>),
 }
 
@@ -234,6 +233,8 @@ pub struct BibleApp {
     note_popover: Option<NotePopover>,
     /// The first-launch screens, until they are done.
     onboarding: Option<crate::onboarding::Onboarding>,
+    /// Importing a translation (frames 13–15).
+    import_sheet: Option<crate::import_sheet::ImportSheet>,
     /// The page in the main area (the reader unless a library or study page is open).
     pub pages: crate::pages::Pages,
     /// `BIBLE_RS_DEMO`: steps that put the window into a given state (screenshots), one per frame.
@@ -335,6 +336,7 @@ impl BibleApp {
             verse_menu: None,
             note_popover: None,
             onboarding,
+            import_sheet: None,
             pages: Default::default(),
             demo: std::env::var("BIBLE_RS_DEMO")
                 .map(|s| s.split(';').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
@@ -382,28 +384,9 @@ impl BibleApp {
         self.reader.jump(chapter, verse, flash);
     }
 
-    fn poll_tasks(&mut self, ctx: &egui::Context) {
+    fn poll_tasks(&mut self, _ctx: &egui::Context) {
         while let Ok(r) = self.task_rx.try_recv() {
             match r {
-                TaskResult::Imported(r) if r.is_ok() => {
-                    let Ok(imported) = *r else { unreachable!() };
-                    self.busy = None;
-                    let name = imported.translation.meta.name.clone();
-                    let verses = imported.translation.verse_count();
-                    match self.library.install(imported) {
-                        Ok(id) => {
-                            self.toast(ctx, format!("Imported {name} ({verses} verses)"));
-                            self.settings.translation = id;
-                            self.reader.invalidate();
-                        }
-                        Err(e) => self.toast(ctx, format!("Couldn't save the import: {e:#}")),
-                    }
-                }
-                TaskResult::Imported(r) => {
-                    let Err(e) = *r else { unreachable!() };
-                    self.busy = None;
-                    self.toast(ctx, format!("Import failed: {e}"));
-                }
                 TaskResult::Bibles(r) => {
                     if let Some(s) = &mut self.settings_ui {
                         s.bibles_loaded(r);
@@ -744,7 +727,9 @@ impl BibleApp {
             Action::ToggleRedLetters => self.settings.typo.red_letters = !self.settings.typo.red_letters,
             Action::Export(kind) => self.export(ctx, kind),
             Action::ImportStudy => self.import_study(ctx),
-            Action::ImportTranslation => self.pick_import(None),
+            Action::ImportTranslation => {
+                self.import_sheet = Some(crate::import_sheet::ImportSheet::new());
+            }
             Action::RemoveTranslation(id) => match self.library.remove(&id) {
                 Ok(()) => {
                     if self.settings.translation == id {
@@ -813,6 +798,31 @@ impl BibleApp {
                 }
             }
             "pick" => self.pages.translations.selected = Some(arg.to_string()),
+            // `import`, `import:<path>`, then `import-progress:<books>` or
+            // `import-review:<error>|<key tried>` (empty error: import the file for real).
+            "import" => {
+                self.import_sheet = Some(if arg.is_empty() {
+                    crate::import_sheet::ImportSheet::new()
+                } else {
+                    crate::import_sheet::ImportSheet::with_path(arg.into())
+                });
+            }
+            "import-drag" => {
+                if let Some(s) = &mut self.import_sheet {
+                    s.demo_drag = true;
+                }
+            }
+            "import-progress" => {
+                if let Some(s) = &mut self.import_sheet {
+                    s.demo_converting(arg.parse().unwrap_or(47));
+                }
+            }
+            "import-review" => {
+                if let Some(s) = &mut self.import_sheet {
+                    let (err, key) = arg.split_once('|').unwrap_or((arg, ""));
+                    s.demo_review(Some(err).filter(|e| !e.is_empty()), Some(key).filter(|k| !k.is_empty()));
+                }
+            }
             "onboarding" => {
                 if let Some(o) = &mut self.onboarding {
                     o.step = arg.parse::<usize>().unwrap_or(1).saturating_sub(1);
@@ -827,29 +837,19 @@ impl BibleApp {
         }
     }
 
-    /// Opens a file dialog and imports a translation on a background thread.
-    pub fn pick_import(&mut self, unlock_key: Option<String>) {
-        let tx = self.task_tx.clone();
-        self.busy = Some("Choose a file to import…".into());
-        let picked = rfd::FileDialog::new()
-            .set_title("Import a translation (USFM, OSIS, Zefania, SWORD)")
-            .add_filter("Bible files", &["xml", "osis", "usfm", "sfm", "zip", "conf", "txt"])
-            .pick_file();
-        let Some(path) = picked else {
-            self.busy = None;
-            return;
-        };
-        self.start_import(path, unlock_key, tx);
-    }
-
-    pub fn start_import(&mut self, path: PathBuf, unlock_key: Option<String>, tx: Sender<TaskResult>) {
-        self.busy =
-            Some(format!("Importing {}…", path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
-        std::thread::spawn(move || {
-            let opts = bible_core::import::ImportOptions { unlock_key, ..Default::default() };
-            let r = bible_core::import::import_path(&path, &opts).map_err(|e| format!("{e:#}"));
-            let _ = tx.send(TaskResult::Imported(Box::new(r)));
-        });
+    /// Adds an import to the library, reads it, and selects it on the library page.
+    fn install_import(&mut self, ctx: &egui::Context, imported: bible_core::import::Imported) {
+        let name = imported.translation.meta.name.clone();
+        let verses = imported.translation.verse_count();
+        match self.library.install(imported) {
+            Ok(id) => {
+                self.toast(ctx, format!("Imported {name} ({verses} verses)"));
+                self.pages.translations.selected = Some(id.clone());
+                self.settings.translation = id;
+                self.reader.invalidate();
+            }
+            Err(e) => self.toast(ctx, format!("Couldn't save the import: {e:#}")),
+        }
     }
 
     fn export(&mut self, ctx: &egui::Context, kind: ExportKind) {
@@ -1729,10 +1729,31 @@ impl eframe::App for BibleApp {
                 &mut import,
             );
             if let Some((path, key)) = import {
-                self.start_import(path, key, tx);
+                let mut sheet = crate::import_sheet::ImportSheet::with_path(path);
+                sheet.set_key(key.unwrap_or_default());
+                self.import_sheet = Some(sheet);
             }
             if !open {
                 self.settings_ui = None;
+            }
+        }
+        // A file dragged onto the window opens the import sheet, whose drop zone takes it.
+        if self.import_sheet.is_none() && ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+            self.import_sheet = Some(crate::import_sheet::ImportSheet::new());
+        }
+        if self.import_sheet.is_none()
+            && let Some(path) = ctx.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf()))
+        {
+            self.import_sheet = Some(crate::import_sheet::ImportSheet::with_path(path));
+        }
+        if let Some(sheet) = &mut self.import_sheet {
+            match sheet.show(&ctx, p) {
+                crate::import_sheet::Outcome::Open => {}
+                crate::import_sheet::Outcome::Close => self.import_sheet = None,
+                crate::import_sheet::Outcome::Install(imported) => {
+                    self.import_sheet = None;
+                    self.install_import(&ctx, *imported);
+                }
             }
         }
         self.shortcuts_help(&ctx);

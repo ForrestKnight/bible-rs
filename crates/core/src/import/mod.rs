@@ -9,8 +9,10 @@ pub mod zefania;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 
 use crate::model::{Origin, Translation, TranslationBuilder, TranslationMeta};
 use crate::usfm::UsfmParser;
@@ -47,6 +49,108 @@ pub struct Imported {
     pub translation: Translation,
     pub format: Format,
     pub warnings: Vec<String>,
+    /// Books in the source outside the 66-book canon, which were left out.
+    pub skipped_books: Vec<String>,
+}
+
+/// An import's progress, read by the thread that shows it.
+#[derive(Debug, Default)]
+pub struct Progress {
+    /// The step under way: 0 reading the file, 1 detecting its format, 2 converting books,
+    /// 3 checking the result.
+    pub step: AtomicU8,
+    /// Books begun so far, and the latest (`BookId` index + 1; 0 before the first).
+    pub books: AtomicU16,
+    pub book: AtomicU8,
+    /// Set to give up: the import stops with an error once conversion ends.
+    pub cancel: AtomicBool,
+}
+
+impl Progress {
+    pub fn step(&self) -> u8 {
+        self.step.load(Ordering::Relaxed)
+    }
+
+    pub fn books(&self) -> u16 {
+        self.books.load(Ordering::Relaxed)
+    }
+
+    /// The book being converted.
+    pub fn book(&self) -> Option<crate::books::BookId> {
+        self.book.load(Ordering::Relaxed).checked_sub(1).map(crate::books::BookId)
+    }
+}
+
+/// What an import source is, read before importing it (the import sheet's summary).
+#[derive(Debug, Clone)]
+pub struct Peek {
+    pub format: Format,
+    /// The file or folder name.
+    pub label: String,
+    /// Size on disk.
+    pub bytes: u64,
+    pub abbrev: String,
+    pub name: String,
+    /// A SWORD module that needs an unlock key.
+    pub locked: bool,
+    /// Further facts for the summary ("zText", "KJV versification").
+    pub details: Vec<String>,
+}
+
+/// Reads an import source's format and names without converting it.
+pub fn peek(path: &Path) -> Result<Peek> {
+    let src = load_source(path)?;
+    let format = detect(&src)?;
+    let bytes = if path.is_dir() {
+        src.files.values().map(|f| f.len() as u64).sum()
+    } else {
+        std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+    };
+    let stem =
+        Path::new(&src.label).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut abbrev = String::new();
+    let mut name = String::new();
+    let mut locked = false;
+    let mut details = Vec::new();
+    match format {
+        Format::Sword => {
+            if let Some((_, conf)) =
+                src.files.iter().find(|(k, _)| k.starts_with("mods.d/") && k.ends_with(".conf"))
+                && let Ok(conf) = sword::SwordConf::parse(&text_of(conf))
+            {
+                name = conf.description();
+                abbrev = conf.get("Abbreviation").unwrap_or(&conf.module).to_string();
+                locked = conf.is_locked() && conf.get("CipherKey").is_none_or(str::is_empty);
+                if let Some(d) = conf.get("ModDrv") {
+                    let d = d.to_ascii_lowercase();
+                    details.push(if d.starts_with("ztext") { "zText".into() } else { "rawText".into() });
+                }
+                details.push(format!("{} versification", conf.get("Versification").unwrap_or("KJV")));
+            }
+        }
+        Format::Osis | Format::Zefania => {
+            // The title in the header, if there is one near the top.
+            for bytes in src.files.values() {
+                let head = String::from_utf8_lossy(&bytes[..bytes.len().min(64 << 10)]);
+                let lower = head.to_ascii_lowercase();
+                if let Some(a) = lower.find("<title")
+                    && let Some(open) = lower[a..].find('>')
+                    && let Some(close) = lower[a + open..].find("</title>")
+                {
+                    name = head[a + open + 1..a + open + close].trim().to_string();
+                    break;
+                }
+            }
+        }
+        Format::Usfm => {}
+    }
+    if abbrev.is_empty() {
+        abbrev = stem.chars().take(8).collect::<String>().to_uppercase();
+    }
+    if name.is_empty() {
+        name = stem;
+    }
+    Ok(Peek { format, label: src.label, bytes, abbrev, name, locked, details })
 }
 
 const MAX_TOTAL: u64 = 512 << 20;
@@ -161,12 +265,25 @@ pub fn slug(s: &str) -> String {
 
 /// Imports a translation from `path` (file, folder or zip).
 pub fn import_path(path: &Path, opts: &ImportOptions) -> Result<Imported> {
+    import_with_progress(path, opts, &Arc::new(Progress::default()))
+}
+
+/// [`import_path`], reporting its steps and books to `progress`.
+pub fn import_with_progress(path: &Path, opts: &ImportOptions, progress: &Arc<Progress>) -> Result<Imported> {
+    progress.step.store(0, Ordering::Relaxed);
     let src = load_source(path)?;
+    progress.step.store(1, Ordering::Relaxed);
     let format = detect(&src)?;
+    progress.step.store(2, Ordering::Relaxed);
     let stem =
         Path::new(&src.label).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let mut meta = TranslationMeta { language: "en".into(), ..Default::default() };
     let mut b = TranslationBuilder::new(meta.clone());
+    let p = progress.clone();
+    b.on_book = Some(Box::new(move |book| {
+        p.books.fetch_add(1, Ordering::Relaxed);
+        p.book.store(book.0 + 1, Ordering::Relaxed);
+    }));
     let mut detected_name = String::new();
     let mut detected_abbrev = String::new();
     let mut rights = String::new();
@@ -222,7 +339,10 @@ pub fn import_path(path: &Path, opts: &ImportOptions) -> Result<Imported> {
             sword::read_module(&mut b, &conf, &files, opts.unlock_key.as_deref())?;
         }
     }
+    ensure!(!progress.cancel.load(Ordering::Relaxed), "import cancelled");
+    progress.step.store(3, Ordering::Relaxed);
     let warnings = std::mem::take(&mut b.warnings);
+    let skipped_books = std::mem::take(&mut b.skipped_books);
     let mut t = b.finish();
     if t.verse_count() == 0 {
         bail!("no verses of the 66-book canon were found in {}", src.label);
@@ -250,7 +370,7 @@ pub fn import_path(path: &Path, opts: &ImportOptions) -> Result<Imported> {
         ..t.meta.clone()
     };
     t.meta = meta;
-    Ok(Imported { translation: t, format, warnings })
+    Ok(Imported { translation: t, format, warnings, skipped_books })
 }
 
 /// Where imported translations are stored inside a data directory.
@@ -297,6 +417,27 @@ mod tests {
             imp.translation.find(VerseRef::new(BookId(42), 1, 1)).unwrap().text,
             "In the beginning was the Word."
         );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn reports_progress_skipped_books_and_peeks() {
+        let d = tmp("progress");
+        std::fs::write(d.join("43JHN.usfm"), "\\id JHN\n\\c 3\n\\p\n\\v 16 For God so loved the world.")
+            .unwrap();
+        std::fs::write(d.join("68TOB.usfm"), "\\id TOB\n\\c 1\n\\p\n\\v 1 Tobit.").unwrap();
+        std::fs::write(d.join("00FRT.usfm"), "\\id FRT\n\\p Front matter").unwrap();
+        let peek = peek(&d).unwrap();
+        assert_eq!(peek.format, Format::Usfm);
+        assert!(!peek.locked);
+        let progress = Arc::new(Progress::default());
+        let imp = import_with_progress(&d, &ImportOptions::default(), &progress).unwrap();
+        assert_eq!(imp.skipped_books, vec!["TOB".to_string()]);
+        assert_eq!((progress.step(), progress.books()), (3, 1));
+        assert_eq!(progress.book(), Some(BookId(42)));
+        let cancelled = Arc::new(Progress::default());
+        cancelled.cancel.store(true, Ordering::Relaxed);
+        assert!(import_with_progress(&d, &ImportOptions::default(), &cancelled).is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
 

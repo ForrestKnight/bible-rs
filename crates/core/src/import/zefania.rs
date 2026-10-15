@@ -60,7 +60,11 @@ pub fn read(b: &mut TranslationBuilder, src: &str) -> ZefaniaInfo {
                                 let short = attr(attrs, "bname");
                                 b.set_book_title(book, short.as_deref(), None);
                             }
-                            None => skip_book = true,
+                            None => {
+                                skip_book = true;
+                                let name = attr(attrs, "bname").map(|s| s.to_string());
+                                b.skip_book(&name.unwrap_or_else(|| format!("book {n}")));
+                            }
                         }
                     }
                     "CHAPTER" if !skip_book => {

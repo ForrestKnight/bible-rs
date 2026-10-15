@@ -962,3 +962,59 @@ pub fn paint_runs(painter: &Painter, x: f32, baseline: f32, runs: &[Run], color:
         x += w;
     }
 }
+
+/// A text field (`ds-14`): 32 pt, radius 8, the field colour with a hairline; focused, an
+/// accent outline and focus ring; in error, a danger outline and halo. An optional 16 pt glyph
+/// leads; `mono` sets the text in the monospace face (keys).
+#[allow(clippy::too_many_arguments)]
+pub fn text_field(
+    ui: &mut Ui,
+    p: &Palette,
+    rect: Rect,
+    value: &mut String,
+    placeholder: &str,
+    icon: Option<IconFn>,
+    mono: bool,
+    error: bool,
+    id: egui::Id,
+) -> Response {
+    let focused = ui.memory(|m| m.has_focus(id));
+    let hovered = ui.rect_contains_pointer(rect);
+    let painter = ui.painter();
+    if error {
+        painter.rect_filled(rect.expand(3.0), 11.0, p.danger.gamma_multiply(0.25));
+    } else if focused {
+        painter.rect_filled(rect.expand(3.0), 11.0, p.focus);
+    }
+    painter.rect_filled(rect, 8.0, p.field);
+    let stroke = if error {
+        p.danger
+    } else if focused {
+        p.accent
+    } else if hovered {
+        p.ink_3
+    } else {
+        p.border
+    };
+    painter.rect_stroke(rect, 8.0, Stroke::new(1.0, stroke), StrokeKind::Inside);
+    let mut x = rect.left() + 10.0;
+    if let Some(icon) = icon {
+        let r = Rect::from_min_size(pos2(x, rect.center().y - 8.0), vec2(16.0, 16.0));
+        crate::icons::heavy(|| icon(painter, r, p.ink_3));
+        x += 16.0 + 8.0;
+    }
+    let edit = Rect::from_min_max(pos2(x, rect.top()), pos2(rect.right() - 10.0, rect.bottom()));
+    let font = if mono && !value.is_empty() { egui::FontId::monospace(13.0) } else { text::UI.font() };
+    ui.put(
+        edit,
+        egui::TextEdit::singleline(value)
+            .id(id)
+            .hint_text(egui::RichText::new(placeholder).color(p.ink_3).font(text::UI.font()))
+            .font(font)
+            .text_color(p.ink)
+            .frame(egui::Frame::NONE)
+            .margin(egui::Margin::ZERO)
+            .vertical_align(egui::Align::Center)
+            .desired_width(edit.width()),
+    )
+}
