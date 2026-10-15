@@ -244,6 +244,10 @@ pub struct BibleApp {
     share_sheet: Option<crate::share_sheet::ShareSheet>,
     /// Importing a translation (frames 13–15).
     import_sheet: Option<crate::import_sheet::ImportSheet>,
+    /// Focus mode (frame 30): full screen, the chrome hidden, larger type.
+    focus: bool,
+    /// Screenshots: show focus mode's reveal bar as if the pointer were at the top.
+    focus_reveal: bool,
     /// When an automatic backup was last considered (egui time).
     backup_checked: Option<f64>,
     /// The day the plan reminder last showed.
@@ -358,6 +362,8 @@ impl BibleApp {
             share_sheet: None,
             compare: None,
             reminded: None,
+            focus: false,
+            focus_reveal: false,
             backup_checked: None,
             pages: Default::default(),
             demo: std::env::var("BIBLE_RS_DEMO")
@@ -819,8 +825,13 @@ impl BibleApp {
             }
             Action::RevealDataDir => reveal(&self.data_dir),
             Action::ToggleFocus => {
-                let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
+                self.focus = !self.focus;
+                if self.focus {
+                    self.pages.open(crate::pages::Page::Reader);
+                }
+                if !crate::offscreen() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.focus));
+                }
             }
             Action::SetAccent(a) => {
                 self.settings.accent = a;
@@ -891,6 +902,8 @@ impl BibleApp {
                 self.verse_menu = Some(crate::verse_menu::VerseMenu::new(pos).with_first_highlighted());
             }
             "share" => actions.push(Action::ShareImage),
+            "focus" => actions.push(Action::ToggleFocus),
+            "reveal" => self.focus_reveal = true,
             "shortcuts" => self.shortcuts_open = true,
             "page" => {
                 if let Some(page) = crate::pages::Page::from_name(arg) {
@@ -1308,6 +1321,104 @@ impl BibleApp {
         let _ = items;
     }
 
+    /// Focus mode's chrome (frame 30): a reveal bar while the pointer is near the top (Exit
+    /// Focus, text options, the shortcut), and a reading-progress hairline with what's left.
+    fn focus_chrome(&mut self, ui: &mut Ui, full: egui::Rect, actions: &mut Vec<Action>) {
+        let p = self.settings.theme.palette();
+        let ctx = ui.ctx().clone();
+        let near = self.focus_reveal
+            || ctx.input(|i| i.pointer.hover_pos().is_some_and(|q| q.y < full.top() + 64.0));
+        let t = ctx.animate_bool_with_time(Id::new("focus-reveal"), near, theme::motion::BASE_MS / 1000.0);
+        if t > 0.0 {
+            let chord = crate::keymap::ALL
+                .iter()
+                .find(|s| s.id == "focus")
+                .map(|s| crate::keymap::keycaps(s, &self.settings.shortcuts).concat())
+                .unwrap_or_default();
+            let hint = format!("Exit Focus {chord}");
+            let hint_w = ui
+                .painter()
+                .layout_no_wrap(hint.clone(), theme::ui_medium(12.0), egui::Color32::PLACEHOLDER)
+                .size()
+                .x;
+            let width = 73.0 + 10.0 + hint_w;
+            let left = (full.center().x - width / 2.0).round();
+            let mut bar = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(egui::Rect::from_min_size(egui::pos2(left, full.top()), vec2(width, 52.0))),
+            );
+            bar.set_opacity(0.9 * t);
+            let buttons = [
+                widgets::CapsuleButton {
+                    tooltip: "Exit Focus",
+                    enabled: true,
+                    on: false,
+                    icon: crate::icons::contract,
+                },
+                widgets::CapsuleButton {
+                    tooltip: "Text & theme",
+                    enabled: true,
+                    on: false,
+                    icon: crate::icons::text_size,
+                },
+            ];
+            let (capsule, resp) =
+                widgets::button_capsule(&mut bar, p, left, full.top() + 26.0, 36.0, true, &buttons);
+            bar.painter().text(
+                egui::pos2(capsule.right() + 10.0, full.top() + 26.0),
+                Align2::LEFT_CENTER,
+                hint,
+                theme::ui_medium(12.0),
+                p.ink_3,
+            );
+            if resp[0].clicked() {
+                actions.push(Action::ToggleFocus);
+            }
+            egui::Popup::menu(&resp[1]).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(
+                |ui| {
+                    ui.set_min_width(250.0);
+                    crate::settings_ui::quick_text_settings(ui, &mut self.settings, actions);
+                },
+            );
+        }
+
+        // Progress through the chapter.
+        let (c, _) = self.reader.location;
+        let t = self.library.load(&self.settings.translation).ok();
+        let verses: Vec<(u8, usize)> = t
+            .as_ref()
+            .map(|t| t.verses_in(c).map(|v| (v.number, v.text.split_whitespace().count())).collect())
+            .unwrap_or_default();
+        let total = verses.len();
+        // The text scrolls under the progress line, which sits on the page colour.
+        let band = egui::Rect::from_min_max(egui::pos2(full.left(), full.bottom() - 30.0), full.max);
+        ui.painter().rect_filled(band, 0.0, p.paper);
+        if total > 0 {
+            let read = (self.reader.furthest_in_view as usize).min(total);
+            let words: usize = verses.iter().filter(|(n, _)| *n as usize > read).map(|(_, w)| w).sum();
+            let track = egui::Rect::from_min_size(
+                egui::pos2(full.left(), full.bottom() - 30.0),
+                vec2(full.width(), 2.0),
+            );
+            ui.painter().rect_filled(track, 0.0, p.fill);
+            let done =
+                egui::Rect::from_min_size(track.min, vec2(full.width() * read as f32 / total as f32, 2.0));
+            ui.painter().rect_filled(done, 0.0, p.accent.gamma_multiply(0.5));
+            let left = if words == 0 {
+                "the end of the chapter".to_string()
+            } else {
+                format!("about {} min left", words.div_ceil(230))
+            };
+            ui.painter().text(
+                egui::pos2(full.center().x, full.bottom() - 14.0),
+                Align2::CENTER_CENTER,
+                format!("{read} of {total} verses · {left}"),
+                theme::ui_medium(11.0),
+                p.ink_3,
+            );
+        }
+    }
+
     /// The parallel columns' heads (frame 07): each translation's abbreviation as a picker over
     /// its full name, a hairline below.
     fn column_heads(
@@ -1696,7 +1807,7 @@ impl eframe::App for BibleApp {
         }
         #[cfg(target_os = "macos")]
         self.toolbar_items.clear();
-        if self.settings.sidebar_open {
+        if self.settings.sidebar_open && !self.focus {
             // A floating source list, full height: the traffic lights and the sidebar toggle sit
             // in its header.
             use theme::metrics::{SIDEBAR_INSET, SIDEBAR_WIDTH};
@@ -1798,15 +1909,30 @@ impl eframe::App for BibleApp {
             let heads = if cols.len() > 1 { COLUMN_HEADS } else { 0.0 };
             let band = heads + if searching { SEARCH_BAND } else { 0.0 };
             let keyboard = !ctx.egui_wants_keyboard_input() && self.palette.is_none();
+            // Focus mode: two points larger, 36 pt lines at 22, a 680 pt measure, a quiet head
+            // 12 pt under where the toolbar would be.
+            let focus_typo;
+            let (typo, top) = if self.focus {
+                let mut t = self.settings.typo.clone();
+                let size = (t.size + 2.0).round();
+                t.line_height = (size * 36.0 / 22.0).round() / size;
+                t.measure = 680.0 / 22.0;
+                t.size = size;
+                t.quiet_head = true;
+                focus_typo = t;
+                (&focus_typo, 52.0 + 12.0 - crate::reader::layout::PAGE_TOP)
+            } else {
+                (&self.settings.typo, self.chrome.height + band)
+            };
             let env = Env {
                 library: &self.library,
                 study: &self.study,
-                typo: &self.settings.typo,
+                typo,
                 theme: self.settings.theme,
                 columns: &cols,
                 keyboard,
                 online_generation: &self.online_gen,
-                toolbar: self.chrome.height + band,
+                toolbar: top,
             };
             let mut reader_ui = ui.new_child(egui::UiBuilder::new().max_rect(reader_rect));
             self.reader.marker_for = self.note_popover.as_ref().map(|n| n.verse);
@@ -1859,7 +1985,11 @@ impl eframe::App for BibleApp {
                 self.reader.under_toolbar && band == 0.0,
                 theme::motion::FAST_MS / 1000.0,
             );
-            self.toolbar(ui, full, material, &mut actions);
+            if self.focus {
+                self.focus_chrome(ui, full, &mut actions);
+            } else {
+                self.toolbar(ui, full, material, &mut actions);
+            }
             if first {
                 crate::trace(self.startup.t0, "toolbar laid out");
             }

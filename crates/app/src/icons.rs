@@ -551,6 +551,15 @@ pub fn external(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(16.5, 3.5), (9.25, 10.75)]);
 }
 
+/// Four corners pointing in (leave full screen).
+pub fn contract(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(7.25, 3.25), (7.25, 7.25), (3.25, 7.25)]);
+    g.line(&[(12.75, 3.25), (12.75, 7.25), (16.75, 7.25)]);
+    g.line(&[(7.25, 16.75), (7.25, 12.75), (3.25, 12.75)]);
+    g.line(&[(12.75, 16.75), (12.75, 12.75), (16.75, 12.75)]);
+}
+
 /// A page with a folded corner (a file).
 pub fn doc(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);

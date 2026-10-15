@@ -51,6 +51,9 @@ pub struct Typography {
     pub headings: bool,
     /// Maximum text measure in ems.
     pub measure: f32,
+    /// Focus mode: the chapter's head is one quiet line ("JOHN 15 · KJV").
+    #[serde(skip)]
+    pub quiet_head: bool,
 }
 
 impl Default for Typography {
@@ -64,6 +67,7 @@ impl Default for Typography {
             verse_numbers: true,
             headings: true,
             measure: reading::MEASURE / reading::SIZE_DEFAULT,
+            quiet_head: false,
         }
     }
 }
@@ -622,6 +626,11 @@ impl Builder<'_, '_> {
 
     /// A line in the design's label style (11 pt semibold capitals, tracked, in the accent).
     fn label_line(&mut self, text: &str, center: bool) {
+        let accent = self.cx.p().accent;
+        self.label_line_in(text, center, accent);
+    }
+
+    fn label_line_in(&mut self, text: &str, center: bool, color: Color32) {
         let font = FontId::new(self.cx.s(text::LABEL.size).round(), theme::family(UI_SEMIBOLD));
         let lh = self.cx.s(text::LABEL.line_height);
         let mut job = LayoutJob::default();
@@ -630,7 +639,7 @@ impl Builder<'_, '_> {
             0.0,
             TextFormat {
                 font_id: font.clone(),
-                color: self.cx.p().accent,
+                color,
                 extra_letter_spacing: text::LABEL.tracking * font.size,
                 line_height: Some(lh),
                 ..Default::default()
@@ -756,6 +765,19 @@ fn chapter_head(b: &mut Builder<'_, '_>, t: Option<&Translation>, c: ChapterIdx,
     let p = cx.p();
     let short =
         t.map(|t| t.meta.book_short(c.book()).to_string()).unwrap_or_else(|| c.book().name().to_string());
+    if cx.typo.quiet_head {
+        // Focus mode: the book, chapter and translation in one tertiary line, 16 pt above a
+        // 20 pt gap.
+        let book = if c.book() == BookId::PSALMS { "Psalm".to_string() } else { short.clone() };
+        let abbrev = t.map(|t| t.meta.abbrev.clone()).unwrap_or_default();
+        let label = format!("{} {} · {abbrev}", book.to_uppercase(), c.chapter());
+        b.label_line_in(&label, single_column, p.ink_3);
+        // The design's spacing in points, whatever the size: 16 under the 16 pt label, then 20.
+        b.y += 16.0 - (cx.s(text::LABEL.line_height) - text::LABEL.line_height);
+        b.space = 20.0;
+        b.after_heading = true;
+        return;
+    }
     if c.book() == BookId::PSALMS && single_column {
         b.label_line(&format!("PSALM {}", c.chapter()), false);
         b.psalm_head = true;
