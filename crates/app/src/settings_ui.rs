@@ -49,6 +49,9 @@ pub struct SettingsUi {
     message: Option<String>,
     /// Every bundled translation in the Installed list, rather than the reading ones.
     show_all_bundled: bool,
+    /// Shortcuts: the filter, and the row waiting for a new chord.
+    shortcut_filter: String,
+    recording: Option<&'static str>,
 }
 
 impl SettingsUi {
@@ -62,12 +65,172 @@ impl SettingsUi {
             bible_filter: String::new(),
             message: None,
             show_all_bundled: false,
+            shortcut_filter: String::new(),
+            recording: None,
         }
     }
 
     pub fn bibles_loaded(&mut self, r: Result<Vec<RemoteBible>, String>) {
         self.loading_bibles = false;
         self.bibles = Some(r);
+    }
+
+    /// Shortcuts (frame 26): every shortcut by group; a row that does one thing takes a new
+    /// chord when its keys are clicked.
+    fn shortcuts(&mut self, ui: &mut Ui, settings: &mut Settings) {
+        use crate::keymap::{self, Chord};
+        let p = settings.theme.palette();
+        // A chord pressed while recording becomes the row's (taken from any row that had it).
+        if let Some(id) = self.recording {
+            let pressed = ui.input(|i| {
+                i.events.iter().find_map(|e| match e {
+                    egui::Event::Key { key, pressed: true, modifiers, .. } => Some((*key, *modifiers)),
+                    _ => None,
+                })
+            });
+            if let Some((key, mods)) = pressed {
+                if key == egui::Key::Escape {
+                    self.recording = None;
+                } else if let Some(chord) = Chord::from_press(key, mods) {
+                    for other in keymap::ALL.iter().filter(|s| s.id != id) {
+                        if keymap::chord(other, &settings.shortcuts) == Some(chord) {
+                            settings.shortcuts.insert(other.id.to_string(), String::new());
+                        }
+                    }
+                    let default = keymap::ALL.iter().find(|s| s.id == id).and_then(|s| s.default);
+                    if default == Some(chord) {
+                        settings.shortcuts.remove(id);
+                    } else {
+                        settings.shortcuts.insert(id.to_string(), chord.spec());
+                    }
+                    self.recording = None;
+                }
+                ui.input_mut(|i| i.events.clear());
+            }
+        }
+
+        // Tools: filter, restore.
+        let (tools, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+        let field = Rect::from_min_size(tools.min, vec2(320.0, 32.0));
+        p.shadows.control.paint(ui.painter(), field, 8.0);
+        ui.painter().rect_filled(field, 8.0, p.glass);
+        let glass = Rect::from_min_size(pos2(field.left() + 10.0, field.center().y - 8.0), vec2(16.0, 16.0));
+        icons::heavy(|| icons::search(ui.painter(), glass, p.ink_2));
+        let edit = Rect::from_min_max(
+            pos2(glass.right() + 6.0, field.top()),
+            pos2(field.right() - 8.0, field.bottom()),
+        );
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(edit));
+        child.add_sized(
+            edit.size(),
+            egui::TextEdit::singleline(&mut self.shortcut_filter)
+                .hint_text(RichText::new("Filter shortcuts").color(p.ink_3).font(text::UI.font()))
+                .font(text::UI.font())
+                .text_color(p.ink)
+                .frame(egui::Frame::NONE)
+                .margin(egui::Margin::ZERO)
+                .vertical_align(egui::Align::Center),
+        );
+        let (_, resp) = Button::new(Kind::Secondary, "Restore Defaults").show_right(
+            ui,
+            p,
+            tools.right(),
+            tools.center().y,
+            ui.id().with("restore-shortcuts"),
+        );
+        if resp.clicked() {
+            settings.shortcuts.clear();
+            self.recording = None;
+        }
+        ui.add_space(24.0);
+
+        let q = self.shortcut_filter.trim().to_lowercase();
+        for group in keymap::GROUPS {
+            let rows: Vec<&keymap::Shortcut> = keymap::ALL
+                .iter()
+                .filter(|s| s.group == group && (q.is_empty() || s.label.to_lowercase().contains(&q)))
+                .collect();
+            if rows.is_empty() {
+                continue;
+            }
+            group_title(ui, p, group);
+            let heights = vec![40.0; rows.len()];
+            rows_card(ui, p, &heights, |ui, i, r| {
+                let s = rows[i];
+                row_label(ui, p, r, s.label, None);
+                let right = r.right() - 16.0;
+                let cy = r.center().y;
+                if self.recording == Some(s.id) {
+                    let cancel = Rect::from_center_size(pos2(right - 12.0, cy), vec2(24.0, 24.0));
+                    if widgets::round_button(
+                        ui,
+                        p,
+                        cancel,
+                        icons::close,
+                        ui.id().with(("cancel-record", s.id)),
+                    )
+                    .clicked()
+                    {
+                        self.recording = None;
+                    }
+                    let field =
+                        Rect::from_min_size(pos2(cancel.left() - 6.0 - 150.0, cy - 14.0), vec2(150.0, 28.0));
+                    let painter = ui.painter();
+                    painter.rect_filled(field.expand(3.0), 11.0, p.focus);
+                    painter.rect_filled(field, 8.0, p.field);
+                    painter.rect_stroke(field, 8.0, Stroke::new(1.0, p.accent), egui::StrokeKind::Inside);
+                    painter.rect_filled(
+                        Rect::from_min_size(pos2(field.left() + 10.0, cy - 7.0), vec2(1.5, 14.0)),
+                        0.0,
+                        p.accent,
+                    );
+                    painter.text(
+                        pos2(field.left() + 17.5, cy),
+                        Align2::LEFT_CENTER,
+                        "Press new shortcut…",
+                        theme::ui_medium(12.0),
+                        p.accent,
+                    );
+                    return;
+                }
+                let caps = keymap::keycaps(s, &settings.shortcuts);
+                let widths: Vec<f32> = caps.iter().map(|c| widgets::keycap_width(ui.painter(), c)).collect();
+                let total = widths.iter().sum::<f32>() + 4.0 * (widths.len().max(1) as f32 - 1.0);
+                let area = Rect::from_min_size(
+                    pos2(right - total.max(40.0), cy - 12.0),
+                    vec2(total.max(40.0), 24.0),
+                );
+                if s.default.is_some() {
+                    let resp = ui.interact(area.expand(4.0), ui.id().with(("record", s.id)), Sense::click());
+                    if resp.hovered() {
+                        ui.painter().rect_filled(area.expand(4.0), 8.0, p.fill);
+                    }
+                    if resp.on_hover_text("Click to change").clicked() {
+                        self.recording = Some(s.id);
+                    }
+                }
+                if caps.is_empty() {
+                    ui.painter().text(
+                        pos2(right, cy),
+                        Align2::RIGHT_CENTER,
+                        "None",
+                        text::SMALL.font(),
+                        p.ink_3,
+                    );
+                }
+                let mut x = right - total;
+                for (c, w) in caps.iter().zip(widths) {
+                    widgets::keycap(ui.painter(), p, x, cy, c);
+                    x += w + 4.0;
+                }
+            });
+            ui.add_space(24.0);
+        }
+    }
+
+    /// Puts a shortcut row into recording (demo steps).
+    pub fn record(&mut self, id: &str) {
+        self.recording = crate::keymap::ALL.iter().find(|s| s.id == id).map(|s| s.id);
     }
 
     fn title(&self) -> &'static str {
@@ -214,7 +377,7 @@ impl SettingsUi {
                             SettingsTab::Translations => {
                                 self.translations(ui, library, settings, actions, tx, import)
                             }
-                            SettingsTab::Shortcuts => shortcuts(ui, p),
+                            SettingsTab::Shortcuts => self.shortcuts(ui, settings),
                             SettingsTab::Data => {
                                 ui.spacing_mut().item_spacing.y = 6.0;
                                 data(ui, library, study, actions)
@@ -1347,21 +1510,6 @@ fn icon_segmented(
         x += w + 2.0;
     }
     out
-}
-
-/// Every keyboard shortcut, by group.
-fn shortcuts(ui: &mut Ui, p: &Palette) {
-    for (title, rows) in crate::app::SHORTCUTS {
-        group_title(ui, p, title);
-        let heights: Vec<f32> = rows.iter().map(|_| 44.0).collect();
-        rows_card(ui, p, &heights, |ui, i, r| {
-            let (keys, what) = rows[i];
-            row_label(ui, p, r, what, None);
-            let w = widgets::keycap_width(ui.painter(), keys);
-            widgets::keycap(ui.painter(), p, r.right() - 16.0 - w, r.center().y, keys);
-        });
-        ui.add_space(24.0);
-    }
 }
 
 /// The app, its version and its licences.

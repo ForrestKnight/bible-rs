@@ -48,6 +48,8 @@ pub struct Settings {
     pub highlight_names: Vec<String>,
     pub reduce_motion: bool,
     pub flash_jumps: bool,
+    /// Chords chosen in Settings › Shortcuts, by row id (`keymap::ALL`).
+    pub shortcuts: std::collections::BTreeMap<String, String>,
     /// The share sheet's style and options, as last used.
     pub share: crate::share_sheet::ShareOptions,
     /// Remind about the day's plan reading at 7:00 while the app is open.
@@ -83,6 +85,7 @@ impl Default for Settings {
             highlight_names: Vec::new(),
             reduce_motion: false,
             flash_jumps: true,
+            shortcuts: Default::default(),
             share: Default::default(),
             onboarded: false,
         }
@@ -446,6 +449,9 @@ impl BibleApp {
     fn shortcuts(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) {
         let typing = ctx.egui_wants_keyboard_input();
         let overlay = self.palette.is_some() || self.settings_ui.is_some() || self.shortcuts_open;
+        // The rows of Settings › Shortcuts, with any chords chosen there.
+        let bindings = crate::keymap::bindings(&self.settings.shortcuts);
+        let anywhere = |a: &Action| matches!(a, Action::OpenPalette | Action::OpenSearch(_));
         ctx.input_mut(|i| {
             let cmd = Modifiers::COMMAND;
             let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
@@ -454,16 +460,21 @@ impl BibleApp {
                     actions.push(a);
                 }
             };
-            key(cmd, Key::K, Action::OpenPalette);
-            key(cmd, Key::F, Action::OpenSearch(None));
+            for (c, a) in bindings.iter().filter(|(_, a)| anywhere(a)) {
+                key(c.modifiers(), c.key, a.clone());
+            }
             key(cmd, Key::Comma, Action::OpenSettings(SettingsTab::Reading));
             key(cmd, Key::Slash, Action::ShowShortcuts);
             if overlay {
                 return;
             }
-            // Shifted combinations first: egui matches shift loosely, so ⌘L would also eat ⌘⇧L.
-            key(cmd_shift, Key::L, Action::CycleTheme);
-            key(cmd_shift, Key::P, Action::ToggleParallel);
+            // Command chords (shifted ones first: egui matches shift loosely, so ⌘L would also eat
+            // ⌘⇧L); copying waits until no field has the keyboard.
+            for (c, a) in
+                bindings.iter().filter(|(c, a)| c.is_command() && !anywhere(a) && *a != Action::Copy)
+            {
+                key(c.modifiers(), c.key, a.clone());
+            }
             key(cmd_shift, Key::E, Action::Export(ExportKind::Json));
             key(cmd, Key::OpenBracket, Action::Back);
             key(cmd, Key::CloseBracket, Action::Forward);
@@ -473,9 +484,6 @@ impl BibleApp {
             key(cmd, Key::Equals, Action::FontSize(1.0));
             key(cmd, Key::Minus, Action::FontSize(-1.0));
             key(cmd, Key::Num0, Action::FontReset);
-            key(cmd, Key::B, Action::ToggleSidebar);
-            key(cmd, Key::L, Action::ToggleMode);
-            key(cmd, Key::R, Action::ToggleRedLetters);
             key(cmd, Key::D, Action::ToggleBookmark);
             key(cmd, Key::E, Action::Export(ExportKind::Markdown));
             key(cmd, Key::I, Action::ImportTranslation);
@@ -498,7 +506,9 @@ impl BibleApp {
             if typing {
                 return;
             }
-            key(cmd_shift, Key::C, Action::Copy);
+            for (c, a) in bindings.iter().filter(|(c, a)| !c.is_command() || *a == Action::Copy) {
+                key(c.modifiers(), c.key, a.clone());
+            }
             key(cmd, Key::C, Action::CopyText);
             key(Modifiers::NONE, Key::ArrowLeft, Action::PrevChapter);
             key(Modifiers::NONE, Key::ArrowRight, Action::NextChapter);
@@ -511,9 +521,6 @@ impl BibleApp {
             key(Modifiers::NONE, Key::J, Action::SelectNext);
             key(Modifiers::NONE, Key::K, Action::SelectPrev);
             key(Modifiers::NONE, Key::Escape, Action::ClearSelection);
-            key(Modifiers::NONE, Key::N, Action::EditSelectedNote);
-            key(Modifiers::NONE, Key::B, Action::ToggleBookmark);
-            key(Modifiers::NONE, Key::C, Action::Compare);
             key(Modifiers::NONE, Key::Slash, Action::OpenSearch(None));
             key(Modifiers::SHIFT, Key::Questionmark, Action::ShowShortcuts);
             key(Modifiers::NONE, Key::Questionmark, Action::ShowShortcuts);
@@ -823,6 +830,10 @@ impl BibleApp {
                 }
             }
             Action::SetPlanReminder(on) => self.settings.plan_reminder = on,
+            Action::ToggleFocus => {
+                let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
+            }
             Action::SetAccent(a) => {
                 self.settings.accent = a;
                 theme::set_accent(a);
@@ -936,6 +947,11 @@ impl BibleApp {
             "onboarding" => {
                 if let Some(o) = &mut self.onboarding {
                     o.step = arg.parse::<usize>().unwrap_or(1).saturating_sub(1);
+                }
+            }
+            "record" => {
+                if let Some(s) = &mut self.settings_ui {
+                    s.record(arg);
                 }
             }
             "settings" => actions.push(Action::OpenSettings(match arg {

@@ -1101,7 +1101,8 @@ pub fn round_button(ui: &mut Ui, p: &Palette, rect: Rect, icon: IconFn, id: egui
     if let Some(fill) = hover_fill(ui, &resp, p, false) {
         ui.painter().circle_filled(rect.center(), rect.width() / 2.0, fill);
     }
-    let r = Rect::from_center_size(rect.center(), vec2(16.0, 16.0));
+    let size = if rect.width() < 26.0 { 12.0 } else { 16.0 };
+    let r = Rect::from_center_size(rect.center(), vec2(size, size));
     crate::icons::heavy(|| icon(ui.painter(), r, p.ink_2));
     resp
 }

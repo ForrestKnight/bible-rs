@@ -9,6 +9,7 @@ pub mod cli;
 pub mod compare_popover;
 pub mod icons;
 pub mod import_sheet;
+pub mod keymap;
 #[cfg(target_os = "macos")]
 pub mod macos_menu;
 #[cfg(target_os = "macos")]
