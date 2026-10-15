@@ -1,0 +1,13 @@
+[package]
+name = "xtask"
+description = "Developer tasks: fetch public-domain sources and build the bundled translations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bible-core = { workspace = true, default-features = false }
+anyhow.workspace = true
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }

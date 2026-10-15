@@ -1,0 +1,5 @@
+/target
+/dist
+/.sources
+*.dmg
+.DS_Store
