@@ -23,7 +23,7 @@ enum Ctx {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TitleField {
+pub(crate) enum TitleField {
     Short,
     Long,
     Main(u8),
@@ -221,47 +221,15 @@ impl<'b> UsfmParser<'b> {
         }
         // Paragraph-level marker: whatever we were collecting is complete.
         self.flush_ctx();
-        let (base, level) = split_level(name);
-        self.ctx = match base {
-            "p" | "pi" | "ph" | "lh" | "lf" | "tr" => {
-                self.b.mark(MarkKind::Paragraph, 0);
+        self.ctx = match para_kind(name) {
+            Para::Break(kind, level) => {
+                self.b.mark(kind, level);
                 Ctx::Body
             }
-            "m" | "mi" | "pmo" | "pm" | "pmc" | "po" | "lim" => {
-                self.b.mark(MarkKind::ParagraphFlush, 0);
-                Ctx::Body
-            }
-            "nb" => Ctx::Body,
-            "pc" | "qc" => {
-                self.b.mark(MarkKind::Centered, 0);
-                Ctx::Body
-            }
-            "pr" | "qr" | "pmr" | "cls" => {
-                self.b.mark(MarkKind::PoetryRight, 0);
-                Ctx::Body
-            }
-            "q" | "qm" | "qd" => {
-                self.b.mark(MarkKind::Poetry, level.unwrap_or(1).clamp(1, 4));
-                Ctx::Body
-            }
-            "li" => {
-                self.b.mark(MarkKind::List, level.unwrap_or(1).clamp(1, 4));
-                Ctx::Body
-            }
-            "b" => {
-                self.b.mark(MarkKind::Blank, 0);
-                Ctx::Body
-            }
-            "s" => Ctx::Heading(MarkKind::Heading, level.unwrap_or(1).clamp(1, 2)),
-            "ms" => Ctx::Heading(MarkKind::Heading, 0),
-            "qa" => Ctx::Heading(MarkKind::Heading, 3),
-            "sp" => Ctx::Heading(MarkKind::Speaker, 0),
-            "d" => Ctx::Heading(MarkKind::PsalmTitle, 0),
-            "toc" if level == Some(1) => Ctx::Title(TitleField::Long),
-            "toc" if level == Some(2) => Ctx::Title(TitleField::Short),
-            "h" => Ctx::Title(TitleField::Short),
-            "mt" => Ctx::Title(TitleField::Main(level.unwrap_or(1))),
-            _ => Ctx::Ignore,
+            Para::Body => Ctx::Body,
+            Para::Heading(kind, level) => Ctx::Heading(kind, level),
+            Para::Title(f) => Ctx::Title(f),
+            Para::Ignore => Ctx::Ignore,
         };
         self.buf.clear();
     }
@@ -324,8 +292,44 @@ impl<'b> UsfmParser<'b> {
     }
 }
 
+/// What a paragraph-level USFM marker (or API.Bible `para` style) means for the reader.
+pub(crate) enum Para {
+    /// A line break with this mark, followed by verse text.
+    Break(MarkKind, u8),
+    /// Verse text continuing without a break (`\nb`).
+    Body,
+    /// Heading text until the next paragraph marker.
+    Heading(MarkKind, u8),
+    Title(TitleField),
+    Ignore,
+}
+
+pub(crate) fn para_kind(name: &str) -> Para {
+    let (base, level) = split_level(name);
+    match base {
+        "p" | "pi" | "ph" | "lh" | "lf" | "tr" => Para::Break(MarkKind::Paragraph, 0),
+        "m" | "mi" | "pmo" | "pm" | "pmc" | "po" | "lim" => Para::Break(MarkKind::ParagraphFlush, 0),
+        "nb" => Para::Body,
+        "pc" | "qc" => Para::Break(MarkKind::Centered, 0),
+        "pr" | "qr" | "pmr" | "cls" => Para::Break(MarkKind::PoetryRight, 0),
+        "q" | "qm" | "qd" => Para::Break(MarkKind::Poetry, level.unwrap_or(1).clamp(1, 4)),
+        "li" => Para::Break(MarkKind::List, level.unwrap_or(1).clamp(1, 4)),
+        "b" => Para::Break(MarkKind::Blank, 0),
+        "s" => Para::Heading(MarkKind::Heading, level.unwrap_or(1).clamp(1, 2)),
+        "ms" => Para::Heading(MarkKind::Heading, 0),
+        "qa" => Para::Heading(MarkKind::Heading, 3),
+        "sp" => Para::Heading(MarkKind::Speaker, 0),
+        "d" => Para::Heading(MarkKind::PsalmTitle, 0),
+        "toc" if level == Some(1) => Para::Title(TitleField::Long),
+        "toc" if level == Some(2) => Para::Title(TitleField::Short),
+        "h" => Para::Title(TitleField::Short),
+        "mt" => Para::Title(TitleField::Main(level.unwrap_or(1))),
+        _ => Para::Ignore,
+    }
+}
+
 /// Character style markers we render.
-fn char_style(name: &str) -> Option<Option<Style>> {
+pub(crate) fn char_style(name: &str) -> Option<Option<Style>> {
     Some(match name {
         "wj" => Some(Style::WordsOfJesus),
         "add" => Some(Style::Added),

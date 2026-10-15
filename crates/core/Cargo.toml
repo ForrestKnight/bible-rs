@@ -19,5 +19,10 @@ zstd.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
+ureq = "3"
+
+# API keys live in the macOS Keychain; other platforms use a 0600 file.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = "4"
 
 [dev-dependencies]

@@ -1,0 +1,128 @@
+//! API key storage.
+//!
+//! On macOS keys live in the login Keychain (via the `keyring` crate). Elsewhere — where a
+//! Secret Service daemon is often missing (headless machines, CI) — they are kept in a JSON file
+//! that only the current user can read (mode 0600).
+
+use std::path::{Path, PathBuf};
+
+use anyhow::Result;
+
+#[derive(Debug, Clone)]
+pub struct SecretStore {
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    file: PathBuf,
+}
+
+impl SecretStore {
+    pub fn new(data_dir: &Path) -> Self {
+        Self { file: data_dir.join("secrets.json") }
+    }
+
+    pub fn backend_name(&self) -> &'static str {
+        if cfg!(target_os = "macos") { "macOS Keychain" } else { "local secrets file (mode 0600)" }
+    }
+
+    /// Stores a value; an empty value deletes it.
+    pub fn put(&self, key: &str, value: &str) -> Result<()> {
+        if value.trim().is_empty() { self.delete(key) } else { self.set(key, value.trim()) }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod backend {
+    use super::*;
+
+    const SERVICE: &str = "bible-rs";
+
+    impl SecretStore {
+        pub fn get(&self, key: &str) -> Option<String> {
+            keyring::Entry::new(SERVICE, key).ok()?.get_password().ok()
+        }
+
+        pub fn set(&self, key: &str, value: &str) -> Result<()> {
+            keyring::Entry::new(SERVICE, key)?.set_password(value)?;
+            Ok(())
+        }
+
+        pub fn delete(&self, key: &str) -> Result<()> {
+            match keyring::Entry::new(SERVICE, key)?.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(e) => Err(e.into()),
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod backend {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    impl SecretStore {
+        fn load(&self) -> BTreeMap<String, String> {
+            std::fs::read(&self.file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        }
+
+        fn save(&self, map: &BTreeMap<String, String>) -> Result<()> {
+            if let Some(dir) = self.file.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            let tmp = self.file.with_extension("json.tmp");
+            {
+                use std::io::Write;
+                let mut opts = std::fs::OpenOptions::new();
+                opts.write(true).create(true).truncate(true);
+                #[cfg(unix)]
+                std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+                let mut f = opts.open(&tmp)?;
+                f.write_all(&serde_json::to_vec_pretty(map)?)?;
+            }
+            std::fs::rename(&tmp, &self.file)?;
+            Ok(())
+        }
+
+        pub fn get(&self, key: &str) -> Option<String> {
+            self.load().remove(key)
+        }
+
+        pub fn set(&self, key: &str, value: &str) -> Result<()> {
+            let mut map = self.load();
+            map.insert(key.to_string(), value.to_string());
+            self.save(&map)
+        }
+
+        pub fn delete(&self, key: &str) -> Result<()> {
+            let mut map = self.load();
+            if map.remove(key).is_some() {
+                self.save(&map)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_store_round_trip_with_private_permissions() {
+        let dir = std::env::temp_dir().join(format!("bible-rs-secrets-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = SecretStore::new(&dir);
+        assert_eq!(store.get("esv-api-key"), None);
+        store.put("esv-api-key", " abc123 ").unwrap();
+        assert_eq!(store.get("esv-api-key").as_deref(), Some("abc123"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.join("secrets.json")).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        store.put("esv-api-key", "").unwrap();
+        assert_eq!(store.get("esv-api-key"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
