@@ -1,0 +1,37 @@
+[package]
+name = "bible-rs"
+description = "A fast, native Bible reader"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "bible-rs"
+path = "src/main.rs"
+
+[dependencies]
+bible-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+eframe = { version = "0.36", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "glow",
+    "wgpu",
+    "wayland",
+    "x11",
+] }
+rfd = "0.17"
+dirs = "6"
+
+# Native menu bar (macOS only).
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = { version = "0.21", default-features = false }
+
+[dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "layout"
+harness = false

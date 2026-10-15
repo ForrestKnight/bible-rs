@@ -2,6 +2,7 @@
 //! full-text search, reference parsing and local study storage. No GUI code lives here.
 
 pub mod books;
+pub mod copy;
 #[cfg(feature = "bundled")]
 pub mod bundled;
 pub mod format;

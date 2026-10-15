@@ -142,6 +142,11 @@ impl BookId {
         self.info().chapters
     }
 
+    /// Name used in a chapter or verse reference: "Psalm 23", otherwise the book name.
+    pub fn ref_name(self) -> &'static str {
+        if self == BookId::PSALMS { "Psalm" } else { self.name() }
+    }
+
     pub fn testament(self) -> Testament {
         if self < FIRST_NT_BOOK { Testament::Old } else { Testament::New }
     }
@@ -212,7 +217,7 @@ impl ChapterIdx {
     }
 
     pub fn display(self) -> String {
-        format!("{} {}", self.book().name(), self.chapter())
+        format!("{} {}", self.book().ref_name(), self.chapter())
     }
 }
 
@@ -314,13 +319,13 @@ impl VerseRef {
     }
 
     pub fn display(self) -> String {
-        format!("{} {}:{}", self.book.name(), self.chapter, self.verse)
+        self.to_string()
     }
 }
 
 impl std::fmt::Display for VerseRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}:{}", self.book.name(), self.chapter, self.verse)
+        write!(f, "{} {}:{}", self.book.ref_name(), self.chapter, self.verse)
     }
 }
 

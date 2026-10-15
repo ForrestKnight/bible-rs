@@ -624,7 +624,7 @@ mod tests {
 
         let md = b.export_markdown("KJV", text);
         assert!(md.contains("## Bookmarks"));
-        assert!(md.contains("- **Psalms 23:1** — Shepherd"));
+        assert!(md.contains("- **Psalm 23:1** — Shepherd"));
         assert!(md.contains("- **John 3:16** (pink) text of John 3:16"));
         assert!(md.contains("### John 3:16\n\n> text of John 3:16\n\nline one\nline two"));
         assert!(b.import_json("{}").is_err());

@@ -76,6 +76,12 @@ impl TranslationMeta {
             _ => book.name(),
         }
     }
+
+    /// Book name for a chapter or verse reference ("Psalm 23", not "Psalms 23").
+    pub fn ref_name<'a>(&'a self, book: BookId) -> &'a str {
+        let short = self.book_short(book);
+        if book == BookId::PSALMS && short.starts_with("Psalm") { "Psalm" } else { short }
+    }
 }
 
 /// Structural marks. Stored as `u8` in the binary format.

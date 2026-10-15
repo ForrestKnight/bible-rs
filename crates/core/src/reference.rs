@@ -21,7 +21,7 @@ impl Reference {
     }
 
     pub fn display(&self) -> String {
-        let mut s = format!("{} {}", self.book.name(), self.chapter);
+        let mut s = format!("{} {}", self.book.ref_name(), self.chapter);
         if let Some(v) = self.verse {
             s.push_str(&format!(":{v}"));
             if let Some(e) = self.verse_end.filter(|&e| e > v) {
@@ -47,7 +47,7 @@ pub fn format_range(from: VerseRef, to: VerseRef) -> String {
         }
         return from.to_string();
     }
-    format!("{} {}:{}–{}", from.book.name(), from.chapter, from.verse, to.verse)
+    format!("{} {}:{}–{}", from.book.ref_name(), from.chapter, from.verse, to.verse)
 }
 
 /// The best single interpretation of `input`, if any.
@@ -230,8 +230,8 @@ mod tests {
         assert_eq!(p("II Kings 2"), "2 Kings 2");
         assert_eq!(p("second samuel 7"), "2 Samuel 7");
         assert_eq!(p("3 john"), "3 John 1");
-        assert_eq!(p("ps 23"), "Psalms 23");
-        assert_eq!(p("psalm 119:105"), "Psalms 119:105");
+        assert_eq!(p("ps 23"), "Psalm 23");
+        assert_eq!(p("psalm 119:105"), "Psalm 119:105");
         assert_eq!(p("song 2"), "Song of Solomon 2");
         assert_eq!(p("Song of Songs 2"), "Song of Solomon 2");
         assert_eq!(p("jude 3"), "Jude 1:3");
