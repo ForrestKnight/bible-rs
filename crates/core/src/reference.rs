@@ -36,7 +36,14 @@ impl Reference {
 pub fn format_range(from: VerseRef, to: VerseRef) -> String {
     if from == to || from.book != to.book || from.chapter != to.chapter {
         if from.book == to.book && from.chapter != to.chapter {
-            return format!("{} {}:{}–{}:{}", from.book.name(), from.chapter, from.verse, to.chapter, to.verse);
+            return format!(
+                "{} {}:{}–{}:{}",
+                from.book.name(),
+                from.chapter,
+                from.verse,
+                to.chapter,
+                to.verse
+            );
         }
         return from.to_string();
     }
@@ -151,12 +158,17 @@ pub fn book_candidates(key: &str, ordinal: Option<u8>) -> Vec<(BookId, i32)> {
             best = 1000;
         } else if bare.starts_with(key) {
             best = 900 - (bare.len() as i32 - key.len() as i32) + popularity;
-        } else if info.aliases.iter().any(|a| a.trim_start_matches(|c: char| c.is_ascii_digit()).starts_with(key)) {
+        } else if info
+            .aliases
+            .iter()
+            .any(|a| a.trim_start_matches(|c: char| c.is_ascii_digit()).starts_with(key))
+        {
             best = 800 + popularity;
         } else if key.len() >= 2 && is_subsequence(key, bare) && bare.starts_with(&key[..1]) {
             best = 600 - (bare.len() as i32 - key.len() as i32) + popularity;
         } else if key.len() >= 4 {
-            let d = damerau_levenshtein(key, bare).min(damerau_levenshtein(key, &bare[..bare.len().min(key.len())]));
+            let d = damerau_levenshtein(key, bare)
+                .min(damerau_levenshtein(key, &bare[..bare.len().min(key.len())]));
             if d <= 2 {
                 best = 500 - 60 * d as i32 + popularity;
             }

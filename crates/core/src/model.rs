@@ -218,6 +218,16 @@ pub struct Translation {
     pub(crate) search: OnceLock<SearchIndex>,
 }
 
+impl std::fmt::Debug for Translation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Translation")
+            .field("id", &self.meta.id)
+            .field("abbrev", &self.meta.abbrev)
+            .field("verses", &self.verses.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// A borrowed view of one verse.
 #[derive(Clone, Copy)]
 pub struct VerseView<'a> {
@@ -454,7 +464,8 @@ impl TranslationBuilder {
         self.chapter = self.book.and_then(|b| u8::try_from(chapter).ok().and_then(|c| ChapterIdx::new(b, c)));
         if self.chapter.is_none() {
             if let Some(b) = self.book {
-                self.warnings.push(format!("{} {chapter}: chapter outside the canonical grid, skipped", b.name()));
+                self.warnings
+                    .push(format!("{} {chapter}: chapter outside the canonical grid, skipped", b.name()));
             }
         }
         self.chapter.is_some()
@@ -577,6 +588,11 @@ impl TranslationBuilder {
         while let Some((style, _)) = self.open_styles.last().copied() {
             self.pop_style(style);
         }
+    }
+
+    /// Ends the current verse explicitly (OSIS `eID` milestones, closing `</VERS>`).
+    pub fn end_current_verse(&mut self) {
+        self.end_verse();
     }
 
     fn end_verse(&mut self) {

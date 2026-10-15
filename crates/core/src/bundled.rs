@@ -10,7 +10,11 @@ use crate::model::{Translation, TranslationMeta};
 
 macro_rules! bbl {
     ($id:literal) => {
-        ($id, include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/translations/", $id, ".bbl")) as &[u8])
+        (
+            $id,
+            include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/translations/", $id, ".bbl"))
+                as &[u8],
+        )
     };
 }
 
@@ -61,6 +65,9 @@ mod tests {
         assert!(kjv.meta.red_letters);
         let v = kjv.find(VerseRef::new(BookId(42), 3, 16)).unwrap();
         assert!(v.spans.iter().any(|s| s.style == crate::model::Style::WordsOfJesus));
-        assert_eq!(v.text, "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.");
+        assert_eq!(
+            v.text,
+            "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life."
+        );
     }
 }

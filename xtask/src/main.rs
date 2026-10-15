@@ -130,10 +130,81 @@ fn main() -> Result<()> {
                 let marks: Vec<String> = v
                     .marks
                     .iter()
-                    .map(|m| format!("{:?}{}@{}{}", m.kind, m.level, m.offset, if m.kind.has_text() { format!("“{}”", t.mark_text(m)) } else { String::new() }))
+                    .map(|m| {
+                        format!(
+                            "{:?}{}@{}{}",
+                            m.kind,
+                            m.level,
+                            m.offset,
+                            if m.kind.has_text() {
+                                format!("“{}”", t.mark_text(m))
+                            } else {
+                                String::new()
+                            }
+                        )
+                    })
                     .collect();
-                let spans: Vec<String> = v.spans.iter().map(|s| format!("{:?}[{}..{}]", s.style, s.start, s.end)).collect();
+                let spans: Vec<String> =
+                    v.spans.iter().map(|s| format!("{:?}[{}..{}]", s.style, s.start, s.end)).collect();
                 println!("{:>3} {}\n      marks {:?} spans {:?}", v.number, v.text, marks, spans);
+            }
+            Ok(())
+        }
+        Some("verse-table") => {
+            let t = format::decode(&std::fs::read(root.join("data/translations/kjv.bbl"))?)?;
+            let counts: Vec<String> =
+                bible_core::ChapterIdx::all().map(|c| t.last_verse(c).to_string()).collect();
+            for line in counts.chunks(30) {
+                println!("    {},", line.join(", "));
+            }
+            Ok(())
+        }
+        Some("import") => {
+            // Imports a file and compares it verse by verse with a bundled translation.
+            let started = std::time::Instant::now();
+            let imp = bible_core::import::import_path(Path::new(&args[1]), &Default::default())?;
+            let t = imp.translation;
+            println!(
+                "{} — {} ({}) — {} verses in {:?}; {} warnings",
+                imp.format.name(),
+                t.meta.name,
+                t.meta.abbrev,
+                t.verse_count(),
+                started.elapsed(),
+                imp.warnings.len()
+            );
+            if let Some(base) = args.get(2) {
+                let b = format::decode(&std::fs::read(root.join(format!("data/translations/{base}.bbl")))?)?;
+                let (mut same, mut diff, mut missing) = (0, 0, 0);
+                for c in bible_core::ChapterIdx::all() {
+                    for v in b.verses_in(c) {
+                        match t.find(v.reference()) {
+                            Some(o) if o.plain_text() == v.plain_text() => same += 1,
+                            Some(o) => {
+                                if diff < 5 {
+                                    println!(
+                                        "  {}\n    {}\n    {}",
+                                        v.reference(),
+                                        v.plain_text(),
+                                        o.plain_text()
+                                    );
+                                }
+                                diff += 1
+                            }
+                            None => missing += 1,
+                        }
+                    }
+                }
+                println!("vs {base}: {same} identical, {diff} different, {missing} missing");
+            }
+            for r in ["ps 23:1", "jn 3:16", "gen 1:1", "rev 22:21"] {
+                let r = bible_core::reference::parse(r).unwrap();
+                if let Some(v) = t.find(r.verse_ref()) {
+                    let marks: Vec<String> =
+                        v.marks.iter().map(|m| format!("{:?}{}", m.kind, m.level)).collect();
+                    let spans: Vec<String> = v.spans.iter().map(|s| format!("{:?}", s.style)).collect();
+                    println!("{}: {} {marks:?} {spans:?}", r.display(), v.text);
+                }
             }
             Ok(())
         }
@@ -189,7 +260,8 @@ fn build_data(root: &Path, ids: &[String]) -> Result<()> {
         let zip_path = fetch(root, s)?;
         let digest = hex(&Sha256::digest(std::fs::read(&zip_path)?));
         let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip_path)?)?;
-        let mut names: Vec<String> = archive.file_names().filter(|n| n.ends_with(".usfm")).map(String::from).collect();
+        let mut names: Vec<String> =
+            archive.file_names().filter(|n| n.ends_with(".usfm")).map(String::from).collect();
         names.sort();
         let meta = TranslationMeta {
             id: s.id.into(),

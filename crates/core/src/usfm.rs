@@ -77,7 +77,9 @@ impl<'b> UsfmParser<'b> {
             }
             // Marker name: letters, digits and a leading '+' for nested character styles.
             let mut end = at + 1;
-            while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'+' || bytes[end] == b'-') {
+            while end < bytes.len()
+                && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'+' || bytes[end] == b'-')
+            {
                 end += 1;
             }
             let name = &src[at + 1..end];
@@ -339,7 +341,25 @@ fn char_style(name: &str) -> Option<Option<Style>> {
 fn is_char_marker(name: &str) -> bool {
     matches!(
         name,
-        "w" | "wh" | "wg" | "wa" | "rb" | "jmp" | "pro" | "ord" | "no" | "sup" | "pn" | "png" | "addpn" | "ref" | "lik" | "liv" | "litl" | "xt" | "fv" | "qac"
+        "w" | "wh"
+            | "wg"
+            | "wa"
+            | "rb"
+            | "jmp"
+            | "pro"
+            | "ord"
+            | "no"
+            | "sup"
+            | "pn"
+            | "png"
+            | "addpn"
+            | "ref"
+            | "lik"
+            | "liv"
+            | "litl"
+            | "xt"
+            | "fv"
+            | "qac"
     )
 }
 
@@ -360,12 +380,8 @@ fn leading_number(s: &str) -> Option<u32> {
 /// "16" → (16,16); "3-4" → (3,4); "12a" → (12,12).
 pub(crate) fn verse_range(s: &str) -> (u32, u32) {
     let start = leading_number(s).unwrap_or(0);
-    let end = s
-        .split(['-', '–', ','])
-        .nth(1)
-        .and_then(leading_number)
-        .filter(|&e| e >= start)
-        .unwrap_or(start);
+    let end =
+        s.split(['-', '–', ',']).nth(1).and_then(leading_number).filter(|&e| e >= start).unwrap_or(start);
     (start, end)
 }
 
@@ -398,7 +414,10 @@ pub fn smart_title_case(s: &str) -> String {
 }
 
 /// Convenience: parse a set of USFM documents into one builder.
-pub fn parse_documents<'a>(b: &mut TranslationBuilder, docs: impl IntoIterator<Item = &'a str>) -> Result<()> {
+pub fn parse_documents<'a>(
+    b: &mut TranslationBuilder,
+    docs: impl IntoIterator<Item = &'a str>,
+) -> Result<()> {
     for doc in docs {
         UsfmParser::new(b).parse(doc)?;
     }
@@ -443,7 +462,10 @@ mod tests {
         let v16 = t.find(VerseRef::new(john, 3, 16)).unwrap();
         assert_eq!(v16.text, "For God so loved the world. “Truly I say.”");
         assert_eq!(v16.spans, &[Span { start: 28, end: 46, style: Style::WordsOfJesus }]);
-        assert_eq!(v16.marks.iter().map(|m| m.kind).collect::<Vec<_>>(), [MarkKind::Heading, MarkKind::Paragraph]);
+        assert_eq!(
+            v16.marks.iter().map(|m| m.kind).collect::<Vec<_>>(),
+            [MarkKind::Heading, MarkKind::Paragraph]
+        );
         assert_eq!(t.mark_text(&v16.marks[0]), "Jesus and Nicodemus");
 
         let v17 = t.find(VerseRef::new(john, 3, 18)).unwrap();
@@ -479,7 +501,10 @@ mod tests {
 
     #[test]
     fn title_case() {
-        assert_eq!(smart_title_case("THE FIRST BOOK OF MOSES, CALLED GENESIS"), "The First Book of Moses, Called Genesis");
+        assert_eq!(
+            smart_title_case("THE FIRST BOOK OF MOSES, CALLED GENESIS"),
+            "The First Book of Moses, Called Genesis"
+        );
         assert_eq!(smart_title_case("The Good News"), "The Good News");
     }
 }

@@ -257,9 +257,7 @@ pub fn words_with_ranges(text: &str) -> Vec<(String, Range<usize>)> {
                 start = Some(i);
             }
             fold_char(c, &mut cur);
-        } else if is_apostrophe(c)
-            && start.is_some()
-            && iter.peek().is_some_and(|(_, n)| n.is_alphanumeric())
+        } else if is_apostrophe(c) && start.is_some() && iter.peek().is_some_and(|(_, n)| n.is_alphanumeric())
         {
             // joined: "Father’s" → "fathers"
         } else if let Some(s) = start.take() {
@@ -369,7 +367,11 @@ mod tests {
     }
 
     fn refs(t: &Translation, q: &str, scope: Scope) -> Vec<String> {
-        run(t, q, scope, false).verses.iter().map(|&i| t.verse_view(i).unwrap().reference().to_string()).collect()
+        run(t, q, scope, false)
+            .verses
+            .iter()
+            .map(|&i| t.verse_view(i).unwrap().reference().to_string())
+            .collect()
     }
 
     #[test]

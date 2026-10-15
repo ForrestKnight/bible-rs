@@ -16,5 +16,8 @@ serde.workspace = true
 serde_json.workspace = true
 memchr.workspace = true
 zstd.workspace = true
+rusqlite = { version = "0.40", features = ["bundled"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1"
 
 [dev-dependencies]

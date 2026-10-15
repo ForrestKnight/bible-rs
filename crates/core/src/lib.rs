@@ -5,10 +5,13 @@ pub mod books;
 #[cfg(feature = "bundled")]
 pub mod bundled;
 pub mod format;
+pub mod import;
 pub mod model;
 pub mod reference;
 pub mod search;
+pub mod study;
 pub mod usfm;
+pub mod xml;
 
 pub use books::{BookId, ChapterIdx, Testament, VerseRef};
 pub use model::{Translation, TranslationMeta};

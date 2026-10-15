@@ -226,7 +226,8 @@ impl<'a> Reader<'a> {
     }
 
     fn take(&mut self, n: usize) -> Result<&'a [u8]> {
-        let end = self.pos.checked_add(n).filter(|&e| e <= self.b.len()).context("truncated translation file")?;
+        let end =
+            self.pos.checked_add(n).filter(|&e| e <= self.b.len()).context("truncated translation file")?;
         let s = &self.b[self.pos..end];
         self.pos = end;
         Ok(s)
@@ -277,9 +278,14 @@ mod tests {
         assert_eq!(read_meta(&bytes).unwrap().books[42].long, "The Gospel of John");
         let back = decode(&bytes).unwrap();
         let c = ChapterIdx::new(BookId(42), 1).unwrap();
-        let a: Vec<_> = t.verses_in(c).map(|v| (v.number, v.text.to_string(), v.marks.to_vec(), v.spans.to_vec())).collect();
-        let b: Vec<_> =
-            back.verses_in(c).map(|v| (v.number, v.text.to_string(), v.marks.to_vec(), v.spans.to_vec())).collect();
+        let a: Vec<_> = t
+            .verses_in(c)
+            .map(|v| (v.number, v.text.to_string(), v.marks.to_vec(), v.spans.to_vec()))
+            .collect();
+        let b: Vec<_> = back
+            .verses_in(c)
+            .map(|v| (v.number, v.text.to_string(), v.marks.to_vec(), v.spans.to_vec()))
+            .collect();
         assert_eq!(a, b);
         let first = back.verses_in(c).next().unwrap();
         assert_eq!(back.mark_text(&first.marks[0]), "The Word");
