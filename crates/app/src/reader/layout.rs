@@ -374,10 +374,14 @@ fn push_styled_lead(
             append(job, chunk, cx.body(st));
         }
     };
+    let caps = caps_words(text);
     let mut run_start = 0usize;
     let mut run_style = None;
     for (i, _) in text.char_indices() {
-        let st = styles_at(base + i);
+        let mut st = styles_at(base + i);
+        if caps.iter().any(|r| r.contains(&i)) {
+            st |= Style::SmallCaps.bit();
+        }
         match run_style {
             None => run_style = Some(st),
             Some(prev) if prev != st => {
@@ -391,6 +395,25 @@ fn push_styled_lead(
     if let Some(st) = run_style {
         emit(job, run_start, text.len(), st);
     }
+}
+
+/// Words printed in capitals (LORD where a text has no divine-name markup, GOD, JESUS OF
+/// NAZARETH…): two or more letters, all upper case. Set in small capitals, as printed Bibles do.
+fn caps_words(text: &str) -> Vec<Range<usize>> {
+    let mut out = Vec::new();
+    let mut word: Option<(usize, bool, usize)> = None;
+    for (i, c) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
+        if c.is_alphabetic() {
+            let (start, upper, n) = word.unwrap_or((i, true, 0));
+            word = Some((start, upper && c.is_uppercase(), n + 1));
+        } else if let Some((start, upper, n)) = word.take()
+            && upper
+            && n >= 2
+        {
+            out.push(start..i);
+        }
+    }
+    out
 }
 
 /// "LORD"/"Lord" → L + ᴏʀᴅ: the first letter of each word at full size, the rest upper-cased smaller.
@@ -647,6 +670,7 @@ impl Builder<'_, '_> {
         let (big, little) = (ascent(self.fonts, font.clone()), ascent(self.fonts, small.font_id.clone()));
         small.line_height = Some(line_height - (big - little));
         let mut job = LayoutJob::default();
+        let mut has_small = false;
         for (i, word) in text.split(' ').enumerate() {
             if i > 0 {
                 append(&mut job, " ", fmt.clone());
@@ -657,6 +681,7 @@ impl Builder<'_, '_> {
                 Some((second, _)) => {
                     append(&mut job, &word[..second], fmt.clone());
                     append(&mut job, &word[second..], small.clone());
+                    has_small = true;
                 }
                 None => append(&mut job, word, fmt.clone()),
             }
@@ -666,6 +691,11 @@ impl Builder<'_, '_> {
             job.halign = Align::Center;
         }
         self.place(job, center);
+        if has_small {
+            // In the design the smaller capitals, aligned on the baseline, make the line box
+            // taller by the difference of the two sizes' baselines.
+            self.y += (size - small.font_id.size) * LITERATA_BASELINE;
+        }
     }
 
     fn heading(&mut self, kind: MarkKind, _level: u8, text: &str) {
