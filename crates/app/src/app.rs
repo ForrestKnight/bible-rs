@@ -146,46 +146,6 @@ pub fn initialize(data_dir: PathBuf, notify: Arc<dyn Fn() + Send + Sync>) -> Res
     Ok(Init { data_dir, study, library, settings, elapsed: t.elapsed() })
 }
 
-/// Every keyboard shortcut, by group (the help overlay and Settings → Shortcuts).
-pub const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
-    (
-        "Navigate",
-        &[
-            ("⌘K", "Jump to a reference (\"jn 3:16\", \"Rom 8\")"),
-            ("← / →", "Previous / next chapter"),
-            ("↑ ↓ Space", "Scroll"),
-            ("⌘[ / ⌘]", "Back / forward"),
-            ("⌘F or /", "Search"),
-            ("⌘B", "Books & study sidebar"),
-        ],
-    ),
-    (
-        "Verses",
-        &[
-            ("Click, ⇧-click", "Select a verse / range"),
-            ("J / K", "Select next / previous verse"),
-            ("1–6, 0", "Highlight colour, remove"),
-            ("N", "Note"),
-            ("B or ⌘D", "Bookmark"),
-            ("⌘C, ⇧⌘C", "Copy, copy with reference"),
-            ("Right-click", "Verse menu"),
-            ("C", "Compare translations"),
-        ],
-    ),
-    (
-        "View",
-        &[
-            ("⌘1…⌘9", "Switch translation"),
-            ("⌘⇧P", "Parallel translations"),
-            ("⌘+ / ⌘− / ⌘0", "Text size"),
-            ("⌘L", "Paragraphs / verse per line"),
-            ("⌘R", "Red letters"),
-            ("⌘⇧L", "Light / sepia / dark"),
-            ("⌘,", "Settings"),
-        ],
-    ),
-];
-
 /// Back/forward navigation history.
 #[derive(Default)]
 pub struct History {
@@ -262,6 +222,7 @@ pub struct BibleApp {
     pub panel: Option<VersePanel>,
     settings_ui: Option<SettingsUi>,
     shortcuts_open: bool,
+    shortcuts_overlay: crate::shortcuts_overlay::ShortcutsOverlay,
     toasts: Vec<(String, f64)>,
     online_gen: Arc<AtomicU64>,
     pub task_tx: Sender<TaskResult>,
@@ -373,6 +334,7 @@ impl BibleApp {
             panel: None,
             settings_ui: None,
             shortcuts_open: false,
+            shortcuts_overlay: Default::default(),
             toasts: Vec::new(),
             online_gen,
             task_tx,
@@ -929,6 +891,7 @@ impl BibleApp {
                 self.verse_menu = Some(crate::verse_menu::VerseMenu::new(pos).with_first_highlighted());
             }
             "share" => actions.push(Action::ShareImage),
+            "shortcuts" => self.shortcuts_open = true,
             "page" => {
                 if let Some(page) = crate::pages::Page::from_name(arg) {
                     actions.push(Action::OpenPage(page));
@@ -1491,40 +1454,12 @@ impl BibleApp {
         }
     }
 
-    fn shortcuts_help(&mut self, ctx: &egui::Context) {
+    fn shortcuts_help(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) {
         if !self.shortcuts_open {
             return;
         }
-        let mut open = true;
         let p = self.settings.theme.palette();
-        egui::Window::new("Keyboard shortcuts")
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-            .frame(Frame::window(&ctx.style_of(ctx.theme())).fill(p.surface))
-            .show(ctx, |ui| {
-                let groups = SHORTCUTS;
-                ui.horizontal_top(|ui| {
-                    for (title, rows) in groups {
-                        ui.vertical(|ui| {
-                            ui.set_width(250.0);
-                            ui.label(
-                                egui::RichText::new(*title).font(theme::ui_medium(13.0)).color(p.accent),
-                            );
-                            ui.add_space(4.0);
-                            egui::Grid::new(*title).num_columns(2).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
-                                for (k, d) in *rows {
-                                    ui.label(egui::RichText::new(*k).font(theme::ui_medium(12.5)));
-                                    ui.label(egui::RichText::new(*d).color(p.ink_2));
-                                    ui.end_row();
-                                }
-                            });
-                        });
-                    }
-                });
-            });
-        if !open || ctx.input(|i| i.key_pressed(Key::Escape)) {
+        if self.shortcuts_overlay.show(ctx, p, &self.settings.shortcuts, actions) {
             self.shortcuts_open = false;
         }
     }
@@ -2034,7 +1969,7 @@ impl eframe::App for BibleApp {
                 }
             }
         }
-        self.shortcuts_help(&ctx);
+        self.shortcuts_help(&ctx, &mut actions);
         self.plan_reminder(&ctx);
         self.auto_backup(&ctx);
         self.toasts(&ctx);
