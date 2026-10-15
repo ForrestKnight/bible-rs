@@ -265,6 +265,23 @@ pub fn history(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(10.0, 6.5), (10.0, 10.25), (12.5, 11.75)]);
 }
 
+/// Two overlapping pages (copy).
+pub fn copy(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.rect(6.75, 6.75, 10.5, 10.5, 2.25);
+    let mut pts = vec![(13.25, 3.25), (5.75, 3.25)];
+    pts.extend(Grid::arc(5.75, 5.75, 2.5, -FRAC_PI_2, -PI));
+    pts.push((3.25, 13.25));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, false);
+}
+
+pub fn plus(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(10.0, 4.25), (10.0, 15.75)]);
+    g.line(&[(4.25, 10.0), (15.75, 10.0)]);
+}
+
 pub fn ellipsis(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);
     for x in [5.0, 10.0, 15.0] {

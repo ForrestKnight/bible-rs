@@ -74,6 +74,8 @@ pub struct Reader {
     pub location: (ChapterIdx, u8),
     /// The furthest verse of the location's chapter that is in view (reading progress).
     pub furthest_in_view: u8,
+    /// Where the parallel columns are this frame: left edge and width of each.
+    pub columns_x: Vec<(f32, f32)>,
     frames: u64,
 }
 
@@ -96,6 +98,7 @@ impl Reader {
             scrolled_at: f64::NEG_INFINITY,
             location: (chapter, verse.max(1)),
             furthest_in_view: verse.max(1),
+            columns_x: Vec::new(),
             frames: 0,
         };
         if verse > 1 {
@@ -297,6 +300,9 @@ impl Reader {
         let below_toolbar = Rect::from_min_max(pos2(rect.left(), rect.top() + env.toolbar), rect.max);
         let resp = ui.interact(below_toolbar, id, Sense::click_and_drag());
         let geom = Geometry::new(rect, env.typo, env.columns.len());
+        self.columns_x = (0..env.columns.len())
+            .map(|i| (geom.x0 + i as f32 * (geom.col_w + geom.gutter), geom.col_w))
+            .collect();
         self.em = env.typo.size;
         self.viewport_h = rect.height();
 
@@ -307,6 +313,8 @@ impl Reader {
                 && self.pending_jump.is_none()
                 && let Some(cached) = self.cache.get(&self.anchor.chapter)
                 && let Some(a) = cached.layout.verse_at_y(self.anchor.offset)
+                // Above the first verse (in the chapter's heading) the offset stays as it is.
+                && self.anchor.offset >= a.top
             {
                 let span = (a.bottom - a.top).max(1.0);
                 self.reanchor = Some((self.anchor.chapter, a.number, (self.anchor.offset - a.top) / span));
@@ -424,6 +432,29 @@ impl Reader {
                 }
                 under_toolbar |= br.top() < toolbar_bottom;
                 let bo = origin + block.pos;
+                // Parallel: a selected verse is marked as a whole row across the columns.
+                let parallel = env.columns.len() > 1;
+                if parallel
+                    && block.column == 0
+                    && let Some((_, _, number)) = block.verses.first()
+                    && selected.contains(&VerseRef::new(ch.book(), ch.chapter(), *number))
+                {
+                    let row: Vec<Rect> = l
+                        .blocks
+                        .iter()
+                        .filter(|b| b.verses.first().is_some_and(|(_, _, n)| n == number))
+                        .map(|b| b.rect().translate(origin))
+                        .collect();
+                    let (top, bottom) = row
+                        .iter()
+                        .fold((f32::MAX, f32::MIN), |(t, b), r| (t.min(r.top()), b.max(r.bottom())));
+                    let pad = layout::PARALLEL_ROW_PAD;
+                    let band = Rect::from_min_max(
+                        pos2(geom.x0 - pad.x, top - pad.y - self.em * 0.2),
+                        pos2(geom.x0 + geom.total_w + pad.x, bottom + pad.y),
+                    );
+                    painter.rect_filled(band, CornerRadius::same(10), p.selection);
+                }
                 // Underlays: highlights, selection, flash.
                 for (k, (start, _vi, number)) in block.verses.iter().enumerate() {
                     let end = block.verses.get(k + 1).map_or(usize::MAX, |(s, _, _)| *s);
@@ -433,7 +464,7 @@ impl Reader {
                         fills.push(p.highlight(hc));
                     }
                     let is_selected = selected.contains(&vref);
-                    if is_selected {
+                    if is_selected && !parallel {
                         fills.push(p.selection);
                     }
                     if let (Some((fv, _)), Some(a)) = (self.flash, flash_alpha)
@@ -737,6 +768,22 @@ pub struct Geometry {
 impl Geometry {
     pub fn new(rect: Rect, typo: &Typography, columns: usize) -> Self {
         let n = columns.max(1) as f32;
+        if n > 1.0 {
+            // Parallel (frame 07): rows padded 8 pt inside a 24 pt left and 16 pt right margin,
+            // columns 32 pt apart, as wide as the window allows up to a comfortable measure.
+            let s = typo.size / layout::DESIGN_EM;
+            let (left, right, pad) = (24.0 * s, 16.0 * s, layout::PARALLEL_ROW_PAD.x);
+            let gutter = (32.0 * s).round();
+            let avail = (rect.width() - left - right - 2.0 * pad).max(200.0);
+            let col_w = ((avail - gutter * (n - 1.0)) / n).min(typo.size * 20.0).floor();
+            let total_w = col_w * n + gutter * (n - 1.0);
+            let x0 = if total_w + 1.0 < avail {
+                (rect.center().x - total_w / 2.0).round()
+            } else {
+                rect.left() + left + pad
+            };
+            return Self { x0, col_w, gutter, total_w };
+        }
         // At least enough room on the right for the note/bookmark markers.
         let margin = (rect.width() * 0.06).clamp(56.0, 96.0);
         let avail = (rect.width() - margin * 2.0).max(200.0);

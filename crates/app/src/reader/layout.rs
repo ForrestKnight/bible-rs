@@ -16,8 +16,8 @@ use eframe::epaint::text::FontsView;
 use serde::{Deserialize, Serialize};
 
 use crate::theme::{
-    self, Palette, SERIF, SERIF_DISPLAY, SERIF_HEADING, SERIF_ITALIC, SERIF_SEMIBOLD, Theme, UI_MEDIUM,
-    UI_SEMIBOLD, reading, text,
+    self, Palette, SERIF, SERIF_DISPLAY, SERIF_HEADING, SERIF_ITALIC, SERIF_SEMIBOLD, Theme, UI_SEMIBOLD,
+    reading, text,
 };
 
 /// The design is drawn at a 20 pt reading size; its reading metrics scale with the user's size.
@@ -937,6 +937,12 @@ fn anchors_for(blocks: &[Block]) -> Vec<VerseAnchor> {
     anchors
 }
 
+/// Parallel rows (frame 07): each verse a row across the columns, padded 6 × 8 and rounded so the
+/// selected one can be marked whole; a 24 pt number lane, then Literata at 17/28 (at a 20 pt
+/// reading size).
+pub const PARALLEL_ROW_PAD: Vec2 = vec2(8.0, 6.0);
+const PARALLEL_NUMBER_LANE: f32 = 24.0;
+
 /// Lays out a chapter as verse-aligned rows across several translations.
 pub fn layout_parallel(
     fonts: &mut FontsView<'_>,
@@ -944,42 +950,42 @@ pub fn layout_parallel(
     cols: &[(String, ColumnText<'_>)],
     c: ChapterIdx,
 ) -> ChapterLayout {
-    let cx = &cx.measured(fonts);
-    let em = cx.typo.size;
-    let n = cols.len().max(1);
+    // The columns' own, smaller type; spacing still scales with the reading size.
+    let outer = cx;
+    let s = |pt: f32| outer.s(pt);
+    let typo = Typography {
+        size: s(17.0).round(),
+        line_height: s(28.0).round() / s(17.0).round(),
+        ..cx.typo.clone()
+    };
+    let small = Ctx { typo: &typo, ..cx.clone() };
+    let cx = &small.measured(fonts);
     let col_w = cx.width;
-    let mut b = Builder::new(cx, fonts);
-    let full = col_w * n as f32 + cx.gutter * (n as f32 - 1.0);
-    let first_t = cols.iter().find_map(|(_, c)| match c {
-        ColumnText::Ready(t) => Some(*t),
-        _ => None,
-    });
-    // Heading across all columns.
-    {
-        let wide = Ctx { width: full, ..cx.clone() };
-        let mut hb = Builder::new(&wide, b.fonts);
-        chapter_head(&mut hb, first_t, c, false);
-        b.labels = hb.labels;
-        b.y = hb.y;
-    }
-    // Column captions (translation abbreviations).
+    let n = cols.len().max(1);
+    let full = PARALLEL_ROW_PAD.x * 2.0 + col_w * n as f32 + cx.gutter * (n as f32 - 1.0);
     let p = cx.theme.palette();
-    for (i, (abbrev, _)) in cols.iter().enumerate() {
-        let mut job = LayoutJob::default();
-        job.append(
-            abbrev,
-            0.0,
-            TextFormat {
-                font_id: FontId::new(11.5, theme::family(UI_MEDIUM)),
-                color: p.ink_2,
-                extra_letter_spacing: 1.0,
-                ..Default::default()
-            },
-        );
-        let g = b.fonts.layout_job(job);
-        b.labels.push((vec2(i as f32 * (col_w + cx.gutter), b.y), g));
+    let mut b = Builder::new(cx, fonts);
+    // The chapter's label, centred across the columns.
+    {
+        let wide = Ctx { width: full, ..outer.clone() };
+        let mut hb = Builder::new(&wide, b.fonts);
+        hb.x0 = -PARALLEL_ROW_PAD.x;
+        let first_t = cols.iter().find_map(|(_, c)| match c {
+            ColumnText::Ready(t) => Some(*t),
+            _ => None,
+        });
+        let label = if c.book() == BookId::PSALMS {
+            format!("PSALM {}", c.chapter())
+        } else {
+            let name = first_t
+                .map(|t| t.meta.book_short(c.book()).to_string())
+                .unwrap_or_else(|| c.book().name().into());
+            format!("{} {}", name.to_uppercase(), c.chapter())
+        };
+        hb.label_line(&label, true);
+        b.labels = hb.labels;
+        b.y = hb.y + s(16.0);
     }
-    b.y += em * 1.4;
 
     // Verse numbers to show: union across columns, in order.
     let mut numbers: Vec<u8> = Vec::new();
@@ -992,72 +998,78 @@ pub fn layout_parallel(
     numbers.dedup();
 
     // Messages for columns that have no text (loading, missing, no key).
+    let col_x = |i: usize| PARALLEL_NUMBER_LANE + i as f32 * (col_w + cx.gutter);
+    let text_w = col_w - PARALLEL_NUMBER_LANE;
     let mut msg_rows = false;
     for (i, (_, col)) in cols.iter().enumerate() {
         if let ColumnText::Message(m) = col {
             let mut job = LayoutJob::default();
-            job.wrap.max_width = col_w;
-            job.append(m, 0.0, cx.fmt(SERIF_ITALIC, (em * 0.85).round(), p.ink_2));
+            job.wrap.max_width = text_w;
+            job.append(m, 0.0, cx.fmt(SERIF_ITALIC, cx.typo.size, p.ink_2));
             let g = b.fonts.layout_job(job);
-            b.labels.push((vec2(i as f32 * (col_w + cx.gutter), b.y), g));
+            b.labels.push((vec2(col_x(i), b.y + PARALLEL_ROW_PAD.y), g));
             msg_rows = true;
         }
     }
     if msg_rows && numbers.is_empty() {
-        b.y += em * 3.0;
+        b.y += cx.lh() * 3.0;
     }
 
+    let number_fmt = TextFormat {
+        font_id: FontId::new(s(11.0).round(), theme::family(UI_SEMIBOLD)),
+        color: p.verse,
+        ..Default::default()
+    };
     for num in numbers {
-        let row_top = b.y;
+        let row_top = b.y + PARALLEL_ROW_PAD.y;
         let mut row_h = 0.0f32;
         for (ci, (_, col)) in cols.iter().enumerate() {
             let ColumnText::Ready(t) = col else { continue };
             let Some(v) = t.verses_in(c).find(|v| v.number == num) else { continue };
             let mut job = LayoutJob::default();
-            job.wrap.max_width = col_w;
+            job.wrap.max_width = text_w;
             // Psalm title before verse 1.
             for m in v.marks.iter().filter(|m| m.offset == 0 && m.kind == MarkKind::PsalmTitle) {
-                let mut f = cx.fmt(SERIF_ITALIC, (em * 0.85).round(), p.ink_2);
-                f.line_height = Some((em * 1.35).round());
+                let mut f = cx.fmt(SERIF_ITALIC, (cx.typo.size * 0.88).round(), p.ink_2);
+                f.line_height = Some(cx.lh());
                 job.append(&format!("{}\n", t.mark_text(m)), 0.0, f);
             }
-            if cx.typo.verse_numbers {
-                job.append(&format!("{}\u{a0}", v.number), 0.0, cx.verse_number_fmt());
-            }
+            // Each verse flows as one paragraph in its column; poetry's line breaks become spaces.
             let styles = style_mask(&v);
             let mut cursor = 0usize;
-            let mut lead = 0.0;
             for m in v.marks.iter().filter(|m| m.kind.breaks_line() && m.offset > 0) {
                 let at = (m.offset as usize).min(v.text.len());
                 if at > cursor {
-                    push_styled_lead(&mut job, cx, &v.text[cursor..at], &styles, cursor, lead);
+                    push_styled(&mut job, cx, &v.text[cursor..at], &styles, cursor);
                     cursor = at;
-                    append(&mut job, "\n", cx.body(0));
-                    // Indent the next line (poetry level 2+) via leading space on its first section.
-                    lead = if m.kind == MarkKind::Poetry {
-                        em * 1.2 * m.level.saturating_sub(1) as f32
-                    } else {
-                        0.0
-                    };
+                    if !job.text.ends_with(' ') && !v.text[at..].starts_with(' ') {
+                        append(&mut job, " ", cx.body(0));
+                    }
                 }
             }
             if cursor < v.text.len() {
-                push_styled_lead(&mut job, cx, &v.text[cursor..], &styles, cursor, lead);
+                push_styled(&mut job, cx, &v.text[cursor..], &styles, cursor);
             }
             let g = b.fonts.layout_job(job);
             row_h = row_h.max(g.size().y);
+            let gutter = cx.typo.verse_numbers.then(|| {
+                let ng =
+                    b.fonts.layout_job(LayoutJob::single_section(v.number.to_string(), number_fmt.clone()));
+                let pos = vec2(ci as f32 * (col_w + cx.gutter), row_top + (cx.lh() - ng.size().y) / 2.0);
+                (ng, pos)
+            });
             b.blocks.push(Block {
-                pos: vec2(ci as f32 * (col_w + cx.gutter), row_top),
+                pos: vec2(col_x(ci), row_top + cx.body_shift),
                 galley: g,
                 verses: vec![(0, v.index, v.number)],
-                gutter: None,
+                gutter,
                 column: ci,
             });
         }
-        b.y = row_top + row_h + em * 0.55;
+        b.y = row_top + row_h + PARALLEL_ROW_PAD.y;
     }
     let anchors = anchors_for(&b.blocks);
-    ChapterLayout { chapter: c, height: b.y + em * 1.2, blocks: b.blocks, anchors, labels: b.labels }
+    ChapterLayout { chapter: c, height: b.y + s(CHAPTER_END), blocks: b.blocks, anchors, labels: b.labels }
 }
 
 /// A short message laid out where a chapter would be (loading, missing text, …).

@@ -28,6 +28,8 @@ pub enum Action {
     /// Select a verse and compare it across translations.
     CompareVerse(VerseRef),
     AddParallel(String),
+    /// Show another translation in a parallel column (0 is the first column after the reading one).
+    ReplaceParallel(usize, String),
     RemoveParallel(String),
     Highlight(Option<HighlightColor>),
     EditNote(VerseRef),

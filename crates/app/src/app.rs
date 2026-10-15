@@ -519,6 +519,20 @@ impl BibleApp {
                 self.settings.parallel_on = true;
                 self.library.warm(&[id]);
             }
+            Action::ReplaceParallel(i, id) => {
+                if id != self.settings.translation {
+                    let mut shown: Vec<String> = self.columns().into_iter().skip(1).collect();
+                    match shown.iter().position(|c| *c == id) {
+                        // Already shown: swap the two columns.
+                        Some(at) if i < shown.len() => shown.swap(at, i),
+                        Some(_) => {}
+                        None if i < shown.len() => shown[i] = id.clone(),
+                        None => shown.push(id.clone()),
+                    }
+                    self.settings.parallel = shown;
+                    self.library.warm(&[id]);
+                }
+            }
             Action::RemoveParallel(id) => {
                 self.settings.parallel.retain(|p| *p != id);
             }
@@ -905,7 +919,15 @@ impl BibleApp {
                 .unwrap_or_else(|| c.book().ref_name().into()),
             c.chapter()
         );
-        let abbrev = tmeta.as_ref().map(|m| m.abbrev.clone()).unwrap_or_default();
+        let abbrev = if self.settings.parallel_on {
+            self.columns()
+                .iter()
+                .filter_map(|id| self.library.get(id).map(|e| e.meta.abbrev.clone()))
+                .collect::<Vec<_>>()
+                .join(" · ")
+        } else {
+            tmeta.as_ref().map(|m| m.abbrev.clone()).unwrap_or_default()
+        };
         let book = widgets::Picker::new(ui, &title, 14.0, 10.0);
         let translation = widgets::Picker::new(ui, &abbrev, 10.0, 12.0);
         let width = book.width() + 1.0 + translation.width();
@@ -942,6 +964,69 @@ impl BibleApp {
         }
         #[cfg(not(target_os = "macos"))]
         let _ = items;
+    }
+
+    /// The parallel columns' heads (frame 07): each translation's abbreviation as a picker over
+    /// its full name, a hairline below.
+    fn column_heads(
+        &mut self,
+        ui: &mut Ui,
+        reader_rect: egui::Rect,
+        cols: &[String],
+        actions: &mut Vec<Action>,
+    ) {
+        let p = self.settings.theme.palette();
+        let top = reader_rect.top() + self.chrome.height + 16.0;
+        let pad = crate::reader::layout::PARALLEL_ROW_PAD.x;
+        let (Some(first), Some(last)) =
+            (self.reader.columns_x.first().copied(), self.reader.columns_x.last().copied())
+        else {
+            return;
+        };
+        let line = top + 34.0 + 16.0 - 0.5;
+        ui.painter().hline(first.0 - pad..=last.0 + last.1 + pad, line, Stroke::new(1.0, p.separator));
+        for (i, (x, _w)) in self.reader.columns_x.clone().into_iter().enumerate() {
+            let Some(id) = cols.get(i) else { break };
+            let Some(meta) = self.library.get(id).map(|e| e.meta.clone()) else { continue };
+            let font = theme::text::UI_STRONG.font();
+            let g = ui.painter().layout_no_wrap(meta.abbrev.clone(), font, p.ink);
+            let pick = egui::Rect::from_min_size(egui::pos2(x, top), vec2(g.size().x + 4.0 + 12.0, 16.0));
+            let resp = ui.interact(pick.expand(4.0), Id::new(("column-head", i)), Sense::click());
+            ui.painter().galley(egui::pos2(x, top + 8.0 - g.size().y / 2.0), g, p.ink);
+            crate::icons::chevron_down(
+                ui.painter(),
+                egui::Rect::from_center_size(egui::pos2(pick.right() - 6.0, top + 8.0), vec2(12.0, 12.0)),
+                p.ink_2,
+            );
+            ui.painter().text(
+                egui::pos2(x, top + 16.0 + 2.0 + 8.0),
+                egui::Align2::LEFT_CENTER,
+                &meta.name,
+                theme::ui_medium(11.0),
+                p.ink_3,
+            );
+            egui::Popup::menu(&resp).show(|ui| {
+                ui.set_min_width(240.0);
+                for e in self.library.entries() {
+                    let m = &e.meta;
+                    if ui.selectable_label(m.id == *id, format!("{}  {}", m.abbrev, m.name)).clicked() {
+                        actions.push(if i == 0 {
+                            Action::SetTranslation(m.id.clone())
+                        } else {
+                            Action::ReplaceParallel(i - 1, m.id.clone())
+                        });
+                        ui.close();
+                    }
+                }
+                if i > 0 {
+                    ui.separator();
+                    if ui.button("Remove column").clicked() {
+                        actions.push(Action::RemoveParallel(id.clone()));
+                        ui.close();
+                    }
+                }
+            });
+        }
     }
 
     /// While a search has results: "Result 5 of 7", a stepper and a hint, floating over the top
@@ -1102,6 +1187,9 @@ impl BibleApp {
     }
 }
 
+/// Under the toolbar in parallel: the columns' heads (16 pt down, 34 tall, 16 pt to a hairline).
+const COLUMN_HEADS: f32 = 66.0;
+
 /// Under the toolbar while searching: the result navigator (24 pt down, 32 tall) and 16 pt below.
 const SEARCH_BAND: f32 = 48.0;
 
@@ -1259,26 +1347,19 @@ impl eframe::App for BibleApp {
                     self.sidebar.show(&mut child, &env, &mut self.settings.whole_words, &mut actions);
                 });
         }
-        if let Some(panel) = &mut self.panel {
-            let mut close = false;
-            egui::Panel::right("verse-panel")
-                .resizable(true)
-                .default_size(340.0)
-                .size_range(280.0..=560.0)
-                .frame(Frame::new().fill(p.sidebar))
-                .show(ui, |ui| {
-                    close = panel.show(ui, &self.library, &mut self.study, &self.settings, &mut actions);
-                });
-            if close {
-                self.panel = None;
-            }
-        }
-        let mut reader_rect = egui::Rect::NOTHING;
         let first = self.startup.frames == 0;
         egui::CentralPanel::default().frame(Frame::NONE.fill(p.paper)).show(ui, |ui| {
-            // The reader runs the full height; the toolbar floats over its top.
-            reader_rect = ui.max_rect();
+            // The reader runs the full height, beside the inspector when one is open; the
+            // toolbar floats over the top of both.
+            let full = ui.max_rect();
+            let inspector = if self.panel.is_some() { crate::panel::INSPECTOR_WIDTH } else { 0.0 };
+            let reader_rect =
+                egui::Rect::from_min_max(full.min, egui::pos2(full.right() - inspector, full.bottom()));
             let cols = self.columns();
+            let searching = self.sidebar.result_position().is_some();
+            // Bands under the toolbar: the parallel columns' heads, a search's result navigator.
+            let heads = if cols.len() > 1 { COLUMN_HEADS } else { 0.0 };
+            let band = heads + if searching { SEARCH_BAND } else { 0.0 };
             let keyboard = !ctx.egui_wants_keyboard_input() && self.palette.is_none();
             let env = Env {
                 library: &self.library,
@@ -1288,11 +1369,10 @@ impl eframe::App for BibleApp {
                 columns: &cols,
                 keyboard,
                 online_generation: &self.online_gen,
-                // A search's result navigator sits in a band under the toolbar.
-                toolbar: self.chrome.height
-                    + if self.sidebar.result_position().is_some() { SEARCH_BAND } else { 0.0 },
+                toolbar: self.chrome.height + band,
             };
-            self.reader.show(ui, &env, &mut actions);
+            let mut reader_ui = ui.new_child(egui::UiBuilder::new().max_rect(reader_rect));
+            self.reader.show(&mut reader_ui, &env, &mut actions);
             if first {
                 crate::trace(self.startup.t0, "reader laid out and painted");
             }
@@ -1308,21 +1388,41 @@ impl eframe::App for BibleApp {
                     &self.study,
                 );
             }
-            if self.sidebar.result_position().is_some() {
-                // egui can't blur what scrolls beneath, so the band is solid paper.
-                let band = egui::Rect::from_min_size(
+            if band > 0.0 {
+                // egui can't blur what scrolls beneath, so the bands are solid paper.
+                let r = egui::Rect::from_min_size(
                     reader_rect.min,
-                    vec2(reader_rect.width(), self.chrome.height + SEARCH_BAND),
+                    vec2(reader_rect.width(), self.chrome.height + band),
                 );
-                ui.painter().rect_filled(band, 0.0, p.paper);
+                ui.painter().rect_filled(r, 0.0, p.paper);
             }
-            self.result_navigator(ui, reader_rect, &mut actions);
+            if heads > 0.0 {
+                self.column_heads(ui, reader_rect, &cols, &mut actions);
+            }
+            self.result_navigator(ui, reader_rect.translate(vec2(0.0, heads)), &mut actions);
+            if let Some(panel) = &mut self.panel {
+                let r = egui::Rect::from_min_max(
+                    egui::pos2(reader_rect.right(), full.top() + self.chrome.height),
+                    egui::pos2(
+                        full.right() - theme::metrics::SIDEBAR_INSET,
+                        full.bottom() - theme::metrics::SIDEBAR_INSET,
+                    ),
+                );
+                p.shadows.panel.paint(ui.painter(), r, theme::radius::LG);
+                ui.painter().rect_filled(r, theme::radius::LG, p.sidebar);
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
+                child.set_clip_rect(r);
+                if panel.show(&mut child, &self.library, &mut self.study, &self.settings, &cols, &mut actions)
+                {
+                    self.panel = None;
+                }
+            }
             let material = ctx.animate_bool_with_time(
                 Id::new("toolbar-material"),
-                self.reader.under_toolbar && self.sidebar.result_position().is_none(),
+                self.reader.under_toolbar && band == 0.0,
                 theme::motion::FAST_MS / 1000.0,
             );
-            self.toolbar(ui, reader_rect, material, &mut actions);
+            self.toolbar(ui, full, material, &mut actions);
             if first {
                 crate::trace(self.startup.t0, "toolbar laid out");
             }
