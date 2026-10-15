@@ -66,6 +66,7 @@ pub struct Reader {
     top_pad: f32,
     /// Chapter/verse currently at the reading line (for the toolbar and saved position).
     pub location: (ChapterIdx, u8),
+    frames: u64,
 }
 
 impl Reader {
@@ -83,6 +84,7 @@ impl Reader {
             viewport_h: 800.0,
             top_pad: 12.0,
             location: (chapter, verse.max(1)),
+            frames: 0,
         };
         if verse > 1 {
             r.pending_jump = Some((chapter, verse, false));
@@ -231,6 +233,7 @@ impl Reader {
             };
             chapters.push((abbrev, state));
         }
+        let t_layout = std::time::Instant::now();
         let layout = ui.ctx().fonts_mut(|fonts| {
             if chapters.len() == 1 {
                 match &chapters[0].1 {
@@ -253,6 +256,13 @@ impl Reader {
                 layout::layout_parallel(fonts, &cx, &cols, c)
             }
         });
+        if std::env::var_os("BIBLE_RS_TRACE_STARTUP").is_some() && self.frames < 3 {
+            eprintln!(
+                "          layout {} took {:.2} ms",
+                c.display(),
+                t_layout.elapsed().as_secs_f64() * 1000.0
+            );
+        }
         let layout = Arc::new(layout);
         self.cache.insert(c, Cached { layout: layout.clone(), provisional: provisional.then_some(gen_now) });
         if self.cache.len() > 48 {
@@ -479,7 +489,9 @@ impl Reader {
         let last_visible = c.and_then(|n| n.prev()).unwrap_or(ChapterIdx::LAST);
         // While idle, typeset the neighbouring chapters (one per frame) so that scrolling or
         // turning the page into them never has to lay out text first.
-        let idle = dy == 0.0 && self.scroll_remaining == 0.0 && !resp.dragged();
+        self.frames += 1;
+        // Not during the first frames: nothing should delay the first paint.
+        let idle = self.frames > 2 && dy == 0.0 && self.scroll_remaining == 0.0 && !resp.dragged();
         if idle {
             let wanted = [
                 last_visible.next(),
