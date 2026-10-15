@@ -1292,14 +1292,12 @@ fn appearance(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
 
 /// A note under a group: 12 pt tertiary, aligned with the group's caption.
 fn footnote(ui: &mut Ui, p: &Palette, note: &str) {
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
-    ui.painter().text(
-        pos2(r.left() + 4.0, r.center().y),
-        Align2::LEFT_CENTER,
-        note,
-        text::SMALL.font(),
-        p.ink_3,
-    );
+    let width = ui.available_width() - 4.0;
+    let mut job = LayoutJob::simple(note.into(), text::SMALL.font(), p.ink_3, width);
+    job.sections[0].format.line_height = Some(16.0);
+    let g = ui.painter().layout_job(job);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), g.size().y), Sense::hover());
+    ui.painter().galley(pos2(r.left() + 4.0, r.top()), g, p.ink_3);
 }
 
 /// A segmented control of icon-and-label segments, drawn with its right edge at `right_center`.
