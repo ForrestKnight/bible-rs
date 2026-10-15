@@ -76,6 +76,9 @@ pub struct Reader {
     pub furthest_in_view: u8,
     /// Where the parallel columns are this frame: left edge and width of each.
     pub columns_x: Vec<(f32, f32)>,
+    /// The verse whose note popover is open, and where its marker was drawn this frame.
+    pub marker_for: Option<VerseRef>,
+    pub marker_rect: Option<Rect>,
     frames: u64,
 }
 
@@ -99,6 +102,8 @@ impl Reader {
             location: (chapter, verse.max(1)),
             furthest_in_view: verse.max(1),
             columns_x: Vec::new(),
+            marker_for: None,
+            marker_rect: None,
             frames: 0,
         };
         if verse > 1 {
@@ -295,6 +300,7 @@ impl Reader {
         ui.painter().rect_filled(rect, 0.0, p.paper);
         self.toolbar = env.toolbar;
         self.top_pad = env.toolbar + layout::PAGE_TOP;
+        self.marker_rect = None;
         let id = Id::new("reader");
         // Text runs under the toolbar, but clicks there belong to the toolbar (and the window).
         let below_toolbar = Rect::from_min_max(pos2(rect.left(), rect.top() + env.toolbar), rect.max);
@@ -533,8 +539,15 @@ impl Reader {
                     }
                     x += 24.0;
                 }
-                if env.study.note(vref).is_some() {
+                let open = self.marker_for == Some(vref);
+                if env.study.note(vref).is_some() || open {
                     let r = Rect::from_center_size(pos2(x + 10.0, cy), vec2(16.0, 16.0));
+                    if open {
+                        // The note being written: its marker carries the popover's beak.
+                        let box_ = Rect::from_center_size(r.center(), vec2(20.0, 20.0));
+                        painter.rect_filled(box_, CornerRadius::same(6), p.accent_soft);
+                        self.marker_rect = Some(box_);
+                    }
                     icons::note(&painter, r, p.accent);
                     if pointer.is_some_and(|pt| r.expand(4.0).contains(pt)) {
                         marker_hit = Some(vref);

@@ -14,8 +14,9 @@ use eframe::egui::{self, Align2, CornerRadius, Frame, Id, Key, Margin, Modifiers
 use serde::{Deserialize, Serialize};
 
 use crate::actions::{Action, ExportKind, SettingsTab, SidebarTab};
+use crate::note_popover::NotePopover;
 use crate::palette::CommandPalette;
-use crate::panel::{PanelMode, VersePanel};
+use crate::panel::VersePanel;
 use crate::reader::layout::{Mode, Typography};
 use crate::reader::{Env, Reader};
 use crate::settings_ui::SettingsUi;
@@ -179,6 +180,7 @@ pub struct BibleApp {
     scroll_probe: Option<ScrollProbe>,
     reading: crate::reading::Tracker,
     verse_menu: Option<crate::verse_menu::VerseMenu>,
+    note_popover: Option<NotePopover>,
     /// `BIBLE_RS_DEMO`: steps that put the window into a given state (screenshots), one per frame.
     demo: std::collections::VecDeque<String>,
     chrome: Chrome,
@@ -271,6 +273,7 @@ impl BibleApp {
             }),
             reading: Default::default(),
             verse_menu: None,
+            note_popover: None,
             demo: std::env::var("BIBLE_RS_DEMO")
                 .map(|s| s.split(';').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
                 .unwrap_or_default(),
@@ -553,12 +556,11 @@ impl BibleApp {
             }
             Action::EditNote(v) => {
                 self.reader.set_selection(Some(v));
-                self.panel = Some(VersePanel::new(v, PanelMode::Note, &self.study));
+                self.note_popover = Some(NotePopover::new(v, &self.study));
             }
             Action::EditSelectedNote => {
                 let v = self.selection_or_location()[0];
-                self.reader.set_selection(Some(v));
-                self.panel = Some(VersePanel::new(v, PanelMode::Note, &self.study));
+                self.apply_one(ctx, Action::EditNote(v));
             }
             Action::ToggleBookmark => {
                 let v = self.selection_or_location()[0];
@@ -582,8 +584,8 @@ impl BibleApp {
                 if let Err(e) = self.study.set_note(v, "") {
                     self.toast(ctx, format!("{e:#}"));
                 }
-                if self.panel.as_ref().is_some_and(|p| p.verse == v) {
-                    self.panel = None;
+                if self.note_popover.as_ref().is_some_and(|n| n.verse == v) {
+                    self.note_popover = None;
                 }
             }
             Action::CopyText => {
@@ -618,7 +620,7 @@ impl BibleApp {
             Action::Compare => {
                 let v = self.selection_or_location()[0];
                 self.reader.set_selection(Some(v));
-                self.panel = Some(VersePanel::new(v, PanelMode::Compare, &self.study));
+                self.panel = Some(VersePanel::new(v));
                 let ids: Vec<String> = self.library.entries().iter().map(|e| e.meta.id.clone()).collect();
                 self.library.warm(&ids);
             }
@@ -1401,6 +1403,7 @@ impl eframe::App for BibleApp {
                 toolbar: self.chrome.height + band,
             };
             let mut reader_ui = ui.new_child(egui::UiBuilder::new().max_rect(reader_rect));
+            self.reader.marker_for = self.note_popover.as_ref().map(|n| n.verse);
             self.reader.show(&mut reader_ui, &env, &mut actions);
             if first {
                 crate::trace(self.startup.t0, "reader laid out and painted");
@@ -1441,8 +1444,7 @@ impl eframe::App for BibleApp {
                 ui.painter().rect_filled(r, theme::radius::LG, p.sidebar);
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
                 child.set_clip_rect(r);
-                if panel.show(&mut child, &self.library, &mut self.study, &self.settings, &cols, &mut actions)
-                {
+                if panel.show(&mut child, &self.library, &self.settings, &cols, &mut actions) {
                     self.panel = None;
                 }
             }
@@ -1457,6 +1459,23 @@ impl eframe::App for BibleApp {
             }
         });
 
+        if let Some(note) = &mut self.note_popover {
+            let marker = self
+                .reader
+                .marker_rect
+                .unwrap_or_else(|| crate::note_popover::fallback_anchor(ctx.content_rect()));
+            if note.show(
+                &ctx,
+                p,
+                &self.library,
+                &mut self.study,
+                &self.settings.translation,
+                marker,
+                &mut actions,
+            ) {
+                self.note_popover = None;
+            }
+        }
         if let Some(menu) = &mut self.verse_menu {
             let refs = self.reader.selected_refs();
             if menu.show(&ctx, p, &self.study, &refs, &mut actions) {

@@ -11,6 +11,7 @@ pub mod icons;
 pub mod macos_menu;
 #[cfg(target_os = "macos")]
 pub mod macos_window;
+pub mod note_popover;
 pub mod palette;
 pub mod panel;
 pub mod reader;

@@ -1,10 +1,9 @@
 //! The inspector for the selected verse: the verse compared across every installed translation
-//! (frame 07 in the design), or its note.
+//! (frame 07 in the design).
 
 use bible_core::VerseRef;
 use bible_core::library::{Chapter, Library};
 use bible_core::model::Style;
-use bible_core::study::StudyStore;
 use eframe::egui::text::{LayoutJob, TextFormat, TextWrapping};
 use eframe::egui::{self, Align2, FontId, Rect, ScrollArea, Sense, Stroke, Ui, pos2, vec2};
 
@@ -17,19 +16,8 @@ use crate::widgets;
 /// The inspector's width (a 336 pt panel, 8 pt from the window's edge).
 pub const INSPECTOR_WIDTH: f32 = 344.0;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum PanelMode {
-    Note,
-    Compare,
-}
-
 pub struct VersePanel {
     pub verse: VerseRef,
-    pub mode: PanelMode,
-    note: String,
-    saved_note: String,
-    focus: bool,
-    edited_at: f64,
     /// The translation picked in the compare list (the one "Add to parallel" adds).
     picked: Option<String>,
 }
@@ -45,26 +33,8 @@ fn short_name(name: &str) -> &str {
 }
 
 impl VersePanel {
-    pub fn new(verse: VerseRef, mode: PanelMode, study: &StudyStore) -> Self {
-        let note = study.note(verse).map(|n| n.body.clone()).unwrap_or_default();
-        Self {
-            verse,
-            mode,
-            saved_note: note.clone(),
-            note,
-            focus: mode == PanelMode::Note,
-            edited_at: 0.0,
-            picked: None,
-        }
-    }
-
-    fn save(&mut self, study: &mut StudyStore, actions: &mut Vec<Action>) {
-        if self.note != self.saved_note {
-            match study.set_note(self.verse, &self.note) {
-                Ok(()) => self.saved_note = self.note.clone(),
-                Err(e) => actions.push(Action::Toast(format!("Couldn't save note: {e:#}"))),
-            }
-        }
+    pub fn new(verse: VerseRef) -> Self {
+        Self { verse, picked: None }
     }
 
     /// Draws the inspector's content in `ui` (its panel already painted). `columns` are the
@@ -73,7 +43,6 @@ impl VersePanel {
         &mut self,
         ui: &mut Ui,
         library: &Library,
-        study: &mut StudyStore,
         settings: &Settings,
         columns: &[String],
         actions: &mut Vec<Action>,
@@ -89,12 +58,7 @@ impl VersePanel {
 
         // Header: title and detail, copy and close.
         let header = Rect::from_min_size(rect.min, vec2(rect.width(), 66.0));
-        let (title, detail) = match self.mode {
-            PanelMode::Compare => {
-                ("Compare", format!("{reference} · {} translations", library.entries().len()))
-            }
-            PanelMode::Note => ("Note", reference.clone()),
-        };
+        let (title, detail) = ("Compare", format!("{reference} · {} translations", library.entries().len()));
         ui.painter().text(
             pos2(header.left() + 16.0, header.top() + 16.0 + 10.0),
             Align2::LEFT_CENTER,
@@ -114,16 +78,15 @@ impl VersePanel {
         if round_button(ui, p, close_rect, "inspector-close", icons::close, "Close").clicked() {
             close = true;
         }
-        if self.mode == PanelMode::Compare
-            && round_button(
-                ui,
-                p,
-                b(close_rect.left() - 4.0 - 14.0),
-                "inspector-copy",
-                icons::copy,
-                "Copy every translation",
-            )
-            .clicked()
+        if round_button(
+            ui,
+            p,
+            b(close_rect.left() - 4.0 - 14.0),
+            "inspector-copy",
+            icons::copy,
+            "Copy every translation",
+        )
+        .clicked()
         {
             ui.ctx().copy_text(self.compare_text(library, &reference));
             actions.push(Action::Toast(format!("Copied {reference} in every translation")));
@@ -136,19 +99,12 @@ impl VersePanel {
             egui::UiBuilder::new().max_rect(body).layout(egui::Layout::top_down(egui::Align::Min)),
         );
         child.set_clip_rect(body.intersect(ui.clip_rect()));
-        match self.mode {
-            PanelMode::Compare => self.compare(&mut child, library, settings, columns, p),
-            PanelMode::Note => {
-                egui::Frame::NONE.inner_margin(egui::Margin::same(16)).show(&mut child, |ui| {
-                    self.note_ui(ui, library, study, settings, actions);
-                });
-            }
-        }
+        self.compare(&mut child, library, settings, columns, p);
 
         // Footer: add the picked translation to the parallel columns.
         let footer = Rect::from_min_max(pos2(rect.left(), rect.bottom() - 48.0), rect.max);
         ui.painter().hline(footer.x_range(), footer.top() + 0.5, Stroke::new(1.0, p.separator));
-        if self.mode == PanelMode::Compare {
+        {
             let picked = self.picked.clone().unwrap_or_else(|| settings.translation.clone());
             // Adds the picked translation, or offers those not shown yet when it already is.
             let others: Vec<(String, String)> = library
@@ -216,9 +172,6 @@ impl VersePanel {
                 theme::ui_medium(11.0),
                 p.ink_3,
             );
-        }
-        if close {
-            self.save(study, actions);
         }
         close
     }
@@ -318,80 +271,6 @@ impl VersePanel {
                 }
             });
         });
-    }
-
-    fn note_ui(
-        &mut self,
-        ui: &mut Ui,
-        library: &Library,
-        study: &mut StudyStore,
-        settings: &Settings,
-        actions: &mut Vec<Action>,
-    ) {
-        let p = settings.theme.palette();
-        if let Ok(t) = library.load(&settings.translation)
-            && let Some(v) = t.find(self.verse)
-        {
-            let mut job = LayoutJob::single_section(
-                v.plain_text(),
-                TextFormat {
-                    font_id: FontId::new(text::SNIPPET_SM.size, theme::family(theme::SERIF_ITALIC)),
-                    color: p.ink_2,
-                    line_height: Some(20.0),
-                    ..Default::default()
-                },
-            );
-            job.wrap = TextWrapping {
-                max_width: ui.available_width(),
-                max_rows: 6,
-                overflow_character: Some('…'),
-                ..Default::default()
-            };
-            ui.label(job);
-            ui.add_space(8.0);
-        }
-        let edit = egui::TextEdit::multiline(&mut self.note)
-            .hint_text("Write a note on this verse…")
-            .font(FontId::new(text::SNIPPET_SM.size, theme::family(theme::SERIF)))
-            .desired_width(f32::INFINITY)
-            .desired_rows(10)
-            .margin(vec2(10.0, 8.0));
-        let resp = ui.add(edit);
-        if self.focus {
-            resp.request_focus();
-            self.focus = false;
-        }
-        let now = ui.input(|i| i.time);
-        if resp.changed() {
-            self.edited_at = now;
-        }
-        if resp.lost_focus() {
-            self.save(study, actions);
-        }
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            let dirty = self.note != self.saved_note;
-            if !self.saved_note.is_empty() && ui.button("Delete note").clicked() {
-                self.note.clear();
-                self.save(study, actions);
-            }
-            let status = if dirty {
-                "Unsaved"
-            } else if self.saved_note.is_empty() {
-                ""
-            } else {
-                "Saved"
-            };
-            ui.label(egui::RichText::new(status).color(p.ink_3).font(text::SMALL.font()));
-        });
-        // Autosave a moment after typing stops.
-        if self.note != self.saved_note {
-            if now - self.edited_at > 1.2 {
-                self.save(study, actions);
-            } else {
-                ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
-            }
-        }
     }
 }
 

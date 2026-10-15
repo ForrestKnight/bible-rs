@@ -335,6 +335,14 @@ pub fn slash_circle(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(4.9, 15.1), (15.1, 4.9)]);
 }
 
+/// A bin (delete).
+pub fn trash(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(3.75, 5.5), (16.25, 5.5)]);
+    g.line(&[(8.0, 5.5), (8.0, 3.75), (12.0, 3.75), (12.0, 5.5)]);
+    g.line(&[(5.25, 5.5), (6.0, 16.25), (7.0, 17.2), (13.0, 17.2), (14.0, 16.25), (14.75, 5.5)]);
+}
+
 pub fn ellipsis(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);
     for x in [5.0, 10.0, 15.0] {
