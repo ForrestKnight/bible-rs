@@ -283,6 +283,7 @@ pub fn keycap_width(painter: &Painter, label: &str) -> f32 {
 /// A slider (`ds-14`): a 4 pt track in `fill_strong` with the active part in the accent, a 20 pt
 /// white knob with the knob shadow (a halo on hover, the focus ring while dragged), and optional
 /// ticks under the track. `rect` is the slider's 24 pt high box; returns whether the value changed.
+#[allow(clippy::too_many_arguments)]
 pub fn slider(
     ui: &mut Ui,
     p: &Palette,
