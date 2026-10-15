@@ -41,6 +41,7 @@ every source above; copies of those statements are reproduced in [`bibles.md`](b
 |---|---|---|---|
 | Literata (variable, roman + italic) | Scripture text | github.com/google/fonts `ofl/literata` | [OFL-Literata.txt](../crates/app/assets/fonts/OFL-Literata.txt) |
 | Inter (variable) | Interface | github.com/google/fonts `ofl/inter` | [OFL-Inter.txt](../crates/app/assets/fonts/OFL-Inter.txt) |
+| Inter Medium, Inter SemiBold (static instances of the variable Inter, made with `fonttools varLib.instancer`, wght 500/600, opsz 14) | Interface, verse numbers | derived from the above | [OFL-Inter.txt](../crates/app/assets/fonts/OFL-Inter.txt) |
 
 egui's default fonts (Ubuntu-Light, Hack, Noto Emoji, emoji-icon-font; OFL/Apache/MIT) remain as
 fallbacks for symbols.

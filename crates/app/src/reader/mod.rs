@@ -277,7 +277,7 @@ impl Reader {
     pub fn show(&mut self, ui: &mut Ui, env: &Env<'_>, actions: &mut Vec<Action>) {
         let rect = ui.available_rect_before_wrap();
         let p = env.theme.palette();
-        ui.painter().rect_filled(rect, 0.0, p.page);
+        ui.painter().rect_filled(rect, 0.0, p.paper);
         let id = Id::new("reader");
         let resp = ui.interact(rect, id, Sense::click_and_drag());
         let geom = Geometry::new(rect, env.typo, env.columns.len());
@@ -379,7 +379,7 @@ impl Reader {
             for (pos, g) in &l.labels {
                 let at = (origin + *pos).to_pos2();
                 if at.y < rect.bottom() && at.y + g.size().y > rect.top() {
-                    painter.galley(at, g.clone(), p.text);
+                    painter.galley(at, g.clone(), p.ink);
                 }
             }
             for block in &l.blocks {
@@ -404,7 +404,7 @@ impl Reader {
                         && fv == vref
                         && a > 0.0
                     {
-                        fills.push(p.flash.gamma_multiply(a));
+                        fills.push(p.accent_soft.gamma_multiply(a));
                     }
                     if fills.is_empty() {
                         continue;
@@ -423,15 +423,15 @@ impl Reader {
                             painter.rect_stroke(
                                 r,
                                 CornerRadius::same(3),
-                                Stroke::new(1.25, p.selection_line),
+                                Stroke::new(1.25, p.accent),
                                 StrokeKind::Inside,
                             );
                         }
                     }
                 }
-                painter.galley(bo.to_pos2(), block.galley.clone(), p.text);
+                painter.galley(bo.to_pos2(), block.galley.clone(), p.ink);
                 if let Some((g, gp)) = &block.gutter {
-                    painter.galley((origin + *gp).to_pos2(), g.clone(), p.verse_num);
+                    painter.galley((origin + *gp).to_pos2(), g.clone(), p.verse);
                 }
                 if let Some(ptr) = pointer.filter(|pt| br.expand2(vec2(8.0, 2.0)).contains(*pt)) {
                     let cur = block.galley.cursor_from_pos((ptr - bo).to_vec2());
@@ -593,7 +593,7 @@ impl Reader {
         let painter = ui.painter();
         let active = resp.hovered() || resp.dragged();
         if active {
-            painter.rect_filled(bar.expand(1.0), CornerRadius::same(6), p.hover.gamma_multiply(0.8));
+            painter.rect_filled(bar.expand(1.0), CornerRadius::same(6), p.fill.gamma_multiply(0.8));
         }
         let h = self.cache.get(&self.anchor.chapter).map_or(1.0, |c| c.layout.height.max(1.0));
         let frac =
@@ -604,14 +604,14 @@ impl Reader {
         painter.rect_filled(
             thumb,
             CornerRadius::same(4),
-            if active { p.muted } else { p.faint.gamma_multiply(0.7) },
+            if active { p.ink_2 } else { p.ink_3.gamma_multiply(0.7) },
         );
         // Testament divider tick.
         let nt = bible_core::books::FIRST_NT_BOOK.first_chapter().0 as f32 / CHAPTER_COUNT as f32;
         let yy = bar.top() + nt * bar.height();
         painter.line_segment(
             [pos2(bar.left() + 1.0, yy), pos2(bar.right() - 1.0, yy)],
-            Stroke::new(1.0, p.border),
+            Stroke::new(1.0, p.separator),
         );
         if let Some(pos) = resp.hover_pos() {
             let f = ((pos.y - bar.top()) / bar.height()).clamp(0.0, 0.9999) * CHAPTER_COUNT as f32;

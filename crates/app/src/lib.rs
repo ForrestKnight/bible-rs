@@ -124,7 +124,7 @@ pub fn run() -> eframe::Result {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("bible-rs")
         .with_app_id("bible-rs")
-        .with_inner_size([1280.0, 860.0])
+        .with_inner_size([1280.0, 800.0])
         .with_min_inner_size([620.0, 420.0]);
     if in_app_bundle() {
         // The bundle's .icns is already the Dock icon; an empty icon stops eframe from decoding

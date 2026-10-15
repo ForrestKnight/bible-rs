@@ -12,10 +12,10 @@ pub fn hover_fill(ui: &Ui, resp: &Response, p: &Palette, on: bool) -> Option<Col
         return None;
     }
     if resp.is_pointer_button_down_on() {
-        return Some(p.pressed);
+        return Some(p.fill_strong);
     }
     let t = ui.ctx().animate_bool_with_time(resp.id.with("hover"), resp.hovered() || on, 0.1);
-    (t > 0.0).then(|| p.hover.gamma_multiply(t))
+    (t > 0.0).then(|| p.fill.gamma_multiply(t))
 }
 
 /// A borderless toolbar button with a painted icon. `on` marks a toggled-on state (accent icon).
@@ -26,17 +26,17 @@ pub fn icon_button(
     on: bool,
     paint: fn(&Painter, Rect, Color32),
 ) -> Response {
-    let [w, h] = metrics::TOOLBAR_BUTTON;
+    let (w, h) = (metrics::BUTTON_WIDTH, metrics::CAPSULE_HEIGHT);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
     if let Some(fill) = hover_fill(ui, &resp, p, on) {
         ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
     }
     let color = if !ui.is_enabled() {
-        p.faint
+        p.ink_3
     } else if on {
         p.accent
     } else {
-        p.icon
+        p.ink
     };
     paint(ui.painter(), Rect::from_center_size(rect.center(), Vec2::splat(metrics::ICON)), color);
     resp.on_hover_text(tooltip)
@@ -55,19 +55,19 @@ pub fn pill_width(ui: &Ui, text: &str) -> f32 {
 
 /// A rounded, clickable label with a disclosure chevron (location and translation pickers).
 pub fn pill(ui: &mut Ui, p: &Palette, text: &str, tooltip: &str) -> Response {
-    let galley = ui.painter().layout_no_wrap(text.to_string(), theme::ui_medium(PILL_FONT), p.text);
-    let size = vec2(pill_width(ui, text), metrics::TOOLBAR_BUTTON[1]);
+    let galley = ui.painter().layout_no_wrap(text.to_string(), theme::ui_medium(PILL_FONT), p.ink);
+    let size = vec2(pill_width(ui, text), metrics::CAPSULE_HEIGHT);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     if let Some(fill) = hover_fill(ui, &resp, p, false) {
         ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
     }
     let text_pos = egui::pos2(rect.left() + PILL_PAD, (rect.center().y - galley.size().y / 2.0).round());
-    ui.painter().galley(text_pos, galley, p.text);
+    ui.painter().galley(text_pos, galley, p.ink);
     let chevron = Rect::from_center_size(
         egui::pos2(rect.right() - PILL_PAD - PILL_CHEVRON / 2.0 + 2.0, rect.center().y),
         Vec2::splat(10.0),
     );
-    crate::icons::chevron_down(ui.painter(), chevron, p.muted);
+    crate::icons::chevron_down(ui.painter(), chevron, p.ink_2);
     resp.on_hover_text(tooltip)
 }
 

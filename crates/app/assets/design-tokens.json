@@ -1,0 +1,359 @@
+{
+  "$schema_note": "bible-rs design tokens. Colours are sRGB hex (#RRGGBB or #RRGGBBAA); all lengths are pt (1 pt = 1 CSS px in the Paper mockups = 1 logical point in the app).",
+  "version": 1,
+  "color": {
+    "light": {
+      "paper": "#FFFFFF",
+      "sidebar": "#F2F2F4",
+      "surface": "#FFFFFF",
+      "toolbar": "#FFFFFFCC",
+      "glass": "#FFFFFFE0",
+      "field": "#FFFFFF",
+      "raised": "#FFFFFF",
+      "fill": "#1C1D210D",
+      "fill_strong": "#1C1D211A",
+      "separator": "#E4E4E8",
+      "border": "#1C1D211F",
+      "scrim": "#1C1D2138",
+      "ink": "#1C1D21",
+      "ink_2": "#6E6F76",
+      "ink_3": "#A0A1A8",
+      "verse": "#7383B0",
+      "rubric": "#B0281F",
+      "accent": "#2D4A9E",
+      "on_accent": "#FFFFFF",
+      "accent_soft": "#E4E9F6",
+      "selection": "#2D4A9E24",
+      "focus": "#2D4A9E66",
+      "danger": "#C4372C",
+      "success": "#2F7D4F",
+      "highlight": {
+        "yellow": "#FBE7A1",
+        "green": "#D3ECCB",
+        "blue": "#D4E4FA",
+        "pink": "#F8D5E1",
+        "purple": "#E3DAF6",
+        "orange": "#FADDC2"
+      }
+    },
+    "dark": {
+      "paper": "#161618",
+      "sidebar": "#222225",
+      "surface": "#26262A",
+      "toolbar": "#161618CC",
+      "glass": "#303034E0",
+      "field": "#1E1E21",
+      "raised": "#46464C",
+      "fill": "#FFFFFF0F",
+      "fill_strong": "#FFFFFF1C",
+      "separator": "#2E2E33",
+      "border": "#FFFFFF1F",
+      "scrim": "#00000073",
+      "ink": "#E6E3DC",
+      "ink_2": "#9C9CA3",
+      "ink_3": "#66666D",
+      "verse": "#8592BC",
+      "rubric": "#F0897C",
+      "accent": "#8EA6F2",
+      "on_accent": "#111526",
+      "accent_soft": "#263156",
+      "selection": "#8EA6F233",
+      "focus": "#8EA6F280",
+      "danger": "#F07A6E",
+      "success": "#6CC48F",
+      "highlight": {
+        "yellow": "#584A1E",
+        "green": "#27452F",
+        "blue": "#213A5C",
+        "pink": "#56293B",
+        "purple": "#3B325E",
+        "orange": "#5A3A22"
+      }
+    },
+    "sepia": {
+      "paper": "#F6EEDC",
+      "sidebar": "#ECE2CB",
+      "surface": "#FBF5E8",
+      "toolbar": "#F6EEDCD1",
+      "glass": "#FCF7ECE6",
+      "field": "#FBF7EE",
+      "raised": "#FFFDF7",
+      "fill": "#3A2E220F",
+      "fill_strong": "#3A2E221C",
+      "separator": "#E0D2B4",
+      "border": "#3A2E2226",
+      "scrim": "#3A2E2238",
+      "ink": "#3A2E22",
+      "ink_2": "#7D6B55",
+      "ink_3": "#A8977E",
+      "verse": "#8C7A62",
+      "rubric": "#A3362A",
+      "accent": "#3C5490",
+      "on_accent": "#FFF9EE",
+      "accent_soft": "#E2DFDA",
+      "selection": "#3C549024",
+      "focus": "#3C549066",
+      "danger": "#A8392C",
+      "success": "#4E7A3E",
+      "highlight": {
+        "yellow": "#EED896",
+        "green": "#D2DCB0",
+        "blue": "#CCD9DD",
+        "pink": "#ECCBC2",
+        "purple": "#DACCDD",
+        "orange": "#EEC9A6"
+      }
+    },
+    "highlight_swatch": {
+      "yellow": "#EBC24A",
+      "green": "#6DBE7E",
+      "blue": "#5B9BE6",
+      "pink": "#E88AAE",
+      "purple": "#A58BE0",
+      "orange": "#EE9A55"
+    },
+    "traffic_lights": {
+      "close": "#FF5F57",
+      "minimize": "#FEBC2E",
+      "zoom": "#28C840"
+    }
+  },
+  "type": {
+    "family": {
+      "ui": "Inter",
+      "reading": "Literata",
+      "ui_fallback": "SF Pro Text",
+      "reading_fallback": "Georgia"
+    },
+    "styles": {
+      "display": {
+        "family": "reading",
+        "size": 48,
+        "line_height": 56,
+        "weight": 300,
+        "tracking_em": -0.015,
+        "usage": "Book title, onboarding hero"
+      },
+      "heading": {
+        "family": "reading",
+        "size": 28,
+        "line_height": 36,
+        "weight": 400,
+        "tracking_em": -0.01,
+        "usage": "Page titles (Notes, Bookmarks…), chapter numerals in lists"
+      },
+      "body": {
+        "family": "reading",
+        "size": 20,
+        "line_height": 32,
+        "weight": 400,
+        "tracking_em": 0,
+        "usage": "Scripture (default 20 pt; user-adjustable 14–32)"
+      },
+      "subtitle": {
+        "family": "reading",
+        "size": 17,
+        "line_height": 24,
+        "weight": 400,
+        "tracking_em": 0,
+        "usage": "Book subtitle (italic), empty-state titles"
+      },
+      "snippet": {
+        "family": "reading",
+        "size": 16,
+        "line_height": 24,
+        "weight": 400,
+        "tracking_em": 0,
+        "usage": "Verse snippets in lists, note bodies, share card"
+      },
+      "snippet-sm": {
+        "family": "reading",
+        "size": 14,
+        "line_height": 20,
+        "weight": 400,
+        "tracking_em": 0,
+        "usage": "Compact snippets (sidebar items, palette previews)"
+      },
+      "ui-title": {
+        "family": "ui",
+        "size": 15,
+        "line_height": 20,
+        "weight": 600,
+        "tracking_em": -0.005,
+        "usage": "Window / sheet / popover titles"
+      },
+      "ui": {
+        "family": "ui",
+        "size": 13,
+        "line_height": 20,
+        "weight": 400,
+        "tracking_em": 0,
+        "usage": "Default interface text, rows, buttons (500)"
+      },
+      "ui-strong": {
+        "family": "ui",
+        "size": 13,
+        "line_height": 20,
+        "weight": 600,
+        "tracking_em": 0,
+        "usage": "Selected rows, toolbar pickers, references"
+      },
+      "small": {
+        "family": "ui",
+        "size": 12,
+        "line_height": 16,
+        "weight": 400,
+        "tracking_em": 0,
+        "usage": "Counts, metadata, verse numbers (600)"
+      },
+      "caption": {
+        "family": "ui",
+        "size": 11,
+        "line_height": 16,
+        "weight": 600,
+        "tracking_em": 0,
+        "usage": "Section headers in source lists"
+      },
+      "label": {
+        "family": "ui",
+        "size": 11,
+        "line_height": 16,
+        "weight": 600,
+        "tracking_em": 0.12,
+        "usage": "UPPERCASE labels (CHAPTER 1, sheet group titles)"
+      }
+    },
+    "reading_size_range": [
+      14,
+      32
+    ],
+    "reading_line_spacing_range": [
+      1.3,
+      2.0
+    ],
+    "measure_chars": 66,
+    "verse_number": {
+      "family": "ui",
+      "size": 11,
+      "weight": 600,
+      "baseline_shift": 8,
+      "color": "verse"
+    },
+    "small_caps_lord": {
+      "cap_size": 20,
+      "small_cap_size": 15,
+      "tracking_em": 0.04
+    }
+  },
+  "space": {
+    "1": 4,
+    "2": 8,
+    "3": 12,
+    "4": 16,
+    "6": 24,
+    "8": 32,
+    "12": 48,
+    "16": 64
+  },
+  "radius": {
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "window": 24,
+    "pill": 999
+  },
+  "size": {
+    "toolbar": 52,
+    "control": 32,
+    "control-sm": 24,
+    "control-lg": 40,
+    "row": 32,
+    "icon": 20,
+    "icon-sm": 16,
+    "traffic": 14,
+    "sidebar": 256,
+    "measure": 640,
+    "popover": 320,
+    "palette": 600,
+    "sheet": 560
+  },
+  "shadow": {
+    "control": {
+      "light": "0 0 0 0.5px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)",
+      "sepia": "0 0 0 0.5px rgba(58,46,34,0.14), 0 1px 4px rgba(58,46,34,0.07)",
+      "dark": "0 0 0 0.5px rgba(255,255,255,0.10), 0 1px 4px rgba(0,0,0,0.30)"
+    },
+    "panel": {
+      "light": "0 0 0 0.5px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04)",
+      "sepia": "0 0 0 0.5px rgba(58,46,34,0.10), 0 4px 16px rgba(58,46,34,0.05)",
+      "dark": "0 0 0 0.5px rgba(255,255,255,0.08), 0 4px 16px rgba(0,0,0,0.30)"
+    },
+    "popover": {
+      "light": "0 0 0 0.5px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.12)",
+      "sepia": "0 0 0 0.5px rgba(58,46,34,0.16), 0 8px 24px rgba(58,46,34,0.14)",
+      "dark": "0 0 0 0.5px rgba(255,255,255,0.12), 0 8px 24px rgba(0,0,0,0.50)"
+    },
+    "modal": {
+      "light": "0 0 0 0.5px rgba(0,0,0,0.12), 0 24px 64px rgba(0,0,0,0.20)",
+      "sepia": "0 0 0 0.5px rgba(58,46,34,0.16), 0 24px 64px rgba(58,46,34,0.22)",
+      "dark": "0 0 0 0.5px rgba(255,255,255,0.14), 0 24px 64px rgba(0,0,0,0.60)"
+    },
+    "knob": {
+      "light": "0 0 0 0.5px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.20)",
+      "sepia": "0 0 0 0.5px rgba(58,46,34,0.10), 0 1px 3px rgba(58,46,34,0.22)",
+      "dark": "0 0 0 0.5px rgba(0,0,0,0.30), 0 1px 3px rgba(0,0,0,0.50)"
+    }
+  },
+  "icon": {
+    "grid": 20,
+    "sizes": [
+      16,
+      20,
+      24
+    ],
+    "stroke": {
+      "16": 1.75,
+      "20": 1.5,
+      "24": 1.5
+    },
+    "live_area": 16,
+    "padding": 2,
+    "cap": "round",
+    "join": "round",
+    "toolbar": 20,
+    "row": 16,
+    "menu": 16,
+    "empty_state": 32
+  },
+  "titlebar": {
+    "height": 52,
+    "centre_line": 26,
+    "leading_inset_sidebar_hidden": 20,
+    "trailing_inset": 16,
+    "traffic_light": {
+      "diameter": 14,
+      "gap": 9,
+      "first_center_x": 27,
+      "center_y": 26
+    },
+    "group_gap": 8,
+    "capsule_height": 32,
+    "capsule_radius": 16,
+    "button_width": 36,
+    "sidebar_toggle_width": 40,
+    "divider": {
+      "width": 1,
+      "height": 16
+    },
+    "search_field_width": 176,
+    "sidebar_inset": 8
+  },
+  "motion": {
+    "fast_ms": 120,
+    "base_ms": 200,
+    "slow_ms": 320,
+    "easing": "cubic-bezier(0.2, 0, 0, 1)",
+    "verse_flash_ms": 900
+  }
+}

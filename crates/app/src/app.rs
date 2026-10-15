@@ -201,25 +201,25 @@ pub struct Chrome {
 /// first item sits a fixed gap after them. Full screen hides them, so the toolbar starts at the edge.
 #[cfg(target_os = "macos")]
 fn chrome(frame: &eframe::Frame, ctx: &egui::Context) -> Chrome {
-    use theme::metrics::{AFTER_TRAFFIC_LIGHTS, EDGE, TOOLBAR_HEIGHT};
+    use theme::metrics::{GROUP_GAP, LEADING_INSET, TOOLBAR_HEIGHT};
     let zoom = ctx.zoom_factor();
     match crate::macos_window::traffic_lights(frame) {
         Some(r) => Chrome {
             height: (2.0 * r.center().y / zoom).clamp(28.0, 2.0 * TOOLBAR_HEIGHT),
-            leading: r.right() / zoom + AFTER_TRAFFIC_LIGHTS,
+            leading: r.right() / zoom + GROUP_GAP,
         },
-        None => Chrome { height: TOOLBAR_HEIGHT, leading: EDGE },
+        None => Chrome { height: TOOLBAR_HEIGHT, leading: LEADING_INSET },
     }
 }
 
 #[cfg(not(target_os = "macos"))]
 fn chrome(_frame: &eframe::Frame, _ctx: &egui::Context) -> Chrome {
-    Chrome { height: theme::metrics::COMPACT_TOOLBAR_HEIGHT, leading: theme::metrics::EDGE }
+    Chrome { height: theme::metrics::COMPACT_TOOLBAR_HEIGHT, leading: theme::metrics::LEADING_INSET }
 }
 
 /// A toolbar row from `left` to `right` (window points), centred on the toolbar's centre line.
 fn toolbar_row(chrome: Chrome, left: f32, right: f32) -> egui::Rect {
-    let h = theme::metrics::TOOLBAR_BUTTON[1];
+    let h = theme::metrics::CAPSULE_HEIGHT;
     egui::Rect::from_x_y_ranges(left..=right, chrome.height / 2.0 - h / 2.0..=chrome.height / 2.0 + h / 2.0)
 }
 
@@ -232,7 +232,8 @@ fn leading_group(
     history: &History,
     actions: &mut Vec<Action>,
 ) -> egui::Rect {
-    use theme::metrics::{GROUP_GAP, ITEM_GAP};
+    use theme::metrics::GROUP_GAP;
+    const ITEM_GAP: f32 = 0.0;
     let r = toolbar_row(chrome, chrome.leading, chrome.leading + 200.0);
     let mut ui = ui.new_child(
         egui::UiBuilder::new().max_rect(r).layout(egui::Layout::left_to_right(egui::Align::Center)),
@@ -296,7 +297,7 @@ impl BibleApp {
                 start_chapter: chapter,
                 started: None,
             }),
-            chrome: Chrome { height: theme::metrics::TOOLBAR_HEIGHT, leading: theme::metrics::EDGE },
+            chrome: Chrome { height: theme::metrics::TOOLBAR_HEIGHT, leading: theme::metrics::LEADING_INSET },
             leading: egui::Rect::NOTHING,
             #[cfg(target_os = "macos")]
             toolbar_items: Vec::new(),
@@ -444,7 +445,9 @@ impl BibleApp {
             key(Modifiers::NONE, Key::Slash, Action::OpenSearch(None));
             key(Modifiers::SHIFT, Key::Questionmark, Action::ShowShortcuts);
             key(Modifiers::NONE, Key::Questionmark, Action::ShowShortcuts);
-            for (n, k) in [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5].into_iter().enumerate() {
+            for (n, k) in
+                [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6].into_iter().enumerate()
+            {
                 key(Modifiers::NONE, k, Action::Highlight(Some(bible_core::study::HighlightColor::ALL[n])));
             }
             key(Modifiers::NONE, Key::Num0, Action::Highlight(None));
@@ -472,7 +475,7 @@ impl BibleApp {
         match a {
             Action::Jump { chapter, verse, flash } => {
                 self.jump(chapter, verse, flash);
-                // Landing on a specific verse selects it, so N/B/C/1–5 act on it right away.
+                // Landing on a specific verse selects it, so N/B/C/1–6 act on it right away.
                 if let (Some(v), true) = (verse, flash) {
                     self.reader.set_selection(Some(VerseRef::new(chapter.book(), chapter.chapter(), v)));
                 }
@@ -752,15 +755,16 @@ impl BibleApp {
     /// The toolbar over the reading area: location and translation in the middle, view buttons at
     /// the end, and the leading group too when the sidebar (which otherwise holds it) is closed.
     fn toolbar(&mut self, ui: &mut Ui, actions: &mut Vec<Action>) {
-        use theme::metrics::{EDGE, GROUP_GAP, ITEM_GAP};
+        use theme::metrics::{GROUP_GAP, TRAILING_INSET as EDGE};
+        const ITEM_GAP: f32 = 0.0;
         let p = self.settings.theme.palette();
         let bar = ui.max_rect();
-        ui.painter().rect_filled(bar, 0.0, p.page);
+        ui.painter().rect_filled(bar, 0.0, p.paper);
         // The hairline is the bar's last point, so the bar's centre stays the traffic lights'.
         let y = bar.bottom() - 0.5;
         ui.painter().line_segment(
             [egui::pos2(bar.left(), y), egui::pos2(bar.right(), y)],
-            Stroke::new(1.0, p.border),
+            Stroke::new(1.0, p.separator),
         );
         let row = |left: f32, right: f32| toolbar_row(self.chrome, left, right);
         let builder = |r: egui::Rect, layout: egui::Layout| egui::UiBuilder::new().max_rect(r).layout(layout);
@@ -853,21 +857,21 @@ impl BibleApp {
             .pivot(Align2::CENTER_CENTER)
             .show(ui.ctx(), |ui| {
                 Frame::new()
-                    .fill(p.chrome)
-                    .stroke(Stroke::new(1.0, p.border))
+                    .fill(p.surface)
+                    .stroke(Stroke::new(1.0, p.separator))
                     .corner_radius(CornerRadius::same(20))
                     .inner_margin(Margin::symmetric(14, 6))
                     .shadow(ui.visuals().popup_shadow)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(label).font(theme::ui_medium(13.0)).color(p.text));
+                            ui.label(egui::RichText::new(label).font(theme::ui_medium(13.0)).color(p.ink));
                             ui.add_space(6.0);
                             for (i, c) in bible_core::study::HighlightColor::ALL.into_iter().enumerate() {
                                 let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
                                 let on = refs.iter().all(|v| self.study.highlight(*v) == Some(c));
                                 ui.painter().circle_filled(r.center(), 7.5, p.swatch(c));
                                 if on || resp.hovered() {
-                                    ui.painter().circle_stroke(r.center(), 9.5, Stroke::new(1.5, p.text));
+                                    ui.painter().circle_stroke(r.center(), 9.5, Stroke::new(1.5, p.ink));
                                 }
                                 if resp.on_hover_text(format!("Highlight {} ({})", c.name(), i + 1)).clicked()
                                 {
@@ -920,14 +924,14 @@ impl BibleApp {
                 .interactable(false)
                 .show(ctx, |ui| {
                     Frame::new()
-                        .fill(p.chrome)
-                        .stroke(Stroke::new(1.0, p.border))
+                        .fill(p.surface)
+                        .stroke(Stroke::new(1.0, p.separator))
                         .corner_radius(CornerRadius::same(8))
                         .inner_margin(Margin::symmetric(12, 8))
                         .shadow(ui.visuals().popup_shadow)
                         .show(ui, |ui| {
                             ui.set_max_width(420.0);
-                            ui.label(egui::RichText::new(m).color(p.text));
+                            ui.label(egui::RichText::new(m).color(p.ink));
                         });
                 });
             y -= resp.response.rect.height() + 8.0;
@@ -948,7 +952,7 @@ impl BibleApp {
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-            .frame(Frame::window(&ctx.style_of(ctx.theme())).fill(p.chrome))
+            .frame(Frame::window(&ctx.style_of(ctx.theme())).fill(p.surface))
             .show(ctx, |ui| {
                 let groups: &[(&str, &[(&str, &str)])] = &[
                     (
@@ -967,7 +971,7 @@ impl BibleApp {
                         &[
                             ("Click, ⇧-click", "Select a verse / range"),
                             ("J / K", "Select next / previous verse"),
-                            ("1–5, 0", "Highlight colour, remove"),
+                            ("1–6, 0", "Highlight colour, remove"),
                             ("N", "Note"),
                             ("B or ⌘D", "Bookmark"),
                             ("⌘C", "Copy with reference"),
@@ -998,7 +1002,7 @@ impl BibleApp {
                             egui::Grid::new(*title).num_columns(2).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
                                 for (k, d) in *rows {
                                     ui.label(egui::RichText::new(*k).font(theme::ui_medium(12.5)));
-                                    ui.label(egui::RichText::new(*d).color(p.muted));
+                                    ui.label(egui::RichText::new(*d).color(p.ink_2));
                                     ui.end_row();
                                 }
                             });
@@ -1029,7 +1033,7 @@ fn translation_menu(ui: &mut Ui, library: &Library, settings: &Settings, actions
         }
     }
     ui.separator();
-    ui.label(egui::RichText::new("Parallel view").color(p.muted).font(theme::ui_font(11.5)));
+    ui.label(egui::RichText::new("Parallel view").color(p.ink_2).font(theme::ui_font(11.5)));
     for e in library.entries() {
         let m = &e.meta;
         if m.id == settings.translation {
@@ -1129,7 +1133,7 @@ impl eframe::App for BibleApp {
         }
         let mut reader_rect = egui::Rect::NOTHING;
         let first = self.startup.frames == 0;
-        egui::CentralPanel::default().frame(Frame::NONE.fill(p.page)).show(ui, |ui| {
+        egui::CentralPanel::default().frame(Frame::NONE.fill(p.paper)).show(ui, |ui| {
             if first {
                 crate::trace(self.startup.t0, "toolbar laid out");
             }

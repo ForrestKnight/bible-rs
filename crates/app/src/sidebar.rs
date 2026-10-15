@@ -145,7 +145,7 @@ impl Sidebar {
                         let (rect, resp) =
                             ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
                         let fill =
-                            if here { Some(p.row_selected) } else { widgets::hover_fill(ui, &resp, p, open) };
+                            if here { Some(p.accent_soft) } else { widgets::hover_fill(ui, &resp, p, open) };
                         if let Some(fill) = fill {
                             ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
                         }
@@ -155,14 +155,14 @@ impl Sidebar {
                             egui::Align2::LEFT_CENTER,
                             &name,
                             if here { theme::ui_medium(13.5) } else { theme::ui_font(13.5) },
-                            p.text,
+                            p.ink,
                         );
                         ui.painter().text(
                             rect.right_center() - vec2(pad, 0.0),
                             egui::Align2::RIGHT_CENTER,
                             b.chapters().to_string(),
                             theme::ui_font(11.5),
-                            if here { p.muted } else { p.faint },
+                            if here { p.ink_2 } else { p.ink_3 },
                         );
                         if here && self.revealed != Some(b) {
                             self.revealed = Some(b);
@@ -220,7 +220,7 @@ impl Sidebar {
                 egui::pos2(resp.rect.left() + 14.0, resp.rect.center().y),
                 vec2(14.0, 14.0),
             );
-            crate::icons::search(ui.painter(), glass, p.muted);
+            crate::icons::search(ui.painter(), glass, p.ink_2);
             if self.focus {
                 resp.request_focus();
                 self.focus = false;
@@ -304,7 +304,7 @@ impl Sidebar {
                     t.meta.abbrev
                 )
             };
-            ui.label(egui::RichText::new(status).font(theme::ui_font(11.5)).color(p.muted));
+            ui.label(egui::RichText::new(status).font(theme::ui_font(11.5)).color(p.ink_2));
         });
         ui.add_space(4.0);
         let row_h = 66.0;
@@ -341,7 +341,7 @@ impl Sidebar {
                 let text = v.plain_text();
                 let job = snippet_job(&text, &query, inner.width(), theme);
                 let g = ui.painter().layout_job(job);
-                ui.painter().galley(inner.left_top() + vec2(0.0, 18.0), g, p.text);
+                ui.painter().galley(inner.left_top() + vec2(0.0, 18.0), g, p.ink);
                 if resp.clicked() {
                     self.selected = i;
                     jump_to = Some(vi);
@@ -399,10 +399,10 @@ impl Sidebar {
                     |ui| {
                         let hint = match self.study_tab {
                             StudyTab::Bookmarks => "No bookmarks yet. Select a verse and press B (or ⌘D).",
-                            StudyTab::Highlights => "No highlights yet. Select a verse and press 1–5.",
+                            StudyTab::Highlights => "No highlights yet. Select a verse and press 1–6.",
                             StudyTab::Notes => "No notes yet. Select a verse and press N.",
                         };
-                        ui.label(egui::RichText::new(hint).color(p.muted));
+                        ui.label(egui::RichText::new(hint).color(p.ink_2));
                     },
                 );
             }
@@ -437,7 +437,7 @@ impl Sidebar {
                     body.replace('\n', " "),
                     TextFormat {
                         font_id: FontId::new(13.0, theme::family(theme::SERIF)),
-                        color: p.text,
+                        color: p.ink,
                         ..Default::default()
                     },
                 );
@@ -448,11 +448,11 @@ impl Sidebar {
                     overflow_character: Some('…'),
                 };
                 let g = ui.painter().layout_job(job);
-                ui.painter().galley(inner.left_top() + vec2(0.0, 18.0), g, p.text);
+                ui.painter().galley(inner.left_top() + vec2(0.0, 18.0), g, p.ink);
                 // Remove button on hover.
                 let del = Rect::from_center_size(inner.right_top() + vec2(-6.0, 8.0), vec2(18.0, 18.0));
                 if resp.hovered() {
-                    crate::icons::close(ui.painter(), del, p.muted);
+                    crate::icons::close(ui.painter(), del, p.ink_2);
                 }
                 let pointer_on_del = ui.input(|i| i.pointer.hover_pos()).is_some_and(|pt| del.contains(pt));
                 if resp.clicked() {
@@ -474,7 +474,7 @@ impl Sidebar {
         });
         // Footer: a hairline, then export and import.
         let y = ui.cursor().top() + 0.5;
-        ui.painter().hline(ui.max_rect().x_range(), y, egui::Stroke::new(1.0, p.border));
+        ui.painter().hline(ui.max_rect().x_range(), y, egui::Stroke::new(1.0, p.separator));
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.add_space(ROW_INSET);
@@ -512,11 +512,11 @@ pub fn snippet_job(text: &str, query: &Query, width: f32, theme: Theme) -> Layou
     let p = theme.palette();
     let base = TextFormat {
         font_id: FontId::new(13.5, theme::family(theme::SERIF)),
-        color: p.text,
+        color: p.ink,
         ..Default::default()
     };
     let mut hit = base.clone();
-    hit.background = p.search_hit;
+    hit.background = p.highlights[0];
     // Merge hits separated only by spaces so "love one another" reads as one highlight.
     let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
     for r in query.match_ranges(text) {
@@ -588,7 +588,7 @@ fn chapter_grid(ui: &mut Ui, book: BookId, current: ChapterIdx, theme: Theme, ac
                     egui::Align2::CENTER_CENTER,
                     ch.to_string(),
                     if here { theme::ui_medium(12.5) } else { theme::ui_font(12.5) },
-                    if here { p.page } else { p.text },
+                    if here { p.paper } else { p.ink },
                 );
                 if resp.clicked() {
                     actions.push(Action::Jump { chapter: idx, verse: None, flash: false });

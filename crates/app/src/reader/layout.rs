@@ -211,18 +211,15 @@ impl Ctx<'_> {
         } else {
             SERIF
         };
-        let color = if self.typo.red_letters && styles & Style::WordsOfJesus.bit() != 0 {
-            p.red_letter
-        } else {
-            p.text
-        };
+        let color =
+            if self.typo.red_letters && styles & Style::WordsOfJesus.bit() != 0 { p.rubric } else { p.ink };
         self.fmt(family, self.typo.size, color)
     }
 
     fn verse_number_fmt(&self) -> TextFormat {
         TextFormat {
             font_id: FontId::new((self.typo.size * 0.56).round(), theme::family(UI)),
-            color: self.p().verse_num,
+            color: self.p().verse,
             line_height: Some(self.lh()),
             valign: Align::TOP,
             ..Default::default()
@@ -443,7 +440,7 @@ impl Builder<'_, '_> {
         let gutter = p.gutter.map(|n| {
             let fmt = TextFormat {
                 font_id: FontId::new((em * 0.62).round(), theme::family(UI_MEDIUM)),
-                color: self.cx.p().verse_num,
+                color: self.cx.p().verse,
                 ..Default::default()
             };
             let g = self.fonts.layout_job(LayoutJob::single_section(n.to_string(), fmt));
@@ -477,10 +474,10 @@ impl Builder<'_, '_> {
         job.wrap.max_width = self.cx.width;
         let (fmt, before, after, center) = match (kind, level) {
             (MarkKind::PsalmTitle, _) => {
-                (self.cx.fmt(SERIF_ITALIC, (em * 0.88).round(), p.muted), em * 0.2, em * 0.5, false)
+                (self.cx.fmt(SERIF_ITALIC, (em * 0.88).round(), p.ink_2), em * 0.2, em * 0.5, false)
             }
             (MarkKind::Speaker, _) => {
-                (self.cx.fmt(SERIF_ITALIC, (em * 0.88).round(), p.muted), em * 0.6, em * 0.15, false)
+                (self.cx.fmt(SERIF_ITALIC, (em * 0.88).round(), p.ink_2), em * 0.6, em * 0.15, false)
             }
             (MarkKind::Heading, 0) => {
                 let mut f = self.cx.fmt(UI_MEDIUM, (em * 0.62).round(), p.accent);
@@ -492,7 +489,7 @@ impl Builder<'_, '_> {
                 f.extra_letter_spacing = 1.2;
                 (f, em * 1.0, em * 0.25, false)
             }
-            _ => (self.cx.fmt(SERIF_SEMIBOLD, (em * 0.92).round(), p.heading), em * 1.25, em * 0.35, false),
+            _ => (self.cx.fmt(SERIF_SEMIBOLD, (em * 0.92).round(), p.ink), em * 1.25, em * 0.35, false),
         };
         let text = if matches!((kind, level), (MarkKind::Heading, 0 | 3)) {
             text.to_uppercase()
@@ -552,7 +549,7 @@ fn chapter_head(b: &mut Builder<'_, '_>, t: Option<&Translation>, c: ChapterIdx,
         let short =
             t.map(|t| t.meta.book_short(c.book()).to_string()).unwrap_or_else(|| c.book().name().to_string());
         let mut job = LayoutJob::default();
-        let mut f = b.cx.fmt(SERIF_DISPLAY, (em * if single_column { 2.4 } else { 1.8 }).round(), p.heading);
+        let mut f = b.cx.fmt(SERIF_DISPLAY, (em * if single_column { 2.4 } else { 1.8 }).round(), p.ink);
         f.line_height = None;
         job.append(&short, 0.0, f);
         job.halign = Align::Center;
@@ -566,7 +563,7 @@ fn chapter_head(b: &mut Builder<'_, '_>, t: Option<&Translation>, c: ChapterIdx,
         if !long.is_empty() && long != short && single_column {
             let mut job = LayoutJob::default();
             job.wrap.max_width = b.cx.width;
-            let mut f = b.cx.fmt(SERIF_ITALIC, (em * 0.9).round(), p.muted);
+            let mut f = b.cx.fmt(SERIF_ITALIC, (em * 0.9).round(), p.ink_2);
             f.line_height = None;
             job.append(&long, 0.0, f);
             job.halign = Align::Center;
@@ -812,7 +809,7 @@ pub fn layout_parallel(
             0.0,
             TextFormat {
                 font_id: FontId::new(11.5, theme::family(UI_MEDIUM)),
-                color: p.muted,
+                color: p.ink_2,
                 extra_letter_spacing: 1.0,
                 ..Default::default()
             },
@@ -838,7 +835,7 @@ pub fn layout_parallel(
         if let ColumnText::Message(m) = col {
             let mut job = LayoutJob::default();
             job.wrap.max_width = col_w;
-            job.append(m, 0.0, cx.fmt(SERIF_ITALIC, (em * 0.85).round(), p.muted));
+            job.append(m, 0.0, cx.fmt(SERIF_ITALIC, (em * 0.85).round(), p.ink_2));
             let g = b.fonts.layout_job(job);
             b.labels.push((vec2(i as f32 * (col_w + cx.gutter), b.y), g));
             msg_rows = true;
@@ -858,7 +855,7 @@ pub fn layout_parallel(
             job.wrap.max_width = col_w;
             // Psalm title before verse 1.
             for m in v.marks.iter().filter(|m| m.offset == 0 && m.kind == MarkKind::PsalmTitle) {
-                let mut f = cx.fmt(SERIF_ITALIC, (em * 0.85).round(), p.muted);
+                let mut f = cx.fmt(SERIF_ITALIC, (em * 0.85).round(), p.ink_2);
                 f.line_height = Some((em * 1.35).round());
                 job.append(&format!("{}\n", t.mark_text(m)), 0.0, f);
             }
@@ -925,7 +922,7 @@ pub fn layout_message(
     let mut job = LayoutJob::default();
     job.wrap.max_width = cx.width;
     job.halign = Align::Center;
-    job.append(message, 0.0, cx.fmt(SERIF_ITALIC, em, cx.theme.palette().muted));
+    job.append(message, 0.0, cx.fmt(SERIF_ITALIC, em, cx.theme.palette().ink_2));
     b.label(job, em, em * 2.0, false);
     if let Some((pos, _)) = b.labels.last_mut() {
         pos.x = cx.width / 2.0;

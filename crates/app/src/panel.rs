@@ -63,7 +63,7 @@ impl VersePanel {
                 ui.label(
                     egui::RichText::new(format!("{name} {}:{}", self.verse.chapter, self.verse.verse))
                         .font(theme::ui_medium(15.0))
-                        .color(p.text),
+                        .color(p.ink),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if widgets::icon_button(ui, p, "Close", false, crate::icons::close).clicked() {
@@ -106,7 +106,7 @@ impl VersePanel {
                 v.plain_text(),
                 TextFormat {
                     font_id: FontId::new(14.5, theme::family(theme::SERIF_ITALIC)),
-                    color: p.muted,
+                    color: p.ink_2,
                     ..Default::default()
                 },
             );
@@ -154,7 +154,7 @@ impl VersePanel {
             } else {
                 "Saved"
             };
-            ui.label(egui::RichText::new(status).color(p.muted).font(theme::ui_font(11.5)));
+            ui.label(egui::RichText::new(status).color(p.ink_2).font(theme::ui_font(11.5)));
         });
         // Autosave a moment after typing stops.
         if self.note != self.saved_note {
@@ -201,7 +201,7 @@ fn compare(ui: &mut Ui, library: &Library, settings: &Settings, verse: VerseRef,
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&m.abbrev).font(theme::ui_medium(12.0)).color(p.accent));
                 if m.id == settings.translation {
-                    ui.label(egui::RichText::new("reading").font(theme::ui_font(10.5)).color(p.faint));
+                    ui.label(egui::RichText::new("reading").font(theme::ui_font(10.5)).color(p.ink_3));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
@@ -217,7 +217,7 @@ fn compare(ui: &mut Ui, library: &Library, settings: &Settings, verse: VerseRef,
             });
             let base = TextFormat {
                 font_id: FontId::new(15.0, theme::family(theme::SERIF)),
-                color: p.text,
+                color: p.ink,
                 ..Default::default()
             };
             let mut job = LayoutJob::default();
@@ -229,7 +229,7 @@ fn compare(ui: &mut Ui, library: &Library, settings: &Settings, verse: VerseRef,
                 let end = r.end.min(text.len());
                 if r.start < end && r.start >= pos {
                     let mut red = base.clone();
-                    red.color = p.red_letter;
+                    red.color = p.rubric;
                     job.append(&text[r.start..end], 0.0, red);
                     pos = end;
                 }
@@ -245,7 +245,7 @@ fn compare(ui: &mut Ui, library: &Library, settings: &Settings, verse: VerseRef,
                     copyright,
                     TextFormat {
                         font_id: FontId::new(10.5, theme::family(theme::UI_MEDIUM)),
-                        color: p.faint,
+                        color: p.ink_3,
                         ..Default::default()
                     },
                 );
@@ -259,7 +259,7 @@ fn compare(ui: &mut Ui, library: &Library, settings: &Settings, verse: VerseRef,
             }
             ui.add_space(10.0);
             let r = ui.available_rect_before_wrap();
-            ui.painter().line_segment([r.left_top(), r.right_top()], egui::Stroke::new(1.0, p.border));
+            ui.painter().line_segment([r.left_top(), r.right_top()], egui::Stroke::new(1.0, p.separator));
             ui.add_space(10.0);
         }
     });

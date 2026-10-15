@@ -173,8 +173,8 @@ impl CommandPalette {
             .pivot(Align2::CENTER_TOP)
             .show(ctx, |ui| {
                 Frame::new()
-                    .fill(p.chrome)
-                    .stroke(Stroke::new(1.0, p.border))
+                    .fill(p.surface)
+                    .stroke(Stroke::new(1.0, p.separator))
                     .corner_radius(CornerRadius::same(12))
                     .inner_margin(Margin::same(10))
                     .shadow(ui.visuals().window_shadow)
@@ -182,7 +182,7 @@ impl CommandPalette {
                         ui.set_width(width);
                         ui.horizontal(|ui| {
                             let (r, _) = ui.allocate_exact_size(vec2(22.0, 30.0), Sense::hover());
-                            crate::icons::search(ui.painter(), r.shrink(3.0), p.muted);
+                            crate::icons::search(ui.painter(), r.shrink(3.0), p.ink_2);
                             let edit = egui::TextEdit::singleline(&mut self.query)
                                 .hint_text("Go to “jn 3:16”, “Rom 8”, search, or type a command…")
                                 .font(theme::ui_font(16.0))
@@ -204,7 +204,7 @@ impl CommandPalette {
                         for (i, it) in items.iter().enumerate().take(14) {
                             let (r, resp) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click());
                             if i == self.selected {
-                                ui.painter().rect_filled(r, CornerRadius::same(7), p.hover);
+                                ui.painter().rect_filled(r, CornerRadius::same(7), p.fill);
                             }
                             if resp.hovered() && ui.input(|i| i.pointer.delta().length() > 0.0) {
                                 self.selected = i;
@@ -218,14 +218,14 @@ impl CommandPalette {
                                 } else {
                                     theme::ui_font(14.0)
                                 },
-                                p.text,
+                                p.ink,
                             );
                             ui.painter().text(
                                 r.right_center() - vec2(10.0, 0.0),
                                 Align2::RIGHT_CENTER,
                                 &it.detail,
                                 theme::ui_font(11.5),
-                                p.muted,
+                                p.ink_2,
                             );
                             if resp.clicked() {
                                 actions.push(it.action.clone());

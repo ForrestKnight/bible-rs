@@ -22,15 +22,19 @@ pub enum HighlightColor {
     Blue,
     Pink,
     Purple,
+    Orange,
 }
 
 impl HighlightColor {
-    pub const ALL: [HighlightColor; 5] = [
+    /// In key order: 1–6 apply these, 0 clears. The stored value is the index, so new colours
+    /// only ever go at the end.
+    pub const ALL: [HighlightColor; 6] = [
         HighlightColor::Yellow,
         HighlightColor::Green,
         HighlightColor::Blue,
         HighlightColor::Pink,
         HighlightColor::Purple,
+        HighlightColor::Orange,
     ];
 
     pub fn name(self) -> &'static str {
@@ -40,6 +44,7 @@ impl HighlightColor {
             HighlightColor::Blue => "blue",
             HighlightColor::Pink => "pink",
             HighlightColor::Purple => "purple",
+            HighlightColor::Orange => "orange",
         }
     }
 

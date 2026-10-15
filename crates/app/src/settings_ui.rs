@@ -68,7 +68,7 @@ impl SettingsUi {
             .resizable(true)
             .default_size(vec2(700.0, 700.0))
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-            .frame(Frame::window(&ctx.style_of(ctx.theme())).fill(p.chrome))
+            .frame(Frame::window(&ctx.style_of(ctx.theme())).fill(p.surface))
             .show(ctx, |ui| {
                 let idx = match self.tab {
                     SettingsTab::Reading => 0,
@@ -115,7 +115,7 @@ impl SettingsUi {
                 let w = (ui.available_width() - 90.0).max(200.0);
                 ui.allocate_ui_with_layout(vec2(w, 0.0), egui::Layout::top_down(egui::Align::LEFT), |ui| {
                     ui.set_width(w);
-                    ui.label(RichText::new(&m.name).color(p.text));
+                    ui.label(RichText::new(&m.name).color(p.ink));
                     let origin = match &m.origin {
                         Origin::Bundled => format!("Bundled · {}", m.license),
                         Origin::Imported { format, file_name } => {
@@ -128,7 +128,7 @@ impl SettingsUi {
                             )
                         }
                     };
-                    ui.label(RichText::new(origin).font(theme::ui_font(11.5)).color(p.muted));
+                    ui.label(RichText::new(origin).font(theme::ui_font(11.5)).color(p.ink_2));
                 });
                 if !matches!(e.kind, EntryKind::Bundled(_)) && ui.button("Remove").clicked() {
                     remove = Some(m.id.clone());
@@ -157,7 +157,7 @@ impl SettingsUi {
                  (file, folder or zip), OSIS XML, Zefania XML or a SWORD module, import it here. It is converted and \
                  stored in your own data folder.",
             )
-            .color(p.muted),
+            .color(p.ink_2),
         );
         ui.horizontal(|ui| {
             ui.label("SWORD unlock key (if locked):");
@@ -190,7 +190,7 @@ impl SettingsUi {
                  the publisher's copyright notice.",
                 library.secrets().backend_name()
             ))
-            .color(p.muted),
+            .color(p.ink_2),
         );
         ui.checkbox(&mut self.show_keys, "Show keys");
         ui.add_space(4.0);
@@ -237,7 +237,7 @@ impl SettingsUi {
             ui.hyperlink_to("get a key", "https://scripture.api.bible/");
             ui.label(
                 RichText::new("NASB, LSB, NLT and others where your plan and the publisher allow")
-                    .color(p.muted),
+                    .color(p.ink_2),
             );
         });
         ui.horizontal(|ui| {
@@ -297,7 +297,7 @@ impl SettingsUi {
                                 })
                             });
                             if installed {
-                                ui.label(RichText::new("Added").color(p.muted));
+                                ui.label(RichText::new("Added").color(p.ink_2));
                             } else if ui.small_button("Add").clicked() {
                                 add = Some(b.clone());
                             }
@@ -323,7 +323,7 @@ impl SettingsUi {
                 }
             }
             Some(Err(e)) => {
-                ui.colored_label(p.red_letter, e);
+                ui.colored_label(p.rubric, e);
             }
             None => {}
         }
@@ -381,7 +381,7 @@ fn reading(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
         RichText::new(
             "Literata (reading) and Inter (interface) are bundled under the SIL Open Font License.",
         )
-        .color(p.muted)
+        .color(p.ink_2)
         .font(theme::ui_font(11.5)),
     );
 }
@@ -415,11 +415,11 @@ pub fn quick_text_settings(ui: &mut Ui, settings: &mut Settings, actions: &mut V
         for t in Theme::ALL {
             let p = t.palette();
             let (r, resp) = ui.allocate_exact_size(vec2(72.0, 44.0), egui::Sense::click());
-            ui.painter().rect_filled(r, egui::CornerRadius::same(8), p.page);
+            ui.painter().rect_filled(r, egui::CornerRadius::same(8), p.paper);
             let stroke = if settings.theme == t {
                 egui::Stroke::new(2.0, p.accent)
             } else {
-                egui::Stroke::new(1.0, p.border)
+                egui::Stroke::new(1.0, p.separator)
             };
             ui.painter().rect_stroke(r, egui::CornerRadius::same(8), stroke, egui::StrokeKind::Inside);
             ui.painter().text(
@@ -427,7 +427,7 @@ pub fn quick_text_settings(ui: &mut Ui, settings: &mut Settings, actions: &mut V
                 Align2::CENTER_CENTER,
                 t.label(),
                 egui::FontId::new(13.0, theme::family(theme::SERIF)),
-                p.text,
+                p.ink,
             );
             if resp.clicked() {
                 actions.push(Action::SetTheme(t));

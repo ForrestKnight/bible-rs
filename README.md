@@ -15,7 +15,7 @@ typeset, searchable as you type, with highlights, notes and bookmarks kept on yo
   side in parallel columns or one verse across all of them. Bring your own licensed translations
   (NLT, NASB, LSB, ESV, …) by importing a file you own or fetching with your own API key.
 - **Keyboard-first.** ⌘K jumps anywhere (`jn 3:16`, `Rom 8`, `1co13`, even `revalation 21`),
-  ← → turn chapters, ⌘F searches, ⌘[ ⌘] go back and forward, 1–5 highlight.
+  ← → turn chapters, ⌘F searches, ⌘[ ⌘] go back and forward, 1–6 highlight.
 - **Yours.** Highlights, notes and bookmarks live in a local SQLite file and export to JSON or
   Markdown. No accounts, no feeds, no network unless you add an online translation.
 
@@ -63,8 +63,8 @@ typeset, searchable as you type, with highlights, notes and bookmarks kept on yo
 - Matches highlighted in the results; ↑ ↓ and ⏎ jump to the verse, which flashes.
 
 **Study**
-- Click a verse (⇧-click for a range, J/K to move) to select it, then: highlight in five colours
-  (1–5, 0 to clear), write a note (N), bookmark (B / ⌘D), copy with reference (⌘C) or compare
+- Click a verse (⇧-click for a range, J/K to move) to select it, then: highlight in six colours
+  (1–6, 0 to clear), write a note (N), bookmark (B / ⌘D), copy with reference (⌘C) or compare
   translations (C). Right-click offers the same.
 - Notes and bookmarks show in the margin; the Study sidebar lists everything.
 - Export to Markdown (⌘E) or JSON (⌘⇧E); JSON imports back.
@@ -155,7 +155,7 @@ chapter by chapter and appear in parallel and compare views as their chapters lo
 | ↑ ↓, Space, ⇧Space, PgUp/PgDn | Scroll |
 | ⌘[ / ⌘] (⌥← / ⌥→) | Back / forward |
 | Click, ⇧-click, J / K | Select a verse, a range, next / previous verse |
-| 1–5, 0 | Highlight colour, remove highlight |
+| 1–6, 0 | Highlight colour, remove highlight |
 | N · B or ⌘D · ⌘C · C | Note · bookmark · copy with reference · compare |
 | ⌘1…⌘9 | Switch translation |
 | ⌘⇧P | Parallel translations |

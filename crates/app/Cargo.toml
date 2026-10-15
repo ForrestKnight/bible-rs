@@ -46,6 +46,9 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 raw-window-handle = "0.6"
 winit = { version = "0.30", default-features = false }
 
+[build-dependencies]
+serde_json.workspace = true
+
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
