@@ -525,6 +525,16 @@ impl StudyStore {
         translation: &str,
         text: impl Fn(VerseRef) -> Option<String>,
     ) -> Result<String> {
+        self.export_json_with(translation, text, Include::STUDY)
+    }
+
+    /// The study data as JSON (re-importable), with what `include` asks for.
+    pub fn export_json_with(
+        &self,
+        translation: &str,
+        text: impl Fn(VerseRef) -> Option<String>,
+        include: Include,
+    ) -> Result<String> {
         let entry = |v: VerseRef| ExportVerse {
             reference: v.to_string(),
             book: v.book.info().code.to_string(),
@@ -532,11 +542,13 @@ impl StudyStore {
             verse: v.verse,
             text: text(v),
         };
-        let doc = ExportDoc {
+        let mut doc = ExportDoc {
             app: "bible-rs".into(),
             format: 1,
             exported_at: rfc3339(now()),
             translation: translation.to_string(),
+            history: Vec::new(),
+            plans: Vec::new(),
             highlights: self
                 .highlights()
                 .into_iter()
@@ -566,16 +578,60 @@ impl StudyStore {
                 })
                 .collect(),
         };
+        if !include.highlights {
+            doc.highlights.clear();
+        }
+        if !include.notes {
+            doc.notes.clear();
+        }
+        if !include.bookmarks {
+            doc.bookmarks.clear();
+        }
+        if include.history {
+            doc.history = self
+                .reading_since(0)
+                .into_iter()
+                .map(|s| ExportReading {
+                    started: rfc3339(s.started),
+                    book: s.book.info().code.to_string(),
+                    chapter: s.chapter,
+                    translation: s.translation,
+                    seconds: s.seconds,
+                    furthest: s.furthest,
+                    verses: s.verses,
+                })
+                .collect();
+            doc.plans = self
+                .plans()
+                .into_iter()
+                .map(|p| ExportPlan {
+                    read: self.plan_reads(&p.id).into_iter().collect(),
+                    id: p.id,
+                    started: rfc3339(p.started),
+                    finished: p.finished.map(rfc3339),
+                })
+                .collect();
+        }
         Ok(serde_json::to_string_pretty(&doc)?)
     }
 
     pub fn export_markdown(&self, translation: &str, text: impl Fn(VerseRef) -> Option<String>) -> String {
+        self.export_markdown_with(translation, text, Include::STUDY)
+    }
+
+    /// The study data as readable Markdown, with what `include` asks for.
+    pub fn export_markdown_with(
+        &self,
+        translation: &str,
+        text: impl Fn(VerseRef) -> Option<String>,
+        include: Include,
+    ) -> String {
         use std::fmt::Write;
         let mut md = String::new();
         let _ = writeln!(md, "# Bible study notes\n");
         let _ =
             writeln!(md, "Exported from bible-rs on {} · verse text: {translation}\n", &rfc3339(now())[..10]);
-        let bookmarks = self.bookmarks();
+        let bookmarks = if include.bookmarks { self.bookmarks() } else { Vec::new() };
         if !bookmarks.is_empty() {
             let _ = writeln!(md, "## Bookmarks\n");
             for (v, b) in bookmarks {
@@ -587,7 +643,7 @@ impl StudyStore {
             }
             md.push('\n');
         }
-        let highlights = self.highlights();
+        let highlights = if include.highlights { self.highlights() } else { Vec::new() };
         if !highlights.is_empty() {
             let _ = writeln!(md, "## Highlights\n");
             let mut book = None;
@@ -601,7 +657,7 @@ impl StudyStore {
             }
             md.push('\n');
         }
-        let notes = self.notes();
+        let notes = if include.notes { self.notes() } else { Vec::new() };
         if !notes.is_empty() {
             let _ = writeln!(md, "## Notes\n");
             for (v, n) in notes {
@@ -611,6 +667,27 @@ impl StudyStore {
                 }
                 let _ = writeln!(md, "{}\n", n.body.trim_end());
             }
+        }
+        let history = if include.history { self.reading_since(0) } else { Vec::new() };
+        if !history.is_empty() {
+            let _ = writeln!(md, "## Reading history\n");
+            for s in history {
+                let minutes = (s.seconds + 30) / 60;
+                let done = if s.finished() {
+                    "finished".to_string()
+                } else {
+                    format!("{:.0} %", s.progress() * 100.0)
+                };
+                let _ = writeln!(
+                    md,
+                    "- {} — {} {} ({}), {minutes} min, {done}",
+                    &rfc3339(s.started)[..10],
+                    s.book.name(),
+                    s.chapter,
+                    s.translation
+                );
+            }
+            md.push('\n');
         }
         md
     }
@@ -669,9 +746,50 @@ impl StudyStore {
                 ],
             )?;
         }
+        for r in &doc.history {
+            let Some(book) = BookId::from_code(&r.book) else { continue };
+            tx.execute(
+                "INSERT OR REPLACE INTO reading(started, book, chapter, translation, seconds, furthest, verses)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    parse_rfc3339(&r.started).unwrap_or_else(now),
+                    book.info().code,
+                    r.chapter,
+                    r.translation,
+                    r.seconds,
+                    r.furthest,
+                    r.verses
+                ],
+            )?;
+        }
+        for p in &doc.plans {
+            tx.execute(
+                "INSERT OR REPLACE INTO plans(id, started, finished) VALUES(?1, ?2, ?3)",
+                params![
+                    p.id,
+                    parse_rfc3339(&p.started).unwrap_or_else(now),
+                    p.finished.as_deref().and_then(parse_rfc3339)
+                ],
+            )?;
+            for (day, passage) in &p.read {
+                tx.execute(
+                    "INSERT OR REPLACE INTO plan_reads(plan, day, passage, at) VALUES(?1, ?2, ?3, ?4)",
+                    params![p.id, day, passage, now()],
+                )?;
+            }
+        }
         tx.commit()?;
         self.reload()?;
         Ok((doc.highlights.len(), doc.notes.len(), doc.bookmarks.len()))
+    }
+
+    /// Erases every highlight, note, bookmark, plan and the reading history.
+    pub fn erase_all(&mut self) -> Result<()> {
+        self.conn.execute_batch(
+            "DELETE FROM highlights; DELETE FROM notes; DELETE FROM bookmarks;
+             DELETE FROM plans; DELETE FROM plan_reads; DELETE FROM reading;",
+        )?;
+        self.reload()
     }
 }
 
@@ -681,9 +799,58 @@ struct ExportDoc {
     format: u32,
     exported_at: String,
     translation: String,
+    #[serde(default)]
     highlights: Vec<ExportHighlight>,
+    #[serde(default)]
     notes: Vec<ExportNote>,
+    #[serde(default)]
     bookmarks: Vec<ExportBookmark>,
+    /// Reading sessions and plans, when the export includes history.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    history: Vec<ExportReading>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    plans: Vec<ExportPlan>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ExportReading {
+    started: String,
+    book: String,
+    chapter: u8,
+    translation: String,
+    seconds: u32,
+    furthest: u8,
+    verses: u8,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ExportPlan {
+    id: String,
+    started: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    finished: Option<String>,
+    /// Passages ticked, as (day, index).
+    read: Vec<(u16, u8)>,
+}
+
+/// What an export carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Include {
+    pub highlights: bool,
+    pub notes: bool,
+    pub bookmarks: bool,
+    /// Reading history and plans.
+    pub history: bool,
+}
+
+impl Include {
+    /// Highlights, notes and bookmarks.
+    pub const STUDY: Include = Include { highlights: true, notes: true, bookmarks: true, history: false };
+    pub const EVERYTHING: Include = Include { highlights: true, notes: true, bookmarks: true, history: true };
+
+    pub const fn default_none() -> Include {
+        Include { highlights: false, notes: false, bookmarks: false, history: false }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -874,6 +1041,29 @@ mod tests {
         assert!(md.contains("- **John 3:16** (pink) text of John 3:16"));
         assert!(md.contains("### John 3:16\n\n> text of John 3:16\n\nline one\nline two"));
         assert!(b.import_json("{}").is_err());
+        // History and plans travel when asked for, and erasing clears everything.
+        a.record_reading(&ReadingSession {
+            started: 1_000,
+            book: BookId(42),
+            chapter: 3,
+            translation: "kjv".into(),
+            seconds: 300,
+            furthest: 36,
+            verses: 36,
+        })
+        .unwrap();
+        a.start_plan("john-21", 900).unwrap();
+        a.set_plan_read("john-21", 1, 0, true).unwrap();
+        let all = a.export_json_with("KJV", text, Include::EVERYTHING).unwrap();
+        let only_notes =
+            a.export_json_with("KJV", text, Include { notes: true, ..Include::default_none() }).unwrap();
+        assert!(!only_notes.contains("\"highlights\": [\n"), "{only_notes}");
+        let mut c = StudyStore::open_in_memory().unwrap();
+        c.import_json(&all).unwrap();
+        assert_eq!(c.reading_since(0).len(), 1);
+        assert_eq!(c.plan_reads("john-21").len(), 1);
+        c.erase_all().unwrap();
+        assert_eq!((c.counts(), c.reading_since(0).len(), c.plans().len()), ((0, 0, 0), 0, 0));
     }
 
     #[test]

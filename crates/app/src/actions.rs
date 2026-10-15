@@ -53,6 +53,10 @@ pub enum Action {
     SetPlanReminder(bool),
     SetAccent(crate::theme::Accent),
     SetReduceMotion(bool),
+    /// Erase every highlight, note, bookmark, plan and the history (after a backup).
+    EraseStudy,
+    /// Show the data folder in the file browser.
+    RevealDataDir,
     /// Focus mode: full screen with the chrome out of the way.
     ToggleFocus,
     /// Forget the reading history from this time (Unix seconds) on.

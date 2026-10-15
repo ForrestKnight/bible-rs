@@ -48,6 +48,11 @@ pub struct Settings {
     pub highlight_names: Vec<String>,
     pub reduce_motion: bool,
     pub flash_jumps: bool,
+    /// Data: what exports include (highlights, notes, bookmarks, history), and automatic
+    /// backups (on, and weekly rather than daily).
+    pub export_include: [bool; 4],
+    pub backup_auto: bool,
+    pub backup_weekly: bool,
     /// Chords chosen in Settings › Shortcuts, by row id (`keymap::ALL`).
     pub shortcuts: std::collections::BTreeMap<String, String>,
     /// The share sheet's style and options, as last used.
@@ -86,6 +91,9 @@ impl Default for Settings {
             reduce_motion: false,
             flash_jumps: true,
             shortcuts: Default::default(),
+            export_include: [true, true, true, false],
+            backup_auto: true,
+            backup_weekly: false,
             share: Default::default(),
             onboarded: false,
         }
@@ -275,6 +283,8 @@ pub struct BibleApp {
     share_sheet: Option<crate::share_sheet::ShareSheet>,
     /// Importing a translation (frames 13–15).
     import_sheet: Option<crate::import_sheet::ImportSheet>,
+    /// When an automatic backup was last considered (egui time).
+    backup_checked: Option<f64>,
     /// The day the plan reminder last showed.
     reminded: Option<i64>,
     /// The page in the main area (the reader unless a library or study page is open).
@@ -386,6 +396,7 @@ impl BibleApp {
             share_sheet: None,
             compare: None,
             reminded: None,
+            backup_checked: None,
             pages: Default::default(),
             demo: std::env::var("BIBLE_RS_DEMO")
                 .map(|s| s.split(';').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
@@ -830,6 +841,21 @@ impl BibleApp {
                 }
             }
             Action::SetPlanReminder(on) => self.settings.plan_reminder = on,
+            Action::EraseStudy => {
+                // A backup first, so it can be undone.
+                match self
+                    .backup_now()
+                    .map_err(|e| format!("{e:#}"))
+                    .and_then(|path| self.study.erase_all().map(|_| path).map_err(|e| format!("{e:#}")))
+                {
+                    Ok(path) => {
+                        self.reader.invalidate();
+                        self.toast(ctx, format!("Erased. A backup was saved first: {}", path.display()));
+                    }
+                    Err(e) => self.toast(ctx, format!("Couldn't erase: {e}")),
+                }
+            }
+            Action::RevealDataDir => reveal(&self.data_dir),
             Action::ToggleFocus => {
                 let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
@@ -1000,15 +1026,62 @@ impl BibleApp {
     }
 
     pub fn export_to(&self, path: &std::path::Path, kind: ExportKind) -> Result<()> {
+        let [highlights, notes, bookmarks, history] = self.settings.export_include;
+        let include = bible_core::study::Include { highlights, notes, bookmarks, history };
+        self.write_export(path, kind, include)
+    }
+
+    fn write_export(
+        &self,
+        path: &std::path::Path,
+        kind: ExportKind,
+        include: bible_core::study::Include,
+    ) -> Result<()> {
         let t = self.library.load(&self.settings.translation)?;
         let text = |v: VerseRef| t.find(v).map(|v| v.plain_text());
         let abbrev = t.meta.abbrev.clone();
         let body = match kind {
-            ExportKind::Json => self.study.export_json(&abbrev, text)?,
-            ExportKind::Markdown => self.study.export_markdown(&abbrev, text),
+            ExportKind::Json => self.study.export_json_with(&abbrev, text, include)?,
+            ExportKind::Markdown => self.study.export_markdown_with(&abbrev, text, include),
         };
         std::fs::write(path, body)?;
         Ok(())
+    }
+
+    /// Writes a full JSON backup into the data folder's `backups`, keeping the newest ten.
+    pub fn backup_now(&self) -> Result<PathBuf> {
+        let dir = backups_dir(&self.data_dir);
+        std::fs::create_dir_all(&dir)?;
+        let stamp = bible_core::study::rfc3339(bible_core::study::now()).replace(':', "-");
+        let path = dir.join(format!("bible-rs-backup-{stamp}.json"));
+        self.write_export(&path, ExportKind::Json, bible_core::study::Include::EVERYTHING)?;
+        let mut files: Vec<_> = std::fs::read_dir(&dir)?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x == "json"))
+            .collect();
+        files.sort();
+        for old in files.iter().rev().skip(10) {
+            let _ = std::fs::remove_file(old);
+        }
+        Ok(path)
+    }
+
+    /// An automatic backup when one is due (checked once a launch and then every hour).
+    fn auto_backup(&mut self, ctx: &egui::Context) {
+        if !self.settings.backup_auto || self.startup.frames < 10 {
+            return;
+        }
+        let now = ctx.input(|i| i.time);
+        if self.backup_checked.is_some_and(|t| now - t < 3600.0) {
+            return;
+        }
+        self.backup_checked = Some(now);
+        let every = if self.settings.backup_weekly { 7 * 86_400 } else { 86_400 };
+        let due = last_backup(&self.data_dir).is_none_or(|(at, _)| bible_core::study::now() - at >= every);
+        let (h, n, b) = self.study.counts();
+        if due && h + n + b > 0 {
+            let _ = self.backup_now();
+        }
     }
 
     fn import_study(&mut self, ctx: &egui::Context) {
@@ -1963,6 +2036,7 @@ impl eframe::App for BibleApp {
         }
         self.shortcuts_help(&ctx);
         self.plan_reminder(&ctx);
+        self.auto_backup(&ctx);
         self.toasts(&ctx);
         self.end_frame(&ctx, frame, frame_start, actions);
     }
@@ -1985,6 +2059,30 @@ fn open_reader_window(ctx: &egui::Context) {
         let _ = outer;
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos.to_pos2()));
     }
+}
+
+/// Where automatic backups go.
+pub fn backups_dir(data_dir: &std::path::Path) -> PathBuf {
+    data_dir.join("backups")
+}
+
+/// The newest backup: when (Unix seconds) and its size in bytes.
+pub fn last_backup(data_dir: &std::path::Path) -> Option<(i64, u64)> {
+    std::fs::read_dir(backups_dir(data_dir))
+        .ok()?
+        .filter_map(|e| e.ok()?.metadata().ok())
+        .filter(|m| m.is_file())
+        .filter_map(|m| {
+            let at = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64;
+            Some((at, m.len()))
+        })
+        .max_by_key(|(at, _)| *at)
+}
+
+/// Opens a folder in the system's file browser.
+pub fn reveal(path: &std::path::Path) {
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let _ = std::process::Command::new(opener).arg(path).spawn();
 }
 
 pub fn online_counter() -> Arc<AtomicU64> {

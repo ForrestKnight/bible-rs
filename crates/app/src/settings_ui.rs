@@ -52,6 +52,8 @@ pub struct SettingsUi {
     /// Shortcuts: the filter, and the row waiting for a new chord.
     shortcut_filter: String,
     recording: Option<&'static str>,
+    /// Data: Erase… was pressed and waits for the second click.
+    confirm_erase: bool,
 }
 
 impl SettingsUi {
@@ -67,6 +69,7 @@ impl SettingsUi {
             show_all_bundled: false,
             shortcut_filter: String::new(),
             recording: None,
+            confirm_erase: false,
         }
     }
 
@@ -228,6 +231,263 @@ impl SettingsUi {
         }
     }
 
+    /// Data (frame 27): what's in the library and where, exports, backups, and erasing.
+    fn data(
+        &mut self,
+        ui: &mut Ui,
+        library: &Library,
+        settings: &mut Settings,
+        study: &StudyStore,
+        actions: &mut Vec<Action>,
+    ) {
+        let p = settings.theme.palette();
+        let data_dir = library.data_dir().to_path_buf();
+
+        group_title(ui, p, "Your library");
+        let (h, n, b) = study.counts();
+        let stats = [(h, "highlights"), (b, "bookmarks"), (n, "notes"), (study.plans().len(), "plans")];
+        rows_card(ui, p, &[72.0, 44.0], |ui, i, r| {
+            let painter = ui.painter().clone();
+            if i == 0 {
+                // Four columns sized to their content, sharing what's left.
+                let serif = FontId::new(22.0, theme::family(theme::SERIF));
+                let widths: Vec<f32> = stats
+                    .iter()
+                    .map(|(n, l)| {
+                        let a = painter
+                            .layout_no_wrap(n.to_string(), serif.clone(), Color32::PLACEHOLDER)
+                            .size()
+                            .x;
+                        let b = painter
+                            .layout_no_wrap((*l).into(), theme::ui_medium(11.0), Color32::PLACEHOLDER)
+                            .size()
+                            .x;
+                        a.max(b)
+                    })
+                    .collect();
+                let spare = ((r.width() - 32.0) - widths.iter().sum::<f32>() - 48.0).max(0.0) / 4.0;
+                let mut x = r.left() + 16.0;
+                for ((n, l), w) in stats.iter().zip(widths) {
+                    crate::pages::text(
+                        &painter,
+                        x,
+                        r.top() + 14.0,
+                        28.0,
+                        &n.to_string(),
+                        serif.clone(),
+                        p.ink,
+                        false,
+                    );
+                    crate::pages::text(
+                        &painter,
+                        x,
+                        r.top() + 42.0,
+                        16.0,
+                        l,
+                        theme::ui_medium(11.0),
+                        p.ink_3,
+                        false,
+                    );
+                    x += w + spare + 16.0;
+                }
+            } else {
+                row_label(ui, p, r, "Stored in", None);
+                let (b, resp) = Button::new(Kind::Secondary, "Show in Finder").small().show_right(
+                    ui,
+                    p,
+                    r.right() - 16.0,
+                    r.center().y,
+                    ui.id().with("reveal"),
+                );
+                if resp.clicked() {
+                    actions.push(Action::RevealDataDir);
+                }
+                let home = dirs::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
+                let mut path = data_dir.to_string_lossy().into_owned();
+                if !home.is_empty() && path.starts_with(&home) {
+                    path = format!("~{}", &path[home.len()..]);
+                }
+                let path = crate::pages::elide(
+                    &painter,
+                    &path,
+                    &FontId::monospace(12.0),
+                    b.left() - 10.0 - (r.left() + 140.0),
+                );
+                painter.text(
+                    pos2(b.left() - 10.0, r.center().y),
+                    Align2::RIGHT_CENTER,
+                    path,
+                    FontId::monospace(12.0),
+                    p.ink_2,
+                );
+            }
+        });
+        ui.add_space(24.0);
+
+        group_title(ui, p, "Export");
+        rows_card(ui, p, &[56.0, 56.0, 44.0], |ui, i, r| {
+            let right = r.right() - 16.0;
+            let cy = r.center().y;
+            match i {
+                0 | 1 => {
+                    let (label, detail, kind) = if i == 0 {
+                        ("Markdown", "Readable notes, highlights and bookmarks · ⌘E", ExportKind::Markdown)
+                    } else {
+                        ("JSON backup", "Everything, re-importable · ⇧⌘E", ExportKind::Json)
+                    };
+                    row_label(ui, p, r, label, Some(detail));
+                    let (_, resp) = Button::new(Kind::Secondary, "Export…")
+                        .small()
+                        .icon(icons::upload)
+                        .show_right(ui, p, right, cy, ui.id().with(("export", i)));
+                    if resp.clicked() {
+                        actions.push(Action::Export(kind));
+                    }
+                }
+                _ => {
+                    row_label(ui, p, r, "Include", None);
+                    let labels = ["Highlights", "Notes", "Bookmarks", "History"];
+                    let widths: Vec<f32> = labels
+                        .iter()
+                        .map(|l| {
+                            16.0 + 8.0
+                                + ui.painter()
+                                    .layout_no_wrap((*l).into(), text::UI.font(), Color32::PLACEHOLDER)
+                                    .size()
+                                    .x
+                        })
+                        .collect();
+                    let mut x = right - widths.iter().sum::<f32>() - 16.0 * 3.0;
+                    for (k, (l, w)) in labels.iter().zip(widths).enumerate() {
+                        let b = Rect::from_min_size(pos2(x, cy - 8.0), vec2(16.0, 16.0));
+                        if widgets::checkbox(ui, p, b, settings.export_include[k], l).clicked() {
+                            settings.export_include[k] = !settings.export_include[k];
+                        }
+                        x += w + 16.0;
+                    }
+                }
+            }
+        });
+        ui.add_space(24.0);
+
+        group_title(ui, p, "Backup");
+        rows_card(ui, p, &[44.0, 44.0, 44.0, 44.0], |ui, i, r| {
+            let right = r.right() - 16.0;
+            let cy = r.center().y;
+            match i {
+                0 => {
+                    row_label(ui, p, r, "Back up automatically", None);
+                    widgets::toggle(
+                        ui,
+                        p,
+                        pos2(right, cy),
+                        ui.id().with("backup-auto"),
+                        &mut settings.backup_auto,
+                    );
+                }
+                1 => {
+                    row_label(ui, p, r, "Frequency", None);
+                    let field = Rect::from_min_size(pos2(right - 160.0, cy - 16.0), vec2(160.0, 32.0));
+                    let value = if settings.backup_weekly { "Weekly" } else { "Daily" };
+                    let resp =
+                        widgets::select_field(ui, p, field, value, None, ui.id().with("backup-frequency"));
+                    egui::Popup::menu(&resp).show(|ui| {
+                        ui.set_min_width(160.0);
+                        if ui.selectable_label(!settings.backup_weekly, "Daily").clicked() {
+                            settings.backup_weekly = false;
+                        }
+                        if ui.selectable_label(settings.backup_weekly, "Weekly").clicked() {
+                            settings.backup_weekly = true;
+                        }
+                    });
+                }
+                2 => {
+                    row_label(ui, p, r, "Last backup", None);
+                    let value = match crate::app::last_backup(&data_dir) {
+                        Some((at, bytes)) => {
+                            let now = bible_core::study::now();
+                            let day = crate::time::day_start(at);
+                            let when = if day == crate::time::day_start(now) {
+                                "Today".to_string()
+                            } else if day == crate::time::day_start(now) - 86_400 {
+                                "Yesterday".to_string()
+                            } else {
+                                crate::time::short_date(at)
+                            };
+                            format!("{when} at {} · {} KB", crate::time::clock(at), bytes.div_ceil(1024))
+                        }
+                        None => "Never".into(),
+                    };
+                    ui.painter().text(pos2(right, cy), Align2::RIGHT_CENTER, value, text::UI.font(), p.ink_2);
+                }
+                _ => {
+                    row_label(ui, p, r, "Restore from a JSON backup", None);
+                    let (_, resp) = Button::new(Kind::Secondary, "Import Backup…")
+                        .small()
+                        .icon(icons::download)
+                        .show_right(ui, p, right, cy, ui.id().with("import-backup"));
+                    if resp.clicked() {
+                        actions.push(Action::ImportStudy);
+                    }
+                }
+            }
+        });
+        ui.add_space(24.0);
+
+        rows_card(ui, p, &[56.0], |ui, _, r| {
+            let right = r.right() - 16.0;
+            let cy = r.center().y;
+            if self.confirm_erase {
+                row_label(
+                    ui,
+                    p,
+                    r,
+                    "Erase everything?",
+                    Some("A backup is saved first; otherwise this can't be undone."),
+                );
+                let (b, resp) = Button::new(Kind::Destructive, "Erase Everything").small().show_right(
+                    ui,
+                    p,
+                    right,
+                    cy,
+                    ui.id().with("erase-confirm"),
+                );
+                if resp.clicked() {
+                    actions.push(Action::EraseStudy);
+                    self.confirm_erase = false;
+                }
+                let (_, cancel) = Button::new(Kind::Plain, "Cancel").small().show_right(
+                    ui,
+                    p,
+                    b.left() - 8.0,
+                    cy,
+                    ui.id().with("erase-cancel"),
+                );
+                if cancel.clicked() {
+                    self.confirm_erase = false;
+                }
+            } else {
+                row_label(
+                    ui,
+                    p,
+                    r,
+                    "Erase all study data",
+                    Some("Highlights, notes, bookmarks, plans and history. Translations stay."),
+                );
+                let (_, resp) = Button::new(Kind::Destructive, "Erase…").small().show_right(
+                    ui,
+                    p,
+                    right,
+                    cy,
+                    ui.id().with("erase"),
+                );
+                if resp.clicked() {
+                    self.confirm_erase = true;
+                }
+            }
+        });
+    }
+
     /// Puts a shortcut row into recording (demo steps).
     pub fn record(&mut self, id: &str) {
         self.recording = crate::keymap::ALL.iter().find(|s| s.id == id).map(|s| s.id);
@@ -378,10 +638,7 @@ impl SettingsUi {
                                 self.translations(ui, library, settings, actions, tx, import)
                             }
                             SettingsTab::Shortcuts => self.shortcuts(ui, settings),
-                            SettingsTab::Data => {
-                                ui.spacing_mut().item_spacing.y = 6.0;
-                                data(ui, library, study, actions)
-                            }
+                            SettingsTab::Data => self.data(ui, library, settings, study, actions),
                             SettingsTab::About => about(ui, p),
                         }
                     });
@@ -1537,29 +1794,6 @@ fn about(ui: &mut Ui, p: &Palette) {
         )
         .color(p.ink_2),
     );
-}
-
-fn data(ui: &mut Ui, library: &Library, study: &StudyStore, actions: &mut Vec<Action>) {
-    let (h, n, b) = study.counts();
-    widgets::caption(ui, "Your study data");
-    ui.label(format!("{h} highlights · {n} notes · {b} bookmarks"));
-    ui.label(format!("Stored in {}", library.data_dir().join("study.sqlite").display()));
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        if ui.button("Export Markdown…").clicked() {
-            actions.push(Action::Export(ExportKind::Markdown));
-        }
-        if ui.button("Export JSON…").clicked() {
-            actions.push(Action::Export(ExportKind::Json));
-        }
-        if ui.button("Import JSON…").clicked() {
-            actions.push(Action::ImportStudy);
-        }
-    });
-    ui.add_space(12.0);
-    widgets::caption(ui, "Locations");
-    ui.label(format!("Data folder: {}", library.data_dir().display()));
-    ui.label(format!("API keys: {}", library.secrets().backend_name()));
 }
 
 /// The toolbar's "Aa" popover: the settings people change while reading.
