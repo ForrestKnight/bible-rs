@@ -6,7 +6,7 @@ use bible_core::library::{Chapter, Library};
 use bible_core::model::Style;
 use bible_core::study::StudyStore;
 use eframe::egui::text::{LayoutJob, TextFormat, TextWrapping};
-use eframe::egui::{self, CornerRadius, FontId, ScrollArea, Sense, Ui, vec2};
+use eframe::egui::{self, FontId, ScrollArea, Ui, vec2};
 
 use crate::actions::Action;
 use crate::app::Settings;
@@ -198,8 +198,6 @@ fn compare(ui: &mut Ui, library: &Library, settings: &Settings, verse: VerseRef,
                     Chapter::Failed(err) => (format!("Couldn't load: {err}"), Vec::new()),
                     Chapter::Missing => ("— (not in this translation)".into(), Vec::new()),
                 };
-            let (rect, resp) = ui.allocate_exact_size(vec2(width, 0.0), Sense::hover());
-            let _ = (rect, resp);
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&m.abbrev).font(theme::ui_medium(12.0)).color(p.accent));
                 if m.id == settings.translation {
@@ -265,7 +263,6 @@ fn compare(ui: &mut Ui, library: &Library, settings: &Settings, verse: VerseRef,
             ui.add_space(10.0);
         }
     });
-    let _ = CornerRadius::ZERO;
 }
 
 /// Maps a verse-text byte offset onto `plain_text()` (which inserts a space at some breaks).

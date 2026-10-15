@@ -1,7 +1,7 @@
 //! SWORD Bible modules (CrossWire format): `mods.d/<name>.conf` plus a data directory.
 //!
-//! Supported drivers: `zText`/`zText4` (zlib-compressed blocks) and `RawText`/`RawText4`, in KJV
-//! (or KJVA) versification, with OSIS, ThML, GBF or plain-text markup. Locked modules
+//! Supported drivers: `zText`/`zText4` (zlib-compressed blocks) and `RawText`/`RawText4`, in KJV,
+//! KJVA, NRSV or NRSVA versification, with OSIS, ThML, GBF or plain-text markup. Locked modules
 //! (`CipherKey=`) are read with the user's unlock key using SWORD's Sapphire II cipher.
 
 use std::collections::HashMap;
@@ -147,10 +147,9 @@ pub fn read_module(
         other => bail!("unsupported SWORD driver {other:?} (only Bible text modules are supported)"),
     };
     let v11n = conf.get("Versification").unwrap_or("KJV");
-    ensure!(
-        v11n.eq_ignore_ascii_case("KJV") || v11n.eq_ignore_ascii_case("KJVA"),
-        "SWORD versification {v11n:?} is not supported yet (KJV and KJVA are)"
-    );
+    let verses_in = versification(v11n).with_context(|| {
+        format!("SWORD versification {v11n:?} is not supported yet (KJV, KJVA, NRSV and NRSVA are)")
+    })?;
     if let Driver::ZText { .. } = driver {
         let c = conf.get("CompressType").unwrap_or("ZIP");
         ensure!(c.eq_ignore_ascii_case("ZIP"), "SWORD compression {c:?} is not supported (ZIP is)");
@@ -190,7 +189,8 @@ pub fn read_module(
                 idx += 1;
                 let c = ChapterIdx::new(book, ch).unwrap();
                 handler.b.begin_chapter(ch as u32);
-                for v in 1..=c.kjv_verses() {
+                let n = verses_in(c);
+                for v in 1..=n {
                     let raw = reader.entry(idx + v as usize)?;
                     if raw.iter().all(u8::is_ascii_whitespace) {
                         continue;
@@ -220,11 +220,33 @@ pub fn read_module(
                         Markup::Plain => handler.b.text(&text),
                     }
                 }
-                idx += c.kjv_verses() as usize;
+                idx += n as usize;
             }
         }
     }
     Ok(())
+}
+
+/// Verses per chapter for a SWORD versification whose 66 canonical books are in KJV order.
+/// (KJVA and NRSVA add the Apocrypha after Malachi, which doesn't move any canonical entry.)
+/// Tables from SWORD's `canon.h` / `canon_nrsv.h`.
+fn versification(name: &str) -> Option<fn(ChapterIdx) -> u8> {
+    fn kjv(c: ChapterIdx) -> u8 {
+        c.kjv_verses()
+    }
+    fn nrsv(c: ChapterIdx) -> u8 {
+        // 3 John 1 and Revelation 12 each have one more verse than in the KJV.
+        match c.0 {
+            1165 => 15,
+            1178 => 18,
+            _ => c.kjv_verses(),
+        }
+    }
+    match name.to_ascii_uppercase().as_str() {
+        "KJV" | "KJVA" => Some(kjv),
+        "NRSV" | "NRSVA" => Some(nrsv),
+        _ => None,
+    }
 }
 
 struct TestamentReader {
@@ -691,6 +713,15 @@ pub(crate) mod tests {
         let mut dec = enc.clone();
         Sapphire::new(b"key").decrypt_in_place(&mut dec);
         assert_eq!(dec, msg);
+    }
+
+    #[test]
+    fn nrsv_versification() {
+        let total: u32 = ChapterIdx::all().map(|c| versification("NRSV").unwrap()(c) as u32).sum();
+        assert_eq!(total, 31_104);
+        assert_eq!(versification("nrsva").unwrap()(ChapterIdx::new(BookId(63), 1).unwrap()), 15);
+        assert_eq!(versification("NRSV").unwrap()(ChapterIdx::new(BookId::REVELATION, 12).unwrap()), 18);
+        assert!(versification("Vulg").is_none());
     }
 
     #[test]

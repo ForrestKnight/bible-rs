@@ -59,7 +59,7 @@ prepare() {
   BIBLE_RS_HOME="$APP_HOME" "$BIN" import-notes "$WORK/notes.json" >/dev/null
   local typo='{"size":19.0,"line_height":1.62,"mode":"'"${MODE:-Paragraph}"'","red_letters":true,"justify":false,"verse_numbers":true,"headings":true,"measure":34.0}'
   printf '{"translation":"%s","theme":"%s","typo":%s,%s}' "$2" "$1" "$typo" "${3:-\"sidebar_open\":false}" >"$WORK/settings.json"
-  sqlite3 "$APP_HOME/study.sqlite" "INSERT OR REPLACE INTO settings(key, value) VALUES('app', readfile('$WORK/settings.json'));"
+  sqlite3 "$APP_HOME/study.sqlite" "INSERT OR REPLACE INTO settings(key, value) VALUES('app', CAST(readfile('$WORK/settings.json') AS TEXT));"
 }
 
 launch() {
@@ -109,7 +109,6 @@ scene_dark() {
   MODE=VersePerLine prepare Dark kjv
   launch
   goto "mt 5"
-  xdotool mousemove $((OX + 640)) $((OY + 500)); xdotool click 5 click 5; sleep 0.6
   park
   shot dark-verse-per-line
 }
@@ -129,7 +128,7 @@ scene_palette() {
   launch
   goto "rom 8"
   key ctrl+k
-  typ "1 cor 13"
+  typ "jo 3:16"
   shot jump-palette
 }
 
@@ -147,7 +146,7 @@ scene_compare() {
   goto "jn 3:16"
   key c
   sleep 1.0
-  park 700 840
+  park 40 840
   shot compare
 }
 
@@ -170,7 +169,7 @@ scene_books() {
 }
 
 scene_translations() {
-  prepare Light kjv
+  SIZE=1280x960 prepare Light kjv
   # Import a real SWORD module (the public-domain Geneva Bible from CrossWire) to show imports.
   local mod="$ROOT/.sources/Geneva1599.zip"
   if [[ ! -f "$mod" ]]; then
@@ -178,7 +177,7 @@ scene_translations() {
     curl -fsSL -o "$mod" https://www.crosswire.org/ftpmirror/pub/sword/packages/rawzip/Geneva1599.zip || true
   fi
   [[ -f "$mod" ]] && BIBLE_RS_HOME="$APP_HOME" "$BIN" import "$mod" --abbrev GNV >/dev/null
-  launch
+  SIZE=1280x960 launch
   goto "jn 1"
   key ctrl+comma
   click 640 234 0.6

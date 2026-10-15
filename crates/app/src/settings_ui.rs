@@ -66,7 +66,7 @@ impl SettingsUi {
             .open(&mut open)
             .collapsible(false)
             .resizable(true)
-            .default_size(vec2(680.0, 560.0))
+            .default_size(vec2(700.0, 700.0))
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
             .frame(Frame::window(&ctx.style_of(ctx.theme())).fill(p.chrome))
             .show(ctx, |ui| {

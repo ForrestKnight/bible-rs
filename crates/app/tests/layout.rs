@@ -145,3 +145,27 @@ fn every_chapter_of_every_bundled_translation_lays_out() {
         }
     });
 }
+
+#[test]
+fn parallel_cells_keep_poetry_indentation() {
+    // BSB Psalm 1:1 is a q1 line followed by q2 lines; the q2 lines are indented in the cell.
+    let bsb = bible_core::bundled::load("bsb").unwrap();
+    let c = ChapterIdx::new(BookId::PSALMS, 1).unwrap();
+    let typo = Typography::default();
+    let l = with_fonts(|ctx| {
+        let cx = Ctx::new(&typo, Theme::Light, 420.0, 30.0);
+        let cols = [("BSB".to_string(), ColumnText::Ready(&bsb))];
+        ctx.fonts_mut(|f| layout::layout_parallel(f, &cx, &cols, c))
+    });
+    let v1 = bsb.find(bible_core::VerseRef::new(BookId::PSALMS, 1, 1)).unwrap();
+    let cell = l.blocks.iter().find(|b| b.verse_chars(v1.index).is_some()).unwrap();
+    let rows = &cell.galley.rows;
+    assert!(rows.len() >= 3);
+    let first_glyph_x = |r: usize| rows[r].pos.x + rows[r].glyphs.first().map_or(0.0, |g| g.pos.x);
+    assert!(
+        first_glyph_x(1) > first_glyph_x(0) + 10.0,
+        "q2 line indented: {} vs {}",
+        first_glyph_x(1),
+        first_glyph_x(0)
+    );
+}

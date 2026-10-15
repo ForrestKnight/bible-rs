@@ -17,7 +17,7 @@ use bible_core::books::{CHAPTER_COUNT, ChapterIdx, VerseRef};
 use bible_core::library::{Chapter, Library};
 use bible_core::study::{HighlightColor, StudyStore};
 use eframe::egui::{
-    self, Color32, CornerRadius, CursorIcon, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
+    self, Color32, CornerRadius, CursorIcon, Id, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
 };
 
 use self::layout::{ChapterLayout, ColumnText, Ctx, Typography};
@@ -386,7 +386,8 @@ impl Reader {
                     if let Some(hc) = env.study.highlight(vref) {
                         fills.push(p.highlight(hc));
                     }
-                    if selected.contains(&vref) {
+                    let is_selected = selected.contains(&vref);
+                    if is_selected {
                         fills.push(p.selection);
                     }
                     if let (Some((fv, _)), Some(a)) = (self.flash, flash_alpha)
@@ -407,6 +408,14 @@ impl Reader {
                         );
                         for f in &fills {
                             painter.rect_filled(r, CornerRadius::same(3), *f);
+                        }
+                        if is_selected {
+                            painter.rect_stroke(
+                                r,
+                                CornerRadius::same(3),
+                                Stroke::new(1.25, p.selection_line),
+                                StrokeKind::Inside,
+                            );
                         }
                     }
                 }
@@ -651,9 +660,6 @@ fn context_menu(ui: &mut Ui, env: &Env<'_>, actions: &mut Vec<Action>) {
         actions.push(Action::Compare);
         ui.close();
     }
-    let _ = StrokeKind::Inside;
-    let _ = Pos2::ZERO;
-    let _ = Vec2::ZERO;
 }
 
 /// Column placement for the current window width.
@@ -667,7 +673,8 @@ pub struct Geometry {
 impl Geometry {
     pub fn new(rect: Rect, typo: &Typography, columns: usize) -> Self {
         let n = columns.max(1) as f32;
-        let margin = (rect.width() * 0.06).clamp(28.0, 96.0);
+        // At least enough room on the right for the note/bookmark markers.
+        let margin = (rect.width() * 0.06).clamp(56.0, 96.0);
         let avail = (rect.width() - margin * 2.0).max(200.0);
         let gutter = if n > 1.0 { typo.size * 1.8 } else { 0.0 };
         let max_col = typo.size * if n > 1.0 { typo.measure * 0.82 } else { typo.measure };

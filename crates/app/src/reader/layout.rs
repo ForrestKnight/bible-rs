@@ -252,7 +252,8 @@ fn push_styled(job: &mut LayoutJob, cx: &Ctx<'_>, text: &str, styles_at: &dyn Fn
     push_styled_lead(job, cx, text, styles_at, base, 0.0);
 }
 
-/// Like [`push_styled`], with `lead` points of leading space before the first character.
+/// Like [`push_styled`], with `lead` points of leading space before the first character (the
+/// first run then always starts a new section, since leading space belongs to a section).
 fn push_styled_lead(
     job: &mut LayoutJob,
     cx: &Ctx<'_>,
@@ -261,28 +262,28 @@ fn push_styled_lead(
     base: usize,
     lead: f32,
 ) {
-    let sections_before = job.sections.len();
-    // Split into runs of constant style.
-    let mut run_start = 0usize;
-    let mut run_style = None;
-    let bytes: Vec<(usize, char)> = text.char_indices().collect();
-    let flush = |job: &mut LayoutJob, s: usize, e: usize, st: u8| {
+    let mut lead = lead;
+    let mut emit = |job: &mut LayoutJob, s: usize, e: usize, st: u8| {
         if s >= e {
             return;
         }
         let chunk = &text[s..e];
         if st & (Style::DivineName.bit() | Style::SmallCaps.bit()) != 0 {
-            small_caps(job, cx, chunk, st);
+            small_caps(job, cx, chunk, st, std::mem::take(&mut lead));
+        } else if lead > 0.0 {
+            job.append(chunk, std::mem::take(&mut lead), cx.body(st));
         } else {
             append(job, chunk, cx.body(st));
         }
     };
-    for &(i, _) in &bytes {
+    let mut run_start = 0usize;
+    let mut run_style = None;
+    for (i, _) in text.char_indices() {
         let st = styles_at(base + i);
         match run_style {
             None => run_style = Some(st),
             Some(prev) if prev != st => {
-                flush(job, run_start, i, prev);
+                emit(job, run_start, i, prev);
                 run_start = i;
                 run_style = Some(st);
             }
@@ -290,17 +291,12 @@ fn push_styled_lead(
         }
     }
     if let Some(st) = run_style {
-        flush(job, run_start, text.len(), st);
-    }
-    if lead > 0.0
-        && let Some(sec) = job.sections.get_mut(sections_before)
-    {
-        sec.leading_space = lead;
+        emit(job, run_start, text.len(), st);
     }
 }
 
 /// "LORD"/"Lord" → L + ᴏʀᴅ: the first letter of each word at full size, the rest upper-cased smaller.
-fn small_caps(job: &mut LayoutJob, cx: &Ctx<'_>, text: &str, styles: u8) {
+fn small_caps(job: &mut LayoutJob, cx: &Ctx<'_>, text: &str, styles: u8, lead: f32) {
     let full = cx.body(styles & !(Style::DivineName.bit() | Style::SmallCaps.bit()));
     let mut small = full.clone();
     small.font_id.size = (cx.typo.size * 0.78).round();
@@ -308,12 +304,18 @@ fn small_caps(job: &mut LayoutJob, cx: &Ctx<'_>, text: &str, styles: u8) {
     if cx.small_caps_lh > 0.0 {
         small.line_height = Some(cx.small_caps_lh);
     }
+    let mut lead = lead;
     let mut word_start = true;
     let mut buf = String::new();
     let mut buf_small = false;
-    let emit = |job: &mut LayoutJob, buf: &mut String, is_small: bool| {
+    let mut emit = |job: &mut LayoutJob, buf: &mut String, is_small: bool| {
         if !buf.is_empty() {
-            append(job, buf, if is_small { small.clone() } else { full.clone() });
+            let fmt = if is_small { small.clone() } else { full.clone() };
+            if lead > 0.0 {
+                job.append(buf, std::mem::take(&mut lead), fmt);
+            } else {
+                append(job, buf, fmt);
+            }
             buf.clear();
         }
     };
@@ -555,9 +557,8 @@ fn chapter_head(b: &mut Builder<'_, '_>, t: Option<&Translation>, c: ChapterIdx,
         job.append(&short, 0.0, f);
         job.halign = Align::Center;
         b.label(job, em * if single_column { 2.2 } else { 1.2 }, em * 0.25, false);
-        if let Some((pos, g)) = b.labels.last_mut() {
+        if let Some((pos, _)) = b.labels.last_mut() {
             pos.x = b.x0 + b.cx.width / 2.0;
-            let _ = g;
         }
         let long = t
             .map(|t| t.meta.books.get(c.book().index()).map(|b| b.long.clone()).unwrap_or_default())
@@ -688,7 +689,9 @@ pub fn layout_chapter(
                 }
                 p.verses.push((p.chars, v.index, v.number));
                 if cx.typo.verse_numbers {
-                    if per_line && p.chars == 0 {
+                    // Verse-per-line, and poetry lines that begin a verse, hang their number in
+                    // the margin so the text of every line aligns.
+                    if (per_line || matches!(p.kind, Kind::Poetry(_))) && p.chars == 0 {
                         p.gutter = Some(v.number);
                     } else {
                         let label = if v.number_end > v.number {
@@ -870,7 +873,7 @@ pub fn layout_parallel(
                 if at > cursor {
                     push_styled_lead(&mut job, cx, &v.text[cursor..at], &styles, cursor, lead);
                     cursor = at;
-                    job.append("\n", 0.0, cx.body(0));
+                    append(&mut job, "\n", cx.body(0));
                     // Indent the next line (poetry level 2+) via leading space on its first section.
                     lead = if m.kind == MarkKind::Poetry {
                         em * 1.2 * m.level.saturating_sub(1) as f32

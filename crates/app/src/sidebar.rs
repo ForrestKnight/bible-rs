@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use bible_core::books::{BOOKS, BookId, ChapterIdx, FIRST_NT_BOOK, VerseRef};
+use bible_core::books::{BookId, ChapterIdx, FIRST_NT_BOOK, VerseRef};
 use bible_core::library::Library;
 use bible_core::search::{Query, Scope};
 use bible_core::study::StudyStore;
@@ -574,7 +574,6 @@ pub fn book_picker_popup(
     let id = egui::Id::new("book-picker-book");
     let meta = library.get(translation).map(|e| e.meta.clone());
     egui::Popup::menu(anchor).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-        let p = ui.visuals().clone();
         let chosen: Option<BookId> = ui.data(|d| d.get_temp(id));
         match chosen {
             None => {
@@ -650,7 +649,5 @@ pub fn book_picker_popup(
                 });
             }
         }
-        let _ = p;
     });
-    let _ = &BOOKS;
 }

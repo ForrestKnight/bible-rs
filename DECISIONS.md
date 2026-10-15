@@ -81,7 +81,7 @@ The pluggable provider interface (`Library` → bundled / imported / online entr
 `chapter(id, chapter)` without blocking) gives users two routes to licensed texts:
 
 1. **Import a file they own** — USFM (file/folder/zip), OSIS XML, Zefania XML, or a **SWORD
-   module** (zText/RawText, KJV/KJVA versification, OSIS/ThML/GBF markup, and Sapphire-II-locked
+   module** (zText/RawText, KJV/KJVA/NRSV/NRSVA versification, OSIS/ThML/GBF markup, and Sapphire-II-locked
    modules with the user's unlock key — the cipher is verified against SWORD's own C++
    implementation). The converted `.bbl` lives only in the user's data folder.
 2. **Fetch with their own API key** — the ESV API (Crossway) and API.Bible (NASB, LSB, NLT, …
@@ -130,6 +130,6 @@ disk. Export to JSON (round-trips via import) and Markdown.
 - No per-word highlighting (verse-level only) and no free text selection inside verses — verse
   selection with "copy with reference" covers the common case.
 - No footnotes or cross-references from the source texts (dropped at import).
-- SWORD modules in non-KJV versifications (e.g. Vulgate, Synodal) aren't supported yet;
+- SWORD modules in versifications other than KJV(A)/NRSV(A) (e.g. Vulgate, Synodal) aren't supported yet;
   deuterocanonical books are skipped everywhere to keep the 66-book grid.
 - Search covers locally available text; online translations are searched via their own sites.

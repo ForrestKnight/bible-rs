@@ -10,9 +10,7 @@ use anyhow::Result;
 use bible_core::books::{BookId, ChapterIdx, VerseRef};
 use bible_core::library::Library;
 use bible_core::study::StudyStore;
-use eframe::egui::{
-    self, Align2, Color32, CornerRadius, Frame, Id, Key, Margin, Modifiers, Sense, Stroke, Ui, vec2,
-};
+use eframe::egui::{self, Align2, CornerRadius, Frame, Id, Key, Margin, Modifiers, Sense, Stroke, Ui, vec2};
 use serde::{Deserialize, Serialize};
 
 use crate::actions::{Action, ExportKind, SettingsTab, SidebarTab};
@@ -699,7 +697,7 @@ impl BibleApp {
                 vec2(center_w, 30.0),
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
-                    let (c, v) = self.reader.location;
+                    let (c, _) = self.reader.location;
                     let tmeta = self.library.get(&self.settings.translation).map(|e| e.meta.clone());
                     let title = format!(
                         "{} {}",
@@ -719,7 +717,6 @@ impl BibleApp {
                         &self.settings.translation,
                         actions,
                     );
-                    let _ = v;
                     let abbrev = tmeta.as_ref().map(|m| m.abbrev.clone()).unwrap_or_default();
                     let tr = widgets::pill(ui, &abbrev, true, "Translation (⌘1…⌘9)");
                     egui::Popup::menu(&tr).show(|ui| {
@@ -1145,7 +1142,6 @@ impl eframe::App for BibleApp {
                 self.scroll_probe = None;
             }
         }
-        let _ = Color32::TRANSPARENT;
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

@@ -112,7 +112,7 @@ Supported formats:
 | **USFM** | a `.usfm`/`.sfm` file, a folder of them, or a `.zip` |
 | **OSIS XML** | the `.xml`/`.osis` file |
 | **Zefania XML** | the `.xml` file |
-| **SWORD module** | the module `.zip`, its unpacked folder, or its `mods.d/*.conf` file. zText/RawText drivers in KJV/KJVA versification; OSIS, ThML and GBF markup. **Locked modules** (e.g. purchased from a publisher) work with your unlock key: enter it in the *SWORD unlock key* field (or `--key`). |
+| **SWORD module** | the module `.zip`, its unpacked folder, or its `mods.d/*.conf` file. zText/RawText drivers in KJV, KJVA, NRSV or NRSVA versification; OSIS, ThML and GBF markup. **Locked modules** (e.g. purchased from a publisher) work with your unlock key: enter it in the *SWORD unlock key* field (or `--key`). |
 
 The text is converted to bible-rs's format and stored only in your data folder
 (`~/Library/Application Support/bible-rs/translations/` on macOS). Deuterocanonical books are
