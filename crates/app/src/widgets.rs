@@ -71,6 +71,12 @@ pub fn pill(ui: &mut Ui, p: &Palette, text: &str, tooltip: &str) -> Response {
     resp.on_hover_text(tooltip)
 }
 
+/// The disclosure icon for egui combo boxes (instead of egui's triangle).
+pub fn combo_chevron(ui: &Ui, rect: Rect, visuals: &egui::style::WidgetVisuals, _open: bool) {
+    let r = Rect::from_center_size(rect.center(), Vec2::splat(10.0));
+    crate::icons::chevron_down(ui.painter(), r, visuals.fg_stroke.color.gamma_multiply(0.7));
+}
+
 /// A segmented control; returns the newly selected index if it changed.
 pub fn segmented(ui: &mut Ui, labels: &[&str], selected: usize) -> Option<usize> {
     let mut out = None;

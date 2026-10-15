@@ -212,10 +212,15 @@ impl Sidebar {
         let mut jump_to: Option<u32> = None;
         egui::Frame::NONE.inner_margin(egui::Margin::symmetric(ROW_INSET as i8, 0)).show(ui, |ui| {
             let edit = egui::TextEdit::singleline(&mut self.query)
-                .hint_text("Search the Bible…  (\"exact phrase\", -exclude)")
+                .hint_text("Search the Bible")
                 .desired_width(f32::INFINITY)
-                .margin(vec2(8.0, 6.0));
+                .margin(egui::Margin { left: 26, right: 8, top: 6, bottom: 6 });
             let resp = ui.add(edit);
+            let glass = Rect::from_center_size(
+                egui::pos2(resp.rect.left() + 14.0, resp.rect.center().y),
+                vec2(14.0, 14.0),
+            );
+            crate::icons::search(ui.painter(), glass, p.muted);
             if self.focus {
                 resp.request_focus();
                 self.focus = false;
@@ -256,9 +261,11 @@ impl Sidebar {
                     Scope::NewTestament => "New Testament".into(),
                     Scope::Book(b) => b.name().into(),
                 };
-                egui::ComboBox::from_id_salt("scope").selected_text(label(self.scope)).width(150.0).show_ui(
-                    ui,
-                    |ui| {
+                egui::ComboBox::from_id_salt("scope")
+                    .selected_text(label(self.scope))
+                    .width(150.0)
+                    .icon(widgets::combo_chevron)
+                    .show_ui(ui, |ui| {
                         for s in [Scope::All, Scope::OldTestament, Scope::NewTestament, Scope::Book(book)] {
                             ui.selectable_value(&mut self.scope, s, label(s));
                         }
@@ -268,8 +275,7 @@ impl Sidebar {
                                 ui.selectable_value(&mut self.scope, Scope::Book(b), b.name());
                             }
                         });
-                    },
-                );
+                    });
                 ui.checkbox(whole_words, "Whole words");
             });
         });
@@ -287,7 +293,7 @@ impl Sidebar {
         ui.add_space(6.0);
         egui::Frame::NONE.inner_margin(egui::Margin::symmetric(TEXT_INSET as i8, 0)).show(ui, |ui| {
             let status = if self.query.trim().is_empty() {
-                "Type to search as you go".to_string()
+                "Type to search · \"exact phrase\" · -exclude".to_string()
             } else {
                 let n = self.results.len();
                 format!(
@@ -466,15 +472,22 @@ impl Sidebar {
                 }
             }
         });
-        ui.add_space(6.0);
+        // Footer: a hairline, then export and import.
+        let y = ui.cursor().top() + 0.5;
+        ui.painter().hline(ui.max_rect().x_range(), y, egui::Stroke::new(1.0, p.border));
+        ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.add_space(ROW_INSET);
-            if ui.button("Export Markdown…").clicked() {
-                actions.push(Action::Export(ExportKind::Markdown));
-            }
-            if ui.button("JSON…").clicked() {
-                actions.push(Action::Export(ExportKind::Json));
-            }
+            ui.menu_button("Export", |ui| {
+                if ui.button("Markdown…").clicked() {
+                    actions.push(Action::Export(ExportKind::Markdown));
+                    ui.close();
+                }
+                if ui.button("JSON…").clicked() {
+                    actions.push(Action::Export(ExportKind::Json));
+                    ui.close();
+                }
+            });
             if ui.button("Import…").on_hover_text("Merge a bible-rs JSON export").clicked() {
                 actions.push(Action::ImportStudy);
             }

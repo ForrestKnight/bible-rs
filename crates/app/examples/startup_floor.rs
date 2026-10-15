@@ -44,6 +44,7 @@ fn main() -> eframe::Result {
         renderer: bible_rs::renderer(),
         wgpu_options: bible_rs::wgpu_options(),
         centered: true,
+        event_loop_builder: bible_rs::background_launch(),
         ..Default::default()
     };
     eframe::run_native("floor", options, Box::new(move |_| Ok(Box::new(Floor { t0, frames: 0, built: 0.0 }))))

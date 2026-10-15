@@ -70,7 +70,7 @@ pub fn wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
 /// `BIBLE_RS_BACKGROUND=1` opens the window without taking focus from the user (screenshots,
 /// benchmarks).
 #[cfg(target_os = "macos")]
-fn background_launch() -> Option<eframe::EventLoopBuilderHook> {
+pub fn background_launch() -> Option<eframe::EventLoopBuilderHook> {
     std::env::var_os("BIBLE_RS_BACKGROUND")?;
     Some(Box::new(|builder| {
         use winit::platform::macos::EventLoopBuilderExtMacOS;
@@ -79,7 +79,7 @@ fn background_launch() -> Option<eframe::EventLoopBuilderHook> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn background_launch() -> Option<eframe::EventLoopBuilderHook> {
+pub fn background_launch() -> Option<eframe::EventLoopBuilderHook> {
     None
 }
 
