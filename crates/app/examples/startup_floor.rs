@@ -42,6 +42,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport,
         renderer: bible_rs::renderer(),
+        wgpu_options: bible_rs::wgpu_options(),
         centered: true,
         ..Default::default()
     };

@@ -41,10 +41,28 @@ pub fn renderer() -> eframe::Renderer {
     match std::env::var("BIBLE_RS_RENDERER").as_deref() {
         Ok("wgpu") => eframe::Renderer::Wgpu,
         Ok("glow") => eframe::Renderer::Glow,
-        // glow creates its context several times faster than wgpu, which matters most for the
-        // time to first painted text.
+        // macOS: Metal. OpenGL is deprecated there, and on the macOS CI runner it held ~15 fps
+        // while scrolling where Metal held the display's 60.
+        _ if cfg!(target_os = "macos") => eframe::Renderer::Wgpu,
+        // Elsewhere glow, which creates its context about twice as fast as wgpu.
         _ => eframe::Renderer::Glow,
     }
+}
+
+/// wgpu settings: the low-power GPU and, on macOS, only the Metal backend
+/// (`WGPU_POWER_PREF` and `WGPU_BACKEND` still override).
+pub fn wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
+    let mut options = eframe::egui_wgpu::WgpuConfiguration::default();
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_setup {
+        // Reading text never needs a discrete GPU; waking one costs start-up time and battery.
+        if std::env::var_os("WGPU_POWER_PREF").is_none() {
+            setup.power_preference = eframe::wgpu::PowerPreference::LowPower;
+        }
+        if cfg!(target_os = "macos") && std::env::var_os("WGPU_BACKEND").is_none() {
+            setup.instance_descriptor.backends = eframe::wgpu::Backends::METAL;
+        }
+    }
+    options
 }
 
 /// Whether this process runs from inside a macOS `.app` bundle.
@@ -102,14 +120,19 @@ pub fn run() -> eframe::Result {
         viewport =
             viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
     }
-    let options =
-        eframe::NativeOptions { viewport, renderer: renderer(), centered: true, ..Default::default() };
+    let options = eframe::NativeOptions {
+        viewport,
+        renderer: renderer(),
+        wgpu_options: wgpu_options(),
+        centered: true,
+        ..Default::default()
+    };
     let probe = std::env::var_os("BIBLE_RS_STARTUP_PROBE").is_some();
     eframe::run_native(
         "bible-rs",
         options,
         Box::new(move |cc| {
-            trace(t0, "window + GL context ready");
+            trace(t0, "window + GPU context ready");
             let _ = ctx_cell.set(cc.egui_ctx.clone());
             cc.egui_ctx.set_fonts(theme::font_definitions());
             let init = init.join().map_err(|_| "initialization panicked")??;
