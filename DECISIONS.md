@@ -179,6 +179,12 @@ The interface follows the high-fidelity designs in the Paper file "Bible" (Scree
   reading size); finishing them grows it to the reader's 1280 × 800. Settings saved before
   onboarding existed count as onboarded, and the startup/scroll probes skip it. The design's
   third step ("Ready") isn't drawn, so the second step's Continue opens the reader.
+- **Pages take the reader's place.** The Flows frames add full pages (the translation library,
+  then the study collections, history and plans). The sidebar's rows open them; the toolbar
+  keeps back/forward (Back returns to the reader) and swaps the pickers and view tools for a
+  200 pt field that filters the page. Rows show the real data: sizes are each text's decoded
+  size from its file header, descriptions and years of the bundled texts are a small table in
+  `bundled.rs`.
 - Static Inter 500/600 instances (made with fonttools from the variable font) keep semibold UI
   text and verse numbers off egui's per-run variation path. Literata keeps its default optical
   size: at 20 pt its widths differ from opsz 20 by 0.3 %, so line breaks match the design anyway.

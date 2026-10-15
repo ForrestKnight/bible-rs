@@ -38,6 +38,20 @@ pub fn year(id: &str) -> Option<u16> {
     })
 }
 
+/// A line about each bundled text for the translation library.
+pub fn description(id: &str) -> Option<&'static str> {
+    Some(match id {
+        "kjv" => "Red letters · italics · small-caps LORD",
+        "web" => "Red letters · modern English",
+        "bsb" => "Section headings · modern English",
+        "asv" => "Literal · 1901",
+        "ylt" => "Very literal · 1898",
+        "dby" => "Literal · 1890",
+        "wbs" => "Revision of the KJV · 1833",
+        _ => return None,
+    })
+}
+
 pub fn bytes(id: &str) -> Option<&'static [u8]> {
     BUNDLED.iter().find(|(i, _)| *i == id).map(|(_, b)| *b)
 }

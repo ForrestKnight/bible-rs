@@ -66,6 +66,10 @@ pub enum Action {
     Export(ExportKind),
     ImportStudy,
     ImportTranslation,
+    /// Remove an imported or online translation.
+    RemoveTranslation(String),
+    /// Show a page in the main area (the reader, the library, a study collection).
+    OpenPage(crate::pages::Page),
     ShowShortcuts,
     ScrollLines(f32),
     ScrollPages(f32),

@@ -13,6 +13,7 @@ pub mod macos_menu;
 pub mod macos_window;
 pub mod note_popover;
 pub mod onboarding;
+pub mod pages;
 pub mod palette;
 pub mod panel;
 pub mod reader;

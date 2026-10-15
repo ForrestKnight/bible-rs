@@ -105,6 +105,18 @@ impl<'a> Grid<'a> {
     }
 
     /// Points along a circular arc around `(cx, cy)` from angle `a0` to `a1` (radians, y down).
+    /// Points along a cubic Bézier, as SVG's `C`.
+    fn cubic(a: (f32, f32), b: (f32, f32), c: (f32, f32), d: (f32, f32)) -> Vec<(f32, f32)> {
+        (0..=8)
+            .map(move |i| {
+                let t = i as f32 / 8.0;
+                let u = 1.0 - t;
+                let (w0, w1, w2, w3) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+                (w0 * a.0 + w1 * b.0 + w2 * c.0 + w3 * d.0, w0 * a.1 + w1 * b.1 + w2 * c.1 + w3 * d.1)
+            })
+            .collect()
+    }
+
     fn arc(cx: f32, cy: f32, r: f32, a0: f32, a1: f32) -> impl Iterator<Item = (f32, f32)> {
         let n = ((a1 - a0).abs() / 0.2).ceil().max(4.0) as usize;
         (0..=n).map(move |i| {
@@ -401,6 +413,39 @@ pub fn download(p: &Painter, r: Rect, c: Color32) {
     pts.push((16.75, 12.0));
     let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
     g.polyline(pts, false);
+}
+
+/// A globe (the translation library).
+pub fn globe(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.circle(10.0, 10.0, 7.25);
+    g.line(&[(2.75, 10.0), (17.25, 10.0)]);
+    let mut pts = Grid::cubic((10.0, 2.75), (12.0, 4.75), (13.0, 7.25), (13.0, 10.0));
+    pts.extend(Grid::cubic((13.0, 10.0), (13.0, 12.75), (12.0, 15.25), (10.0, 17.25)).into_iter().skip(1));
+    pts.extend(Grid::cubic((10.0, 17.25), (8.0, 15.25), (7.0, 12.75), (7.0, 10.0)).into_iter().skip(1));
+    pts.extend(Grid::cubic((7.0, 10.0), (7.0, 7.25), (8.0, 4.75), (10.0, 2.75)).into_iter().skip(1));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, true);
+}
+
+/// Three ticked lines (reading plans).
+pub fn checklist(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(3.5, 5.5), (4.75, 6.75), (7.0, 4.25)]);
+    g.line(&[(10.0, 5.5), (16.5, 5.5)]);
+    g.line(&[(3.5, 10.5), (4.75, 11.75), (7.0, 9.25)]);
+    g.line(&[(10.0, 10.5), (16.5, 10.5)]);
+    g.line(&[(10.0, 15.5), (16.5, 15.5)]);
+    g.line(&[(4.0, 15.5), (6.25, 15.5)]);
+}
+
+/// A key (API keys).
+pub fn key(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.circle(7.0, 12.5, 3.75);
+    g.line(&[(9.75, 9.75), (16.25, 3.25)]);
+    g.line(&[(14.25, 5.25), (16.25, 7.25)]);
+    g.line(&[(12.5, 7.0), (14.0, 8.5)]);
 }
 
 /// An "i" in a circle (about).

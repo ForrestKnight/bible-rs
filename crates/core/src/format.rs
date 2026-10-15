@@ -104,6 +104,13 @@ fn header(r: &mut Reader<'_>) -> Result<TranslationMeta> {
     serde_json::from_slice(meta).context("translation metadata")
 }
 
+/// The size of a translation once decoded (its body before compression), from the header alone.
+pub fn decoded_len(bytes: &[u8]) -> Option<u64> {
+    let mut r = Reader::new(bytes);
+    header(&mut r).ok()?;
+    r.u32().ok().map(u64::from)
+}
+
 pub fn decode(bytes: &[u8]) -> Result<Translation> {
     let mut r = Reader::new(bytes);
     let meta = header(&mut r)?;

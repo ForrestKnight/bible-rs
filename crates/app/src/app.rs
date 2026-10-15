@@ -234,6 +234,8 @@ pub struct BibleApp {
     note_popover: Option<NotePopover>,
     /// The first-launch screens, until they are done.
     onboarding: Option<crate::onboarding::Onboarding>,
+    /// The page in the main area (the reader unless a library or study page is open).
+    pub pages: crate::pages::Pages,
     /// `BIBLE_RS_DEMO`: steps that put the window into a given state (screenshots), one per frame.
     demo: std::collections::VecDeque<String>,
     chrome: Chrome,
@@ -333,6 +335,7 @@ impl BibleApp {
             verse_menu: None,
             note_popover: None,
             onboarding,
+            pages: Default::default(),
             demo: std::env::var("BIBLE_RS_DEMO")
                 .map(|s| s.split(';').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
                 .unwrap_or_default(),
@@ -513,18 +516,22 @@ impl BibleApp {
     fn apply_one(&mut self, ctx: &egui::Context, a: Action) {
         match a {
             Action::Jump { chapter, verse, flash } => {
+                self.pages.open(crate::pages::Page::Reader);
                 self.jump(chapter, verse, flash);
                 // Landing on a specific verse selects it, so N/B/C/1–6 act on it right away.
                 if let (Some(v), true) = (verse, flash) {
                     self.reader.set_selection(Some(VerseRef::new(chapter.book(), chapter.chapter(), v)));
                 }
             }
+            // From a page, Back returns to the reader.
+            Action::Back if !self.pages.reader() => self.pages.open(crate::pages::Page::Reader),
             Action::Back => {
                 if let Some((c, v)) = self.history.back(self.here()) {
                     self.reader.jump(c, Some(v), false);
                 }
             }
             Action::Forward => {
+                self.pages.open(crate::pages::Page::Reader);
                 if let Some((c, v)) = self.history.forward(self.here()) {
                     self.reader.jump(c, Some(v), false);
                 }
@@ -738,6 +745,20 @@ impl BibleApp {
             Action::Export(kind) => self.export(ctx, kind),
             Action::ImportStudy => self.import_study(ctx),
             Action::ImportTranslation => self.pick_import(None),
+            Action::RemoveTranslation(id) => match self.library.remove(&id) {
+                Ok(()) => {
+                    if self.settings.translation == id {
+                        self.settings.translation = bible_core::bundled::DEFAULT_ID.into();
+                    }
+                    self.settings.parallel.retain(|x| *x != id);
+                    if self.pages.translations.selected.as_deref() == Some(id.as_str()) {
+                        self.pages.translations.selected = None;
+                    }
+                    self.toast(ctx, format!("Removed {id}"));
+                }
+                Err(e) => self.toast(ctx, format!("{e:#}")),
+            },
+            Action::OpenPage(page) => self.pages.open(page),
             Action::ShowShortcuts => self.shortcuts_open = !self.shortcuts_open,
             Action::ScrollLines(n) => {
                 let lh = self.settings.typo.size * self.settings.typo.line_height;
@@ -786,6 +807,12 @@ impl BibleApp {
                 let pos = egui::pos2(x.parse().unwrap_or(600.0), y.parse().unwrap_or(352.0));
                 self.verse_menu = Some(crate::verse_menu::VerseMenu::new(pos).with_first_highlighted());
             }
+            "page" => {
+                if let Some(page) = crate::pages::Page::from_name(arg) {
+                    actions.push(Action::OpenPage(page));
+                }
+            }
+            "pick" => self.pages.translations.selected = Some(arg.to_string()),
             "onboarding" => {
                 if let Some(o) = &mut self.onboarding {
                     o.step = arg.parse::<usize>().unwrap_or(1).saturating_sub(1);
@@ -934,13 +961,14 @@ impl BibleApp {
         let nav = [
             CapsuleButton {
                 tooltip: "Back (⌘[)",
-                enabled: self.history.can_back(),
+                // From a page, Back returns to the reader.
+                enabled: self.history.can_back() || !self.pages.reader(),
                 on: false,
                 icon: crate::icons::chevron_left,
             },
             CapsuleButton {
                 tooltip: "Forward (⌘])",
-                enabled: self.history.can_forward(),
+                enabled: self.history.can_forward() && self.pages.reader(),
                 on: false,
                 icon: crate::icons::chevron_right,
             },
@@ -953,6 +981,32 @@ impl BibleApp {
             actions.push(Action::Forward);
         }
         items.push(nav_rect);
+
+        // On a page: a wider field that filters it, and nothing else.
+        if !self.pages.reader() {
+            let w = PAGE_SEARCH_WIDTH;
+            let search = egui::Rect::from_min_size(
+                egui::pos2(bar.right() - TRAILING_INSET - w, cy - CAPSULE_HEIGHT / 2.0),
+                vec2(w, CAPSULE_HEIGHT),
+            );
+            let placeholder = self.pages.page.placeholder();
+            let (field, cleared) = widgets::search_field(
+                ui,
+                search,
+                p,
+                &mut self.pages.query,
+                placeholder,
+                Id::new("page-search"),
+            );
+            if cleared || (field.has_focus() && ui.input(|i| i.key_pressed(Key::Escape))) {
+                self.pages.query.clear();
+                field.surrender_focus();
+            }
+            items.push(search);
+            #[cfg(target_os = "macos")]
+            self.toolbar_items.extend(items);
+            return;
+        }
 
         // Trailing: view tools, then the search field.
         let search = egui::Rect::from_min_size(
@@ -1245,6 +1299,9 @@ impl BibleApp {
     }
 }
 
+/// The toolbar's field on pages (it filters the page).
+const PAGE_SEARCH_WIDTH: f32 = 200.0;
+
 /// Under the toolbar in parallel: the columns' heads (16 pt down, 34 tall, 16 pt to a hairline).
 const COLUMN_HEADS: f32 = 66.0;
 
@@ -1525,15 +1582,35 @@ impl eframe::App for BibleApp {
                                 v
                             }),
                         selection: self.reader.selected_refs().first().copied(),
+                        page: self.pages.page,
                     };
                     self.sidebar.show(&mut child, &env, &mut self.settings.whole_words, &mut actions);
                 });
         }
         let first = self.startup.frames == 0;
         egui::CentralPanel::default().frame(Frame::NONE.fill(p.paper)).show(ui, |ui| {
+            let full = ui.max_rect();
+            // A page in the reader's place, under the same toolbar.
+            if !self.pages.reader() {
+                let query = self.pages.query.clone();
+                let env = crate::pages::PageEnv {
+                    library: &self.library,
+                    study: &self.study,
+                    settings: &self.settings,
+                    query: &query,
+                    toolbar: self.chrome.height,
+                };
+                self.pages.show(ui, full, &env, &mut actions);
+                let material = ctx.animate_bool_with_time(
+                    Id::new("toolbar-material"),
+                    self.pages.scrolled,
+                    theme::motion::FAST_MS / 1000.0,
+                );
+                self.toolbar(ui, full, material, &mut actions);
+                return;
+            }
             // The reader runs the full height, beside the inspector when one is open; the
             // toolbar floats over the top of both.
-            let full = ui.max_rect();
             let inspector = if self.panel.is_some() { crate::panel::INSPECTOR_WIDTH } else { 0.0 };
             let reader_rect =
                 egui::Rect::from_min_max(full.min, egui::pos2(full.right() - inspector, full.bottom()));

@@ -594,3 +594,371 @@ pub fn paint_on_baseline(painter: &Painter, x: f32, baseline: f32, galley: Arc<G
     let y = baseline - galley_baseline(&galley);
     painter.galley(pos2(x, y), galley, color);
 }
+
+pub type IconFn = fn(&Painter, Rect, Color32);
+
+/// Button kinds (`ds-07`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Kind {
+    /// Accent with on-accent text, semibold.
+    Primary,
+    /// `raised` with the control shadow.
+    Secondary,
+    /// `fill`.
+    Plain,
+    /// Accent text, no fill.
+    Ghost,
+    /// `danger` with white text.
+    Destructive,
+}
+
+/// A capsule button (`ds-07`): sm 24 (12 pt, 10 pt sides), md 32 (13 pt, 14), lg 40 (13 pt, 20),
+/// with an optional 16 pt glyph 6 pt from the label.
+#[derive(Clone, Copy)]
+pub struct Button<'a> {
+    pub kind: Kind,
+    pub label: &'a str,
+    pub height: f32,
+    pub icon: Option<IconFn>,
+    /// The glyph after the label rather than before it.
+    pub trailing: bool,
+    pub enabled: bool,
+}
+
+impl<'a> Button<'a> {
+    pub fn new(kind: Kind, label: &'a str) -> Self {
+        Self { kind, label, height: 32.0, icon: None, trailing: false, enabled: true }
+    }
+
+    pub fn small(self) -> Self {
+        Self { height: 24.0, ..self }
+    }
+
+    pub fn large(self) -> Self {
+        Self { height: 40.0, ..self }
+    }
+
+    pub fn icon(self, icon: IconFn) -> Self {
+        Self { icon: Some(icon), ..self }
+    }
+
+    pub fn trailing_icon(self, icon: IconFn) -> Self {
+        Self { icon: Some(icon), trailing: true, ..self }
+    }
+
+    pub fn enabled(self, enabled: bool) -> Self {
+        Self { enabled, ..self }
+    }
+
+    fn font(&self) -> egui::FontId {
+        let size = if self.height < 32.0 { 12.0 } else { text::UI.size };
+        if matches!(self.kind, Kind::Primary | Kind::Destructive) {
+            theme::ui_semibold(size)
+        } else {
+            theme::ui_medium(size)
+        }
+    }
+
+    fn padding(&self) -> f32 {
+        if self.height < 32.0 {
+            10.0
+        } else if self.height > 32.0 {
+            20.0
+        } else {
+            14.0
+        }
+    }
+
+    pub fn width(&self, painter: &Painter) -> f32 {
+        let w = painter.layout_no_wrap(self.label.into(), self.font(), Color32::PLACEHOLDER).size().x;
+        let icon =
+            if self.icon.is_some() { 16.0 + if self.label.is_empty() { 0.0 } else { 6.0 } } else { 0.0 };
+        (w + icon + 2.0 * self.padding()).round()
+    }
+
+    /// Draws the button in `rect`.
+    pub fn show(&self, ui: &mut Ui, p: &Palette, rect: Rect, id: egui::Id) -> Response {
+        let sense = if self.enabled { Sense::click() } else { Sense::hover() };
+        let resp = ui.interact(rect, id, sense);
+        let mut painter = ui.painter().clone();
+        if !self.enabled {
+            painter.set_opacity(0.4);
+        }
+        let r = rect.height() / 2.0;
+        let pressed = self.enabled && resp.is_pointer_button_down_on();
+        let hovered = self.enabled && resp.hovered();
+        let (fill, ink) = match self.kind {
+            Kind::Primary => (Some(p.accent), p.on_accent),
+            Kind::Secondary => (Some(p.raised), p.ink),
+            Kind::Plain => (Some(p.fill), p.ink),
+            Kind::Ghost => (None, p.accent),
+            Kind::Destructive => (Some(p.danger), Color32::WHITE),
+        };
+        if self.kind == Kind::Secondary {
+            p.shadows.control.paint(&painter, rect, r);
+        }
+        if let Some(fill) = fill {
+            painter.rect_filled(rect, r, fill);
+        }
+        let dark = ui.visuals().dark_mode;
+        let wash = match self.kind {
+            Kind::Primary | Kind::Destructive if pressed || hovered => {
+                let a = if pressed { 0.14 } else { 0.07 };
+                Some(if dark {
+                    Color32::from_white_alpha((a * 1.4 * 255.0) as u8)
+                } else {
+                    Color32::from_black_alpha((a * 255.0) as u8)
+                })
+            }
+            _ if pressed => Some(p.fill_strong),
+            _ if hovered => Some(p.fill),
+            _ => None,
+        };
+        if let Some(w) = wash {
+            painter.rect_filled(rect, r, w);
+        }
+        let galley = painter.layout_no_wrap(self.label.into(), self.font(), ink);
+        let icon_w =
+            if self.icon.is_some() { 16.0 + if self.label.is_empty() { 0.0 } else { 6.0 } } else { 0.0 };
+        let mut x = rect.center().x - (galley.size().x + icon_w) / 2.0;
+        let cy = rect.center().y;
+        if let (Some(icon), false) = (self.icon, self.trailing) {
+            crate::icons::heavy(|| {
+                icon(&painter, Rect::from_min_size(pos2(x, cy - 8.0), vec2(16.0, 16.0)), ink)
+            });
+            x += icon_w;
+        }
+        let gw = galley.size().x;
+        painter.galley(pos2(x, cy - galley.size().y / 2.0), galley, ink);
+        if let (Some(icon), true) = (self.icon, self.trailing) {
+            let r = Rect::from_min_size(pos2(x + gw + 6.0, cy - 8.0), vec2(16.0, 16.0));
+            crate::icons::heavy(|| icon(&painter, r, ink));
+        }
+        resp
+    }
+
+    /// Draws the button with its right edge at `right`, centred on `cy`; returns its rectangle.
+    pub fn show_right(
+        &self,
+        ui: &mut Ui,
+        p: &Palette,
+        right: f32,
+        cy: f32,
+        id: egui::Id,
+    ) -> (Rect, Response) {
+        let w = self.width(ui.painter());
+        let rect = Rect::from_min_size(pos2(right - w, cy - self.height / 2.0), vec2(w, self.height));
+        (rect, self.show(ui, p, rect, id))
+    }
+
+    /// Draws the button with its left edge at `left`, centred on `cy`; returns its rectangle.
+    pub fn show_left(&self, ui: &mut Ui, p: &Palette, left: f32, cy: f32, id: egui::Id) -> (Rect, Response) {
+        let w = self.width(ui.painter());
+        let rect = Rect::from_min_size(pos2(left, cy - self.height / 2.0), vec2(w, self.height));
+        (rect, self.show(ui, p, rect, id))
+    }
+}
+
+/// Badge kinds (`ds-15`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BadgeKind {
+    Neutral,
+    Accent,
+    Solid,
+    /// A 14 % tint of `success`, with a dot.
+    Success,
+    Danger,
+    Outline,
+}
+
+fn badge_font() -> egui::FontId {
+    theme::ui_semibold(11.0)
+}
+
+/// Width of a [`badge`].
+pub fn badge_width(painter: &Painter, kind: BadgeKind, label: &str) -> f32 {
+    let w = painter.layout_no_wrap(label.into(), badge_font(), Color32::PLACEHOLDER).size().x;
+    let dot = if kind == BadgeKind::Success { 6.0 + 5.0 } else { 0.0 };
+    (w + dot + 14.0).max(20.0)
+}
+
+/// A badge (`ds-15`): 20 pt high, radius 10, 11 pt semibold, 7 pt sides. Drawn from `left`,
+/// centred on `cy`; returns its rectangle.
+pub fn badge(painter: &Painter, p: &Palette, left: f32, cy: f32, kind: BadgeKind, label: &str) -> Rect {
+    let w = badge_width(painter, kind, label);
+    let r = Rect::from_min_size(pos2(left, cy - 10.0), vec2(w, 20.0));
+    let (fill, ink) = match kind {
+        BadgeKind::Neutral => (p.fill, p.ink_2),
+        BadgeKind::Accent => (p.accent_soft, p.accent),
+        BadgeKind::Solid => (p.accent, p.on_accent),
+        BadgeKind::Success => (p.success.gamma_multiply(0.14), p.success),
+        BadgeKind::Danger => (p.danger.gamma_multiply(0.14), p.danger),
+        BadgeKind::Outline => (Color32::TRANSPARENT, p.ink_2),
+    };
+    painter.rect_filled(r, 10.0, fill);
+    if kind == BadgeKind::Outline {
+        painter.rect_stroke(r, 10.0, Stroke::new(1.0, p.border), StrokeKind::Inside);
+    }
+    let mut x = r.left() + 7.0;
+    if kind == BadgeKind::Success {
+        painter.circle_filled(pos2(x + 3.0, cy), 3.0, p.success);
+        x += 11.0;
+    }
+    painter.text(pos2(x, cy), egui::Align2::LEFT_CENTER, label, badge_font(), ink);
+    r
+}
+
+/// Width of a [`pill_tab`].
+pub fn pill_tab_width(painter: &Painter, label: &str, count: Option<&str>, selected: bool) -> f32 {
+    let font = if selected { theme::ui_semibold(13.0) } else { theme::ui_medium(13.0) };
+    let mut w = painter.layout_no_wrap(label.into(), font, Color32::PLACEHOLDER).size().x + 24.0;
+    if let Some(c) = count {
+        w += 6.0 + painter.layout_no_wrap(c.into(), theme::ui_medium(12.0), Color32::PLACEHOLDER).size().x;
+    }
+    w
+}
+
+/// A pill tab (`ds-15`): 28 pt, radius 14, 13 pt medium secondary ink with an optional 12 pt count;
+/// selected, accent on `accent_soft`.
+pub fn pill_tab(
+    ui: &mut Ui,
+    p: &Palette,
+    rect: Rect,
+    label: &str,
+    count: Option<&str>,
+    selected: bool,
+    id: egui::Id,
+) -> Response {
+    let resp = ui.interact(rect, id, Sense::click());
+    let painter = ui.painter();
+    if selected {
+        painter.rect_filled(rect, 14.0, p.accent_soft);
+    } else if let Some(fill) = hover_fill(ui, &resp, p, false) {
+        painter.rect_filled(rect, 14.0, fill);
+    }
+    let (font, ink, count_ink) = if selected {
+        (theme::ui_semibold(13.0), p.accent, p.accent)
+    } else {
+        (theme::ui_medium(13.0), p.ink_2, p.ink_3)
+    };
+    let g = painter.layout_no_wrap(label.into(), font, ink);
+    let cy = rect.center().y;
+    let x = rect.left() + 12.0;
+    let w = g.size().x;
+    painter.galley(pos2(x, cy - g.size().y / 2.0), g, ink);
+    if let Some(c) = count {
+        painter.text(pos2(x + w + 6.0, cy), egui::Align2::LEFT_CENTER, c, theme::ui_medium(12.0), count_ink);
+    }
+    resp
+}
+
+/// A piece of a line in one font.
+pub struct Run {
+    pub text: String,
+    pub font: egui::FontId,
+    pub tracking: f32,
+}
+
+/// `word`'s runs: words in capitals (LORD) are set in small capitals of `small` points.
+pub fn word_runs(word: &str, font: &egui::FontId, small: f32) -> Vec<Run> {
+    let caps = crate::reader::layout::caps_words(word);
+    if caps.is_empty() {
+        return vec![Run { text: word.into(), font: font.clone(), tracking: 0.0 }];
+    }
+    let mut runs = Vec::new();
+    let mut last = 0;
+    for r in caps {
+        if r.start > last {
+            runs.push(Run { text: word[last..r.start].into(), font: font.clone(), tracking: 0.0 });
+        }
+        let first = word[r.start..].chars().next().map_or(0, char::len_utf8);
+        runs.push(Run { text: word[r.start..r.start + first].into(), font: font.clone(), tracking: 0.0 });
+        runs.push(Run {
+            text: word[r.start + first..r.end].into(),
+            font: egui::FontId::new(small, font.family.clone()),
+            tracking: 0.04,
+        });
+        last = r.end;
+    }
+    if last < word.len() {
+        runs.push(Run { text: word[last..].into(), font: font.clone(), tracking: 0.0 });
+    }
+    runs
+}
+
+pub fn runs_width(painter: &Painter, runs: &[Run]) -> f32 {
+    runs.iter()
+        .map(|r| line(painter, &r.text, r.font.clone(), Color32::PLACEHOLDER, r.tracking).size().x)
+        .sum()
+}
+
+/// Wraps `text` into at most `rows` lines `width` wide; when it doesn't fit, the last line ends
+/// with an ellipsis after a whole word, as the design's samples do.
+pub fn flow(
+    painter: &Painter,
+    text: &str,
+    font: &egui::FontId,
+    small: f32,
+    width: f32,
+    rows: usize,
+) -> Vec<Vec<Run>> {
+    let space = line(painter, " ", font.clone(), Color32::PLACEHOLDER, 0.0).size().x;
+    let ellipsis = line(painter, "…", font.clone(), Color32::PLACEHOLDER, 0.0).size().x;
+    // A word followed by a line break ends its line.
+    let words: Vec<(Vec<Run>, f32, bool)> = text
+        .split(' ')
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let runs = word_runs(w.trim_end_matches('\n'), font, small);
+            let width = runs_width(painter, &runs);
+            (runs, width, w.ends_with('\n'))
+        })
+        .collect();
+    let mut lines: Vec<Vec<Run>> = Vec::new();
+    let mut i = 0;
+    while i < words.len() && lines.len() < rows {
+        let last_row = lines.len() + 1 == rows;
+        let mut used = 0.0;
+        let mut l: Vec<Run> = Vec::new();
+        while i < words.len() {
+            let (runs, w, ends_line) = &words[i];
+            let gap = if l.is_empty() { 0.0 } else { space };
+            // On the last row, keep room for the ellipsis unless this is the final word.
+            let tail = if last_row && i + 1 < words.len() { ellipsis } else { 0.0 };
+            if !l.is_empty() && used + gap + w + tail > width {
+                break;
+            }
+            if !l.is_empty() {
+                l.push(Run { text: " ".into(), font: font.clone(), tracking: 0.0 });
+            }
+            l.extend(runs.iter().map(|r| Run {
+                text: r.text.clone(),
+                font: r.font.clone(),
+                tracking: r.tracking,
+            }));
+            used += gap + w;
+            i += 1;
+            if *ends_line {
+                break;
+            }
+        }
+        if last_row && i < words.len() {
+            if let Some(end) = l.last_mut() {
+                end.text = end.text.trim_end_matches([',', ';', ':']).to_string();
+            }
+            l.push(Run { text: "…".into(), font: font.clone(), tracking: 0.0 });
+        }
+        lines.push(l);
+    }
+    lines
+}
+
+pub fn paint_runs(painter: &Painter, x: f32, baseline: f32, runs: &[Run], color: Color32) {
+    let mut x = x;
+    for r in runs {
+        let g = line(painter, &r.text, r.font.clone(), color, r.tracking);
+        let w = g.size().x;
+        paint_on_baseline(painter, x, baseline, g, color);
+        x += w;
+    }
+}

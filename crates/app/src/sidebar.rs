@@ -55,6 +55,9 @@ pub struct SidebarEnv<'a> {
     pub recent: Vec<(ChapterIdx, u8)>,
     /// The verse selected in the reader (its list item shows as selected).
     pub selection: Option<VerseRef>,
+    /// The page in the main area: its row is selected, and the books follow the reader only
+    /// while it is shown.
+    pub page: crate::pages::Page,
 }
 
 pub struct Sidebar {
@@ -236,7 +239,18 @@ impl Sidebar {
         let meta = env.library.get(env.translation).map(|e| e.meta.clone());
         let abbrev = meta.as_ref().map(|m| m.abbrev.clone()).unwrap_or_default();
         let current_book = env.location.0.book();
-        let reveal = self.revealed != Some(current_book);
+        let reading = env.page == crate::pages::Page::Reader;
+        if !reading {
+            // No reader to follow: the testaments it opened close, and reopen on return.
+            for t in 0..2 {
+                if self.auto_opened[t] {
+                    self.testaments[t] = false;
+                    self.auto_opened[t] = false;
+                }
+            }
+            self.revealed = None;
+        }
+        let reveal = reading && self.revealed != Some(current_book);
         if reveal {
             self.revealed = Some(current_book);
             let t = usize::from(current_book >= FIRST_NT_BOOK);
@@ -344,6 +358,25 @@ impl Sidebar {
                         }
                     }
 
+                    if !self.filtering {
+                        section(ui, p, "Library", false);
+                        let selected = env.page == crate::pages::Page::Translations;
+                        let r = row(
+                            ui,
+                            p,
+                            &Row {
+                                icon: Some(crate::icons::globe),
+                                label: "Translations",
+                                count: Some(env.library.entries().len().to_string()),
+                                selected,
+                                ..Row::default()
+                            },
+                        );
+                        if r.clicked() {
+                            actions.push(Action::OpenPage(crate::pages::Page::Translations));
+                        }
+                    }
+
                     section(ui, p, "Books", false);
                     for (t, (label, range)) in
                         [("Old Testament", 0..FIRST_NT_BOOK.0), ("New Testament", FIRST_NT_BOOK.0..66)]
@@ -375,7 +408,7 @@ impl Sidebar {
                         }
                         for b in books {
                             let name = book_name(b);
-                            let here = b == current_book;
+                            let here = b == current_book && reading;
                             let resp = row(
                                 ui,
                                 p,

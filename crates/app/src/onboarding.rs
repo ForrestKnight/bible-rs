@@ -17,7 +17,7 @@ use crate::actions::Action;
 use crate::app::Settings;
 use crate::icons;
 use crate::theme::{self, Palette, Theme, text};
-use crate::widgets::{self, css_baseline, line, paint_on_baseline};
+use crate::widgets::{self, css_baseline, flow, line, paint_on_baseline, paint_runs};
 
 /// The onboarding window's size.
 pub const SIZE: egui::Vec2 = vec2(960.0, 680.0);
@@ -502,110 +502,6 @@ fn preview(painter: &Painter, card: Rect, tp: &Palette, size: f32, samples: Opti
     let rows = ((card.bottom() - 24.0 - y + 2.0) / pitch).floor().max(1.0) as usize;
     for (k, l) in flow(&painter, verses, &body, (11.0 * s).round(), width, rows).iter().enumerate() {
         paint_runs(&painter, x, css_baseline(y + k as f32 * pitch, lh, body.size, true), l, tp.ink);
-    }
-}
-
-/// A piece of a line in one font.
-struct Run {
-    text: String,
-    font: FontId,
-    tracking: f32,
-}
-
-/// `word`'s runs: words in capitals (LORD) are set in small capitals of `small` points.
-fn word_runs(word: &str, font: &FontId, small: f32) -> Vec<Run> {
-    let caps = crate::reader::layout::caps_words(word);
-    if caps.is_empty() {
-        return vec![Run { text: word.into(), font: font.clone(), tracking: 0.0 }];
-    }
-    let mut runs = Vec::new();
-    let mut last = 0;
-    for r in caps {
-        if r.start > last {
-            runs.push(Run { text: word[last..r.start].into(), font: font.clone(), tracking: 0.0 });
-        }
-        let first = word[r.start..].chars().next().map_or(0, char::len_utf8);
-        runs.push(Run { text: word[r.start..r.start + first].into(), font: font.clone(), tracking: 0.0 });
-        runs.push(Run {
-            text: word[r.start + first..r.end].into(),
-            font: FontId::new(small, font.family.clone()),
-            tracking: 0.04,
-        });
-        last = r.end;
-    }
-    if last < word.len() {
-        runs.push(Run { text: word[last..].into(), font: font.clone(), tracking: 0.0 });
-    }
-    runs
-}
-
-fn runs_width(painter: &Painter, runs: &[Run]) -> f32 {
-    runs.iter()
-        .map(|r| line(painter, &r.text, r.font.clone(), Color32::PLACEHOLDER, r.tracking).size().x)
-        .sum()
-}
-
-/// Wraps `text` into at most `rows` lines `width` wide; when it doesn't fit, the last line ends
-/// with an ellipsis after a whole word, as the design's samples do.
-fn flow(painter: &Painter, text: &str, font: &FontId, small: f32, width: f32, rows: usize) -> Vec<Vec<Run>> {
-    let space = line(painter, " ", font.clone(), Color32::PLACEHOLDER, 0.0).size().x;
-    let ellipsis = line(painter, "…", font.clone(), Color32::PLACEHOLDER, 0.0).size().x;
-    // A word followed by a line break ends its line.
-    let words: Vec<(Vec<Run>, f32, bool)> = text
-        .split(' ')
-        .filter(|w| !w.is_empty())
-        .map(|w| {
-            let runs = word_runs(w.trim_end_matches('\n'), font, small);
-            let width = runs_width(painter, &runs);
-            (runs, width, w.ends_with('\n'))
-        })
-        .collect();
-    let mut lines: Vec<Vec<Run>> = Vec::new();
-    let mut i = 0;
-    while i < words.len() && lines.len() < rows {
-        let last_row = lines.len() + 1 == rows;
-        let mut used = 0.0;
-        let mut l: Vec<Run> = Vec::new();
-        while i < words.len() {
-            let (runs, w, ends_line) = &words[i];
-            let gap = if l.is_empty() { 0.0 } else { space };
-            // On the last row, keep room for the ellipsis unless this is the final word.
-            let tail = if last_row && i + 1 < words.len() { ellipsis } else { 0.0 };
-            if !l.is_empty() && used + gap + w + tail > width {
-                break;
-            }
-            if !l.is_empty() {
-                l.push(Run { text: " ".into(), font: font.clone(), tracking: 0.0 });
-            }
-            l.extend(runs.iter().map(|r| Run {
-                text: r.text.clone(),
-                font: r.font.clone(),
-                tracking: r.tracking,
-            }));
-            used += gap + w;
-            i += 1;
-            if *ends_line {
-                break;
-            }
-        }
-        if last_row && i < words.len() {
-            if let Some(end) = l.last_mut() {
-                end.text = end.text.trim_end_matches([',', ';', ':']).to_string();
-            }
-            l.push(Run { text: "…".into(), font: font.clone(), tracking: 0.0 });
-        }
-        lines.push(l);
-    }
-    lines
-}
-
-fn paint_runs(painter: &Painter, x: f32, baseline: f32, runs: &[Run], color: Color32) {
-    let mut x = x;
-    for r in runs {
-        let g = line(painter, &r.text, r.font.clone(), color, r.tracking);
-        let w = g.size().x;
-        paint_on_baseline(painter, x, baseline, g, color);
-        x += w;
     }
 }
 
