@@ -639,7 +639,11 @@ impl BibleApp {
         match cmd {
             "jump" => {
                 if let Some(r) = bible_core::reference::parse(arg) {
-                    actions.push(Action::Jump { chapter: r.chapter_idx(), verse: r.verse, flash: false });
+                    actions.push(Action::Jump {
+                        chapter: r.chapter_idx(),
+                        verse: r.verse,
+                        flash: r.verse.is_some(),
+                    });
                 }
             }
             "select" => self.reader.set_selection(verse()),
@@ -1217,16 +1221,24 @@ impl eframe::App for BibleApp {
                             .layout(egui::Layout::top_down(egui::Align::Min)),
                     );
                     child.set_clip_rect(content);
-                    self.sidebar.show(
-                        &mut child,
-                        &self.library,
-                        &self.study,
-                        &self.settings.translation,
-                        &mut self.settings.whole_words,
-                        self.settings.theme,
-                        self.reader.location,
-                        &mut actions,
-                    );
+                    let env = crate::sidebar::SidebarEnv {
+                        library: &self.library,
+                        study: &self.study,
+                        translation: &self.settings.translation,
+                        theme: self.settings.theme,
+                        location: self.reader.location,
+                        // The current place first, then where the reader came from.
+                        recent: std::iter::once(self.reader.location)
+                            .chain(self.history.recent().copied())
+                            .fold(Vec::new(), |mut v, here| {
+                                if !v.iter().any(|(c, _): &(ChapterIdx, u8)| *c == here.0) {
+                                    v.push(here);
+                                }
+                                v
+                            }),
+                        selection: self.reader.selected_refs().first().copied(),
+                    };
+                    self.sidebar.show(&mut child, &env, &mut self.settings.whole_words, &mut actions);
                 });
         }
         if let Some(panel) = &mut self.panel {

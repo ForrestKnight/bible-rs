@@ -8,7 +8,7 @@ use std::time::Duration;
 use bible_core::books::{BookId, ChapterIdx, FIRST_NT_BOOK, VerseRef};
 use bible_core::library::Library;
 use bible_core::search::{Query, Scope};
-use bible_core::study::StudyStore;
+use bible_core::study::{HighlightColor, StudyStore};
 use eframe::egui::text::{LayoutJob, TextFormat, TextWrapping};
 use eframe::egui::{
     self, Align, Align2, Color32, FontId, Key, Painter, Rect, Response, ScrollArea, Sense, Ui, pos2, vec2,
@@ -30,6 +30,8 @@ const BOOK_INDENT: f32 = 32.0;
 const CHIP: f32 = 24.0;
 const CHIP_GAP: f32 = 8.0;
 const CHIP_INDENT: f32 = 24.0;
+/// An open collection lists its most recent items, then "Show all".
+const RECENT_ITEMS: usize = 5;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum StudyKind {
@@ -38,12 +40,43 @@ enum StudyKind {
     Notes,
 }
 
+impl StudyKind {
+    const ALL: [StudyKind; 3] = [StudyKind::Bookmarks, StudyKind::Highlights, StudyKind::Notes];
+}
+
+/// What the sidebar needs from the rest of the app each frame.
+pub struct SidebarEnv<'a> {
+    pub library: &'a Library,
+    pub study: &'a StudyStore,
+    pub translation: &'a str,
+    pub theme: Theme,
+    pub location: (ChapterIdx, u8),
+    /// Recently visited places, newest first.
+    pub recent: Vec<(ChapterIdx, u8)>,
+    /// The verse selected in the reader (its list item shows as selected).
+    pub selection: Option<VerseRef>,
+}
+
 pub struct Sidebar {
-    /// Which testaments are expanded (OT, NT).
+    /// Which testaments are expanded (OT, NT), and which of those the reader's position opened
+    /// (rather than a click): moving to the other testament closes those again.
     testaments: [bool; 2],
+    auto_opened: [bool; 2],
     /// The book whose chapter grid is open.
     expanded: Option<BookId>,
-    study_open: Option<StudyKind>,
+    /// Which study collections are expanded, and the one last opened (drawn selected).
+    study_open: [bool; 3],
+    study_selected: Option<StudyKind>,
+    /// Collections showing every item rather than the most recent few.
+    study_all: [bool; 3],
+    /// Highlights shown: all, or one colour.
+    highlight_filter: Option<HighlightColor>,
+    /// Type-to-filter: the filter field replaces the study rows and recent places appear.
+    filtering: bool,
+    filter: String,
+    filter_focus: bool,
+    /// Frames left to hold the source list at its top (scrolls already under way finish first).
+    scroll_top: u8,
     pub query: String,
     /// Whether the toolbar's search field has focus (arrow keys then move through results).
     pub field_focused: bool,
@@ -64,8 +97,16 @@ impl Sidebar {
     pub fn new(_tab: SidebarTab) -> Self {
         Self {
             testaments: [false, false],
+            auto_opened: [false, false],
             expanded: None,
-            study_open: None,
+            study_open: [false; 3],
+            study_selected: None,
+            study_all: [false; 3],
+            highlight_filter: None,
+            filtering: false,
+            filter: String::new(),
+            filter_focus: false,
+            scroll_top: 0,
             query: String::new(),
             field_focused: false,
             focus: false,
@@ -92,14 +133,37 @@ impl Sidebar {
         std::mem::take(&mut self.focus)
     }
 
-    /// Expands one of the study collections by name (`bookmarks`, `highlights`, `notes`).
+    /// Expands a study collection by name (`bookmarks`, `highlights`, `notes`), or starts
+    /// filtering books (`filter`).
     pub fn open_study(&mut self, name: &str) {
-        self.study_open = match name {
-            "bookmarks" => Some(StudyKind::Bookmarks),
-            "highlights" => Some(StudyKind::Highlights),
-            "notes" => Some(StudyKind::Notes),
-            _ => None,
+        let kind = match name {
+            "bookmarks" => StudyKind::Bookmarks,
+            "highlights" => StudyKind::Highlights,
+            "notes" => StudyKind::Notes,
+            "filter" => {
+                self.start_filter(String::new());
+                return;
+            }
+            _ => return,
         };
+        self.toggle_study(kind);
+    }
+
+    fn toggle_study(&mut self, kind: StudyKind) {
+        let i = StudyKind::ALL.iter().position(|k| *k == kind).unwrap_or(0);
+        self.study_open[i] = !self.study_open[i];
+        self.study_selected = if self.study_open[i] {
+            Some(kind)
+        } else {
+            StudyKind::ALL.iter().zip(self.study_open).rev().find(|(_, o)| *o).map(|(k, _)| *k)
+        };
+    }
+
+    fn start_filter(&mut self, text: String) {
+        self.filtering = true;
+        self.filter = text;
+        self.filter_focus = true;
+        self.scroll_top = 3;
     }
 
     pub fn invalidate_search(&mut self) {
@@ -114,43 +178,55 @@ impl Sidebar {
         !self.query.trim().is_empty()
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         ui: &mut Ui,
-        library: &Library,
-        study: &StudyStore,
-        translation: &str,
+        env: &SidebarEnv<'_>,
         whole_words: &mut bool,
-        theme: Theme,
-        location: (ChapterIdx, u8),
         actions: &mut Vec<Action>,
     ) {
         if self.searching() {
-            self.search(ui, library, translation, whole_words, theme, location, actions);
+            self.search(ui, env.library, env.translation, whole_words, env.theme, env.location, actions);
         } else {
-            self.source_list(ui, library, study, translation, theme, location, actions);
+            // Typing over the list (with nothing else taking keys) starts filtering the books.
+            if !self.filtering && ui.ui_contains_pointer() && !ui.ctx().egui_wants_keyboard_input() {
+                let typed: String = ui.input(|i| {
+                    i.events
+                        .iter()
+                        .filter_map(|e| match e {
+                            egui::Event::Text(t) if i.modifiers.is_none() || i.modifiers.shift_only() => {
+                                Some(t.clone())
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                });
+                if typed.chars().any(char::is_alphanumeric) {
+                    self.start_filter(typed);
+                }
+            }
+            self.source_list(ui, env, actions);
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn source_list(
-        &mut self,
-        ui: &mut Ui,
-        library: &Library,
-        study: &StudyStore,
-        translation: &str,
-        theme: Theme,
-        location: (ChapterIdx, u8),
-        actions: &mut Vec<Action>,
-    ) {
-        let p = theme.palette();
-        let meta = library.get(translation).map(|e| e.meta.clone());
-        let current_book = location.0.book();
+    fn source_list(&mut self, ui: &mut Ui, env: &SidebarEnv<'_>, actions: &mut Vec<Action>) {
+        let p = env.theme.palette();
+        let study = env.study;
+        let meta = env.library.get(env.translation).map(|e| e.meta.clone());
+        let abbrev = meta.as_ref().map(|m| m.abbrev.clone()).unwrap_or_default();
+        let current_book = env.location.0.book();
         let reveal = self.revealed != Some(current_book);
         if reveal {
             self.revealed = Some(current_book);
-            self.testaments[usize::from(current_book >= FIRST_NT_BOOK)] = true;
+            let t = usize::from(current_book >= FIRST_NT_BOOK);
+            if !self.testaments[t] {
+                self.testaments[t] = true;
+                self.auto_opened[t] = true;
+            }
+            if self.auto_opened[1 - t] {
+                self.testaments[1 - t] = false;
+                self.auto_opened[1 - t] = false;
+            }
             self.expanded = Some(current_book);
         }
         if self.activity.0 != study.generation() {
@@ -159,29 +235,91 @@ impl Sidebar {
             set.extend(study.notes().into_iter().map(|(v, _)| v.chapter_idx()));
             self.activity = (study.generation(), set);
         }
+        let book_name =
+            |b: BookId| meta.as_ref().map(|m| m.book_short(b).to_string()).unwrap_or_else(|| b.name().into());
+        let filter = self.filter.trim().to_lowercase();
+        let matches = |b: BookId| filter.is_empty() || book_name(b).to_lowercase().contains(&filter);
         let (nh, nn, nb) = study.counts();
-        ScrollArea::vertical().auto_shrink(false).id_salt("source-list").show(ui, |ui| {
+        let mut list = ScrollArea::vertical().auto_shrink(false).id_salt("source-list");
+        if self.scroll_top > 0 {
+            self.scroll_top -= 1;
+            list = list.vertical_scroll_offset(0.0);
+        }
+        list.show(ui, |ui| {
             egui::Frame::NONE.inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 8 }).show(
                 ui,
                 |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    section(ui, p, "Study", true);
-                    for (kind, label, n, icon) in [
-                        (StudyKind::Bookmarks, "Bookmarks", nb, icon_bookmark as IconFn),
-                        (StudyKind::Highlights, "Highlights", nh, crate::icons::highlighter),
-                        (StudyKind::Notes, "Notes", nn, crate::icons::note),
-                    ] {
-                        let open = self.study_open == Some(kind);
-                        let r = row(
-                            ui,
-                            p,
-                            &Row { icon: Some(icon), label, count: Some(n.to_string()), ..Row::default() },
-                        );
-                        if r.clicked() {
-                            self.study_open = if open { None } else { Some(kind) };
+                    if self.filtering {
+                        if filter_field(ui, p, &mut self.filter, std::mem::take(&mut self.filter_focus)) {
+                            self.filtering = false;
+                            self.filter.clear();
                         }
-                        if open {
-                            self.study_items(ui, library, study, translation, theme, kind, actions);
+                        if !env.recent.is_empty() {
+                            section(ui, p, "Recent", true);
+                            let ref_name = |b: BookId| {
+                                meta.as_ref()
+                                    .map(|m| m.ref_name(b).to_string())
+                                    .unwrap_or_else(|| b.ref_name().into())
+                            };
+                            for (i, (c, v)) in env.recent.iter().take(3).enumerate() {
+                                // Places are chapters, except a verse selected where the reader is now.
+                                let verse = env.selection.filter(|s| i == 0 && s.chapter_idx() == *c);
+                                let label = match verse {
+                                    Some(s) => format!("{} {}:{}", ref_name(c.book()), c.chapter(), s.verse),
+                                    None => format!("{} {}", ref_name(c.book()), c.chapter()),
+                                };
+                                let r = row(
+                                    ui,
+                                    p,
+                                    &Row {
+                                        icon: Some(crate::icons::clock),
+                                        icon_color: Some(p.ink_3),
+                                        label: &label,
+                                        trailing: Some(abbrev.clone()),
+                                        ..Row::default()
+                                    },
+                                );
+                                if r.clicked() {
+                                    actions.push(Action::Jump {
+                                        chapter: *c,
+                                        verse: Some(*v),
+                                        flash: *v > 1,
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        section(ui, p, "Study", true);
+                        let any_open = self.study_open.iter().any(|o| *o);
+                        for (i, (kind, label, n, icon)) in [
+                            (StudyKind::Bookmarks, "Bookmarks", nb, icon_bookmark as IconFn),
+                            (StudyKind::Highlights, "Highlights", nh, crate::icons::highlighter),
+                            (StudyKind::Notes, "Notes", nn, crate::icons::note),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
+                            let open = self.study_open[i];
+                            let r = row(
+                                ui,
+                                p,
+                                &Row {
+                                    icon: Some(icon),
+                                    label,
+                                    count: Some(n.to_string()),
+                                    // Chevrons appear once a collection is open, to show which are.
+                                    disclosure: any_open.then_some(open),
+                                    selected: self.study_selected == Some(kind),
+                                    ..Row::default()
+                                },
+                            );
+                            if r.clicked() {
+                                self.toggle_study(kind);
+                            }
+                            if open {
+                                self.study_items(ui, env, kind, actions);
+                            }
                         }
                     }
 
@@ -191,29 +329,31 @@ impl Sidebar {
                             .into_iter()
                             .enumerate()
                     {
-                        let open = self.testaments[t];
+                        let books: Vec<BookId> = range.clone().map(BookId).filter(|b| matches(*b)).collect();
+                        if books.is_empty() {
+                            continue;
+                        }
+                        let open = self.testaments[t] || !filter.is_empty();
                         let r = row(
                             ui,
                             p,
                             &Row {
                                 icon: Some(crate::icons::book),
                                 label,
-                                count: Some(range.len().to_string()),
+                                count: Some(books.len().to_string()),
                                 disclosure: Some(open),
                                 ..Row::default()
                             },
                         );
                         if r.clicked() {
                             self.testaments[t] = !open;
+                            self.auto_opened[t] = false;
                         }
                         if !open {
                             continue;
                         }
-                        for b in range.map(BookId) {
-                            let name = meta
-                                .as_ref()
-                                .map(|m| m.book_short(b).to_string())
-                                .unwrap_or_else(|| b.name().into());
+                        for b in books {
+                            let name = book_name(b);
                             let here = b == current_book;
                             let resp = row(
                                 ui,
@@ -226,8 +366,8 @@ impl Sidebar {
                                     ..Row::default()
                                 },
                             );
-                            if here && reveal {
-                                resp.scroll_to_me(Some(Align::Center));
+                            if here && reveal && !self.filtering {
+                                resp.scroll_to_me_animation(None, egui::style::ScrollAnimation::none());
                             }
                             if resp.clicked() {
                                 if b.chapters() == 1 {
@@ -241,7 +381,7 @@ impl Sidebar {
                                 }
                             }
                             if self.expanded == Some(b) && b.chapters() > 1 {
-                                chapter_grid(ui, p, b, location.0, &self.activity.1, actions);
+                                chapter_grid(ui, p, b, env.location.0, &self.activity.1, actions);
                             }
                         }
                     }
@@ -250,27 +390,34 @@ impl Sidebar {
         });
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn study_items(
-        &mut self,
-        ui: &mut Ui,
-        library: &Library,
-        study: &StudyStore,
-        translation: &str,
-        theme: Theme,
-        kind: StudyKind,
-        actions: &mut Vec<Action>,
-    ) {
-        let p = theme.palette();
-        let t = library.load(translation).ok();
-        let items: Vec<(VerseRef, Option<Color32>, String)> = match kind {
+    /// A study collection's items (`ds-09` list items), newest first.
+    fn study_items(&mut self, ui: &mut Ui, env: &SidebarEnv<'_>, kind: StudyKind, actions: &mut Vec<Action>) {
+        let p = env.theme.palette();
+        let study = env.study;
+        let t = env.library.load(env.translation).ok();
+        let verse_text =
+            |v: VerseRef| t.as_ref().and_then(|t| t.find(v)).map(|v| v.plain_text()).unwrap_or_default();
+        // (verse, colour bar, note)
+        let items: Vec<(VerseRef, Option<Color32>, Option<String>)> = match kind {
             StudyKind::Bookmarks => {
-                study.bookmarks().into_iter().map(|(v, b)| (v, None, b.label.clone())).collect()
+                let mut b = study.bookmarks();
+                b.sort_by_key(|(v, b)| (std::cmp::Reverse(b.created), *v));
+                b.into_iter().map(|(v, _)| (v, None, None)).collect()
             }
             StudyKind::Highlights => {
-                study.highlights().into_iter().map(|(v, c)| (v, Some(p.swatch(c)), String::new())).collect()
+                colour_filter(ui, p, &mut self.highlight_filter);
+                study
+                    .highlights_newest_first()
+                    .into_iter()
+                    .filter(|(_, c)| self.highlight_filter.is_none_or(|f| f == *c))
+                    .map(|(v, c)| (v, Some(p.swatch(c)), None))
+                    .collect()
             }
-            StudyKind::Notes => study.notes().into_iter().map(|(v, n)| (v, None, n.body.clone())).collect(),
+            StudyKind::Notes => {
+                let mut n = study.notes();
+                n.sort_by_key(|(v, n)| (std::cmp::Reverse(n.updated), *v));
+                n.into_iter().map(|(v, n)| (v, None, Some(n.body.replace('\n', " ")))).collect()
+            }
         };
         if items.is_empty() {
             let hint = match kind {
@@ -283,60 +430,24 @@ impl Sidebar {
             });
             return;
         }
-        for (v, swatch, extra) in items {
-            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 72.0), Sense::click());
-            if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
-                ui.painter().rect_filled(rect, 10.0, fill);
-            }
-            let inner = rect.shrink2(vec2(12.0, 10.0));
-            let mut x = inner.left();
-            if let Some(c) = swatch {
-                let bar = Rect::from_min_size(pos2(x, inner.top()), vec2(3.0, inner.height()));
-                ui.painter().rect_filled(bar, 1.5, c);
-                x += 12.0;
-            }
+        let abbrev = t.as_ref().map(|t| t.meta.abbrev.clone()).unwrap_or_default();
+        let k = StudyKind::ALL.iter().position(|x| *x == kind).unwrap_or(0);
+        let total = items.len();
+        let shown = if self.study_all[k] { total } else { total.min(RECENT_ITEMS) };
+        for (v, bar, note) in items.into_iter().take(shown) {
             let name = t
                 .as_ref()
                 .map(|t| t.meta.ref_name(v.book).to_string())
                 .unwrap_or_else(|| v.book.ref_name().into());
-            ui.painter().text(
-                pos2(x, inner.top()),
-                Align2::LEFT_TOP,
-                format!("{name} {}:{}", v.chapter, v.verse),
-                text::UI_STRONG.font(),
-                p.ink,
-            );
-            if let Some(t) = &t {
-                ui.painter().text(
-                    pos2(inner.right(), inner.top() + 2.0),
-                    Align2::RIGHT_TOP,
-                    &t.meta.abbrev,
-                    theme::ui_medium(11.0),
-                    p.ink_3,
-                );
-            }
-            let body = if extra.is_empty() {
-                t.as_ref().and_then(|t| t.find(v)).map(|v| v.plain_text()).unwrap_or_default()
-            } else {
-                extra
+            let item = ListItem {
+                reference: format!("{name} {}:{}", v.chapter, v.verse),
+                trailing: abbrev.clone(),
+                bar,
+                note,
+                snippet: verse_text(v),
+                selected: env.selection == Some(v),
             };
-            let mut job = LayoutJob::single_section(
-                body.replace('\n', " "),
-                TextFormat {
-                    font_id: FontId::new(text::SNIPPET_SM.size, theme::family(theme::SERIF)),
-                    color: p.ink_2,
-                    line_height: Some(text::SNIPPET_SM.line_height),
-                    ..Default::default()
-                },
-            );
-            job.wrap = TextWrapping {
-                max_width: inner.right() - x,
-                max_rows: 2,
-                break_anywhere: false,
-                overflow_character: Some('…'),
-            };
-            let g = ui.painter().layout_job(job);
-            ui.painter().galley(pos2(x, inner.top() + 22.0), g, p.ink_2);
+            let resp = list_item(ui, p, &item);
             if resp.clicked() {
                 actions.push(Action::Jump { chapter: v.chapter_idx(), verse: Some(v.verse), flash: true });
             }
@@ -364,6 +475,22 @@ impl Sidebar {
                     ui.close();
                 }
             });
+        }
+        if shown < total {
+            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
+            if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+                ui.painter().rect_filled(rect, theme::radius::SM, fill);
+            }
+            ui.painter().text(
+                rect.left_center() + vec2(ITEM_PAD.x, 0.0),
+                Align2::LEFT_CENTER,
+                format!("Show all {total}"),
+                theme::ui_medium(text::SMALL.size),
+                p.accent,
+            );
+            if resp.clicked() {
+                self.study_all[k] = true;
+            }
         }
     }
 
@@ -538,7 +665,11 @@ fn icon_bookmark(p: &Painter, r: Rect, c: Color32) {
 #[derive(Default)]
 struct Row<'a> {
     icon: Option<IconFn>,
+    /// The icon's colour when not the accent (recent places use tertiary ink).
+    icon_color: Option<Color32>,
     label: &'a str,
+    /// A small label at the end (a translation's abbreviation).
+    trailing: Option<String>,
     /// Extra space before the label (book rows have no icon but line up with icon rows).
     indent: f32,
     count: Option<String>,
@@ -561,7 +692,7 @@ fn row(ui: &mut Ui, p: &Palette, r: &Row<'_>) -> Response {
         icon(
             painter,
             Rect::from_min_size(pos2(x, cy - ICON_LANE / 2.0), vec2(ICON_LANE, ICON_LANE)),
-            p.accent,
+            r.icon_color.unwrap_or(p.accent),
         );
         x += ICON_LANE + GAP;
     }
@@ -573,10 +704,11 @@ fn row(ui: &mut Ui, p: &Palette, r: &Row<'_>) -> Response {
         let lane =
             Rect::from_min_size(pos2(right - ICON_LANE, cy - ICON_LANE / 2.0), vec2(ICON_LANE, ICON_LANE));
         let chevron = Rect::from_center_size(lane.center(), vec2(12.0, 12.0));
+        let color = if r.selected { p.accent } else { p.ink_3 };
         if open {
-            crate::icons::chevron_down(painter, chevron, p.ink_3);
+            crate::icons::chevron_down(painter, chevron, color);
         } else {
-            crate::icons::disclosure(painter, chevron, p.ink_3);
+            crate::icons::disclosure(painter, chevron, color);
         }
         right = lane.left() - GAP;
     }
@@ -588,7 +720,186 @@ fn row(ui: &mut Ui, p: &Palette, r: &Row<'_>) -> Response {
         };
         painter.text(pos2(right, cy), Align2::RIGHT_CENTER, count, font, color);
     }
+    if let Some(t) = &r.trailing {
+        painter.text(pos2(right, cy), Align2::RIGHT_CENTER, t, theme::ui_medium(11.0), p.ink_3);
+    }
     resp
+}
+
+/// A bookmark, highlight, note or search hit in a list (`ds-09`): reference and translation,
+/// then the note (13/18) and a serif snippet (14/20, two lines, or one under a note).
+struct ListItem {
+    reference: String,
+    trailing: String,
+    /// A highlight's 3 pt colour bar.
+    bar: Option<Color32>,
+    note: Option<String>,
+    snippet: String,
+    selected: bool,
+}
+
+const ITEM_PAD: egui::Vec2 = vec2(12.0, 10.0);
+
+fn wrapped(text: &str, font: FontId, line_height: f32, color: Color32, width: f32, rows: usize) -> LayoutJob {
+    let mut job = LayoutJob::single_section(
+        text.to_string(),
+        TextFormat { font_id: font, color, line_height: Some(line_height), ..Default::default() },
+    );
+    job.wrap = TextWrapping {
+        max_width: width,
+        max_rows: rows,
+        break_anywhere: false,
+        overflow_character: Some('…'),
+    };
+    job
+}
+
+fn list_item(ui: &mut Ui, p: &Palette, item: &ListItem) -> Response {
+    let width = ui.available_width();
+    let mut text_left = ITEM_PAD.x;
+    if item.bar.is_some() {
+        text_left += 3.0 + GAP;
+    }
+    let text_w = width - text_left - ITEM_PAD.x;
+    let painter = ui.painter().clone();
+    let note =
+        item.note.as_ref().map(|n| painter.layout_job(wrapped(n, text::UI.font(), 18.0, p.ink, text_w, 2)));
+    let snippet_rows = if note.is_some() { 1 } else { 2 };
+    let snippet = painter.layout_job(wrapped(
+        &item.snippet,
+        FontId::new(text::SNIPPET_SM.size, theme::family(theme::SERIF)),
+        text::SNIPPET_SM.line_height,
+        p.ink_2,
+        text_w,
+        snippet_rows,
+    ));
+    let mut h = ITEM_PAD.y + 16.0 + 4.0;
+    if let Some(n) = &note {
+        h += n.size().y + 4.0;
+    }
+    h += snippet.size().y + ITEM_PAD.y;
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, h), Sense::click());
+    if item.selected {
+        painter.rect_filled(rect, 10.0, p.accent_soft);
+    } else if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+        painter.rect_filled(rect, 10.0, fill);
+    }
+    let inner = rect.shrink2(ITEM_PAD);
+    if let Some(c) = item.bar {
+        painter.rect_filled(Rect::from_min_size(inner.min, vec2(3.0, inner.height())), 2.0, c);
+    }
+    let x = rect.left() + text_left;
+    let mut y = inner.top();
+    painter.text(
+        pos2(x, y + 8.0),
+        Align2::LEFT_CENTER,
+        &item.reference,
+        text::UI_STRONG.font(),
+        if item.selected { p.accent } else { p.ink },
+    );
+    painter.text(
+        pos2(inner.right(), y + 8.0),
+        Align2::RIGHT_CENTER,
+        &item.trailing,
+        theme::ui_medium(11.0),
+        p.ink_3,
+    );
+    y += 16.0 + 4.0;
+    if let Some(n) = note {
+        let h = n.size().y;
+        painter.galley(pos2(x, y), n, p.ink);
+        y += h + 4.0;
+    }
+    painter.galley(pos2(x, y), snippet, p.ink_2);
+    resp
+}
+
+/// The type-to-filter field at the top of the source list. Returns `true` when filtering ends
+/// (Escape, or leaving the field empty).
+fn filter_field(ui: &mut Ui, p: &Palette, value: &mut String, focus: bool) -> bool {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+    let field = Rect::from_min_size(rect.min, vec2(rect.width(), 28.0));
+    let id = egui::Id::new("filter-books");
+    let focused = ui.memory(|m| m.has_focus(id));
+    if focused {
+        ui.painter().rect_filled(field.expand(3.0), 11.0, p.focus);
+        ui.painter().rect_filled(field, 8.0, p.field);
+        ui.painter().rect_stroke(field, 8.0, egui::Stroke::new(1.0, p.accent), egui::StrokeKind::Inside);
+    } else {
+        ui.painter().rect_filled(field, 8.0, p.fill);
+    }
+    let glass = Rect::from_min_size(pos2(field.left() + 10.0, field.center().y - 7.0), vec2(14.0, 14.0));
+    crate::icons::search(ui.painter(), glass, p.ink_3);
+    let edit_rect = Rect::from_min_max(
+        pos2(glass.right() + 6.0, field.top()),
+        pos2(field.right() - 10.0, field.bottom()),
+    );
+    // A child UI, so the text edit doesn't move this one's cursor (the row is already allocated).
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(edit_rect));
+    let resp = child.add_sized(
+        edit_rect.size(),
+        egui::TextEdit::singleline(value)
+            .id(id)
+            .hint_text("Filter books")
+            .font(text::UI.font())
+            .frame(egui::Frame::NONE)
+            .margin(egui::Margin::ZERO)
+            .vertical_align(Align::Center)
+            .desired_width(edit_rect.width()),
+    );
+    if focus {
+        resp.request_focus();
+        // Keep what was typed to start filtering, with the cursor after it.
+        let end = egui::text::CCursor::new(value.chars().count());
+        let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+        state.store(ui.ctx(), id);
+    }
+    let escape = resp.has_focus() && ui.input(|i| i.key_pressed(Key::Escape));
+    // Leaving the field empty ends filtering, but not when the window itself loses focus.
+    let left = resp.lost_focus() && ui.input(|i| i.focused);
+    escape || (left && value.trim().is_empty())
+}
+
+/// Highlight colour chips: "All", then one swatch per colour (`ds-02`).
+fn colour_filter(ui: &mut Ui, p: &Palette, filter: &mut Option<HighlightColor>) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+    let cy = rect.top() + 4.0 + 10.0;
+    let x = rect.left() + 32.0;
+    let all_font = theme::ui_semibold(11.0);
+    let all_w = ui.painter().layout_no_wrap("All".into(), all_font.clone(), p.ink).size().x + 16.0;
+    let all = Rect::from_min_size(pos2(x, cy - 10.0), vec2(all_w, 20.0));
+    let resp = ui.interact(all, ui.id().with("hl-all"), Sense::click());
+    let on = filter.is_none();
+    let fill = if on { p.accent } else { widgets::hover_fill(ui, &resp, p, false).unwrap_or(p.fill) };
+    ui.painter().rect_filled(all, 10.0, fill);
+    ui.painter().text(
+        all.center(),
+        Align2::CENTER_CENTER,
+        "All",
+        all_font,
+        if on { p.on_accent } else { p.ink_2 },
+    );
+    if resp.clicked() {
+        *filter = None;
+    }
+    let mut x = all.right() + GAP;
+    for c in HighlightColor::ALL {
+        let r = Rect::from_min_size(pos2(x, cy - 8.0), vec2(16.0, 16.0));
+        let resp = ui.interact(r.expand(2.0), ui.id().with(("hl", c.name())), Sense::click());
+        let selected = *filter == Some(c);
+        if selected {
+            ui.painter().circle_stroke(r.center(), 8.0 + 2.75, egui::Stroke::new(1.5, p.ink));
+        } else if resp.hovered() {
+            ui.painter().circle_filled(r.center(), 8.0 + 3.0, p.fill_strong);
+        }
+        ui.painter().circle_filled(r.center(), 8.0, p.swatch(c));
+        ui.painter().circle_stroke(r.center(), 7.75, egui::Stroke::new(0.5, Color32::from_black_alpha(46)));
+        if resp.on_hover_text(format!("Only {} highlights", c.name())).clicked() {
+            *filter = if selected { None } else { Some(c) };
+        }
+        x = r.right() + GAP;
+    }
 }
 
 /// A section header: 11 pt semibold tertiary text, 8 pt below the previous row (16 for later
