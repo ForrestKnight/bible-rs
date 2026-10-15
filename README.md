@@ -74,7 +74,8 @@ typeset, searchable as you type, with highlights, notes and bookmarks kept on yo
   compare view showing one verse in every installed translation.
 
 **Mac**
-- Native menu bar, unified title bar, app icon, `scripts/bundle-macos.sh` → `.app` + `.dmg`.
+- Native menu bar, unified title bar, Metal rendering on the low-power GPU, app icon,
+  `scripts/bundle-macos.sh` → `.app` + `.dmg`.
 
 ## Translations
 
@@ -172,7 +173,8 @@ chapter by chapter and appear in parallel and compare views as their chapters lo
 Measured on the machine bible-rs was built on: a headless Ubuntu VPS (AMD EPYC 7B13, 16 vCPUs)
 with **no GPU** — the app runs under Xvfb with Mesa's llvmpipe software OpenGL, so window and frame
 timings are pessimistic compared with a Mac. Criterion medians (`cargo bench`); startup is the
-median of 15 launches (`scripts/bench-startup.sh`).
+median of 15 launches (`scripts/bench-startup.sh`). macOS numbers from CI are [further
+down](#on-macos).
 
 **Startup** — target: first painted text in under 150 ms
 
@@ -188,7 +190,7 @@ The first frame always contains the text. While the window and OpenGL context ar
 background thread (~25 ms; its search corpus is built later, after the first frame); frame 0 then
 typesets the visible chapter (2–7 ms). Under software rendering the empty-window
 floor alone is 146 ms, so presentation lands just over the target here; the app's own work fits
-in ~15 ms, and on a Mac the GPU context is far cheaper. The macOS CI job runs the same probe.
+in ~15 ms.
 
 **Search** — target: under 10 ms. KJV, 31,102 verses, whole Bible unless noted.
 
@@ -236,6 +238,27 @@ well inside a 120 Hz frame (8.3 ms). Chapters next to the reading position are t
 | Parse `1co13:4-7` | 1.3 µs |
 | Suggest `revalation 21` (fuzzy book name with a typo) | 92 µs |
 | Open the SQLite study store | 0.36 ms |
+
+### On macOS
+
+The macOS CI job runs the same probes against the bundled app with both renderers. GitHub's
+`macos-latest` runner is a virtual machine with a paravirtualized GPU and display, so absolute
+window timings are far slower than a real Mac and vary a lot between runs; compare each column with
+the empty-window baseline measured alongside it. Medians of 10 launches:
+
+| | Metal (default) | OpenGL |
+|---|---|---|
+| bible-rs: first frame built | 237 ms | 194 ms |
+| bible-rs: first frame presented | **253 ms** | 325 ms |
+| Empty eframe window, same renderer: first frame presented | 268 ms | 236 ms |
+| Scrolling: frame interval (mean) | **16.8 ms — 60 fps, the display's rate** | 66.6 ms — 15 fps |
+| Scrolling: app work per frame (mean / p99) | 0.16 / 3.0 ms | 0.13 / 2.2 ms |
+
+Startup trace for the Metal build on that runner: window and Metal context ready at 207 ms, first
+frame built at 218 ms — **bible-rs's own work before the first paint is ~11 ms** (John 1 typeset
+in 4.3 ms); everything before that is the machine creating a window. OpenGL's 15 fps while
+scrolling is why macOS renders with Metal. Final numbers on real Mac hardware are still to be
+taken; `scripts/bench-startup.sh` measures them, including the empty-window floor.
 
 Reproduce with:
 

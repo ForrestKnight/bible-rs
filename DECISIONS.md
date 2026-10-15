@@ -29,9 +29,14 @@ axes are used for display headings vs. body text. Immediate mode makes the hard 
 - **One code path on macOS and Linux.** The same app runs on the Mac (window, menu bar, Keychain)
   and under Xvfb on the VPS, where the screenshots, the startup probe and the scroll probe run.
 
-Renderer: **glow** (OpenGL) by default on every platform. It creates its context several times
-faster than wgpu (≈90 ms vs ≈200 ms under Xvfb with software rendering), and time-to-first-text is
-the headline metric. `BIBLE_RS_RENDERER=wgpu` switches to wgpu/Metal.
+Renderer: **wgpu/Metal on macOS, glow (OpenGL) elsewhere** — chosen by measurement, not
+assumption. The macOS CI job runs the startup and scroll probes with both renderers: OpenGL
+(deprecated on macOS and layered over Metal) held only ~15 fps while scrolling there (67 ms
+between frames) where Metal held the display's 60, and time to first frame was within that
+runner's noise. Under Xvfb on Linux, glow creates its context about twice as fast as wgpu
+(≈90 ms vs ≈170 ms with software rendering) and scrolls fine. wgpu asks for the **low-power GPU**:
+a reader has no use for a discrete GPU, and waking one costs start-up time and battery.
+`BIBLE_RS_RENDERER=glow|wgpu` overrides the choice.
 
 ## Typography
 
