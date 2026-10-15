@@ -40,6 +40,8 @@ pub enum Action {
     RemoveNote(VerseRef),
     /// Save a note's text (an empty text removes it).
     SaveNote(VerseRef, String),
+    /// Forget the reading history from this time (Unix seconds) on.
+    ClearReading(i64),
     /// Bookmark a verse, or remove its bookmark.
     ToggleBookmarkAt(VerseRef),
     /// Copy the selected verses' text; `Copy` adds the reference.

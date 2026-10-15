@@ -385,6 +385,19 @@ impl Sidebar {
                     }
 
                     if !self.filtering {
+                        let r = row(
+                            ui,
+                            p,
+                            &Row {
+                                icon: Some(crate::icons::history),
+                                label: "History",
+                                selected: env.page == crate::pages::Page::History,
+                                ..Row::default()
+                            },
+                        );
+                        if r.clicked() {
+                            actions.push(Action::OpenPage(crate::pages::Page::History));
+                        }
                         section(ui, p, "Library", false);
                         let selected = env.page == crate::pages::Page::Translations;
                         let r = row(

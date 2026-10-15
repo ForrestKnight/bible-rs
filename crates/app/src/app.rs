@@ -749,6 +749,11 @@ impl BibleApp {
                     self.toast(ctx, format!("Couldn't save note: {e:#}"));
                 }
             }
+            Action::ClearReading(since) => {
+                if let Err(e) = self.study.clear_reading(since) {
+                    self.toast(ctx, format!("{e:#}"));
+                }
+            }
             Action::ToggleBookmarkAt(v) => {
                 if let Err(e) = self.study.toggle_bookmark(v) {
                     self.toast(ctx, format!("{e:#}"));

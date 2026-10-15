@@ -4,6 +4,7 @@
 
 pub mod bookmarks;
 pub mod highlights;
+pub mod history;
 pub mod notes;
 pub mod translations;
 
@@ -77,6 +78,7 @@ pub struct Pages {
     pub bookmarks: bookmarks::State,
     pub highlights: highlights::State,
     pub notes: notes::State,
+    pub history: history::State,
     /// Whether the page is scrolled (the toolbar then takes its material).
     pub scrolled: bool,
 }
@@ -116,6 +118,7 @@ impl Pages {
                     Page::Translations => self.translations.show(ui, content, env, actions),
                     Page::Bookmarks => self.bookmarks.show(ui, content, env, actions),
                     Page::Highlights => self.highlights.show(ui, content, env, actions),
+                    Page::History => self.history.show(ui, content, env, actions),
                     _ => content.top(),
                 };
                 ui.allocate_rect(
