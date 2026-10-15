@@ -73,7 +73,7 @@ impl VersePanel {
             });
             ui.add_space(6.0);
             let idx = if self.mode == PanelMode::Note { 0 } else { 1 };
-            if let Some(i) = widgets::segmented(ui, &["Note", "Compare"], idx) {
+            if let Some(i) = widgets::segmented(ui, p, &["Note", "Compare"], idx) {
                 self.save(study, actions);
                 self.mode = if i == 0 { PanelMode::Note } else { PanelMode::Compare };
                 self.focus = self.mode == PanelMode::Note;

@@ -53,10 +53,19 @@ fn main() {
     );
 
     let color = &json["color"];
-    let swatches: Vec<String> = HIGHLIGHTS
-        .iter()
-        .map(|h| hex(&color["highlight_swatch"][h], &format!("highlight_swatch.{h}")))
-        .collect();
+    // Highlights are `color.highlight.<name>.{swatch,<theme>}` (older files:
+    // `color.highlight_swatch.<name>` and `color.<theme>.highlight.<name>`).
+    let highlight = |h: &str, theme: Option<&str>| -> String {
+        let new = &color["highlight"][h];
+        let v = match theme {
+            None if new.is_object() => &new["swatch"],
+            None => &color["highlight_swatch"][h],
+            Some(t) if new.is_object() => &new[t],
+            Some(t) => &color[t]["highlight"][h],
+        };
+        hex(v, &format!("highlight.{h}.{}", theme.unwrap_or("swatch")))
+    };
+    let swatches: Vec<String> = HIGHLIGHTS.iter().map(|h| highlight(h, None)).collect();
     writeln!(out, "pub const SWATCHES: [Color32; 6] = [{}];\n", swatches.join(", ")).unwrap();
     for theme in ["light", "dark", "sepia"] {
         let c = &color[theme];
@@ -64,13 +73,15 @@ fn main() {
         for role in ROLES {
             writeln!(out, "    {role}: {},", hex(&c[role], &format!("{theme}.{role}"))).unwrap();
         }
-        let hl: Vec<String> =
-            HIGHLIGHTS.iter().map(|h| hex(&c["highlight"][h], &format!("{theme}.highlight.{h}"))).collect();
+        let hl: Vec<String> = HIGHLIGHTS.iter().map(|h| highlight(h, Some(theme))).collect();
         writeln!(out, "    highlights: [{}],", hl.join(", ")).unwrap();
         writeln!(out, "    swatches: SWATCHES,").unwrap();
         writeln!(out, "    shadows: Shadows {{").unwrap();
         for s in SHADOWS {
-            let css = json["shadow"][s][theme].as_str().unwrap_or_else(|| panic!("shadow.{s}.{theme}"));
+            // A CSS string, or `{ "css": …, "layers": … }`.
+            let v = &json["shadow"][s][theme];
+            let css =
+                v.as_str().or_else(|| v["css"].as_str()).unwrap_or_else(|| panic!("shadow.{s}.{theme}"));
             writeln!(out, "        {s}: {},", elevation(css)).unwrap();
         }
         writeln!(out, "    }},\n}};\n").unwrap();
@@ -102,10 +113,20 @@ fn main() {
     }
     writeln!(out, "}}\n").unwrap();
 
-    // Numeric metric groups.
-    for group in ["space", "radius", "size", "titlebar", "icon", "motion"] {
+    // Numeric metric groups (`module`, JSON object).
+    for (group, v) in [
+        ("space", &json["space"]),
+        ("radius", &json["radius"]),
+        ("size", &json["size"]),
+        ("titlebar", &json["titlebar"]),
+        ("icon", &json["icon"]),
+        ("motion", &json["motion"]),
+        ("reading", &json["type"]["reading"]),
+        ("verse_number", &json["type"]["verse_number"]),
+        ("state", &json["state"]),
+    ] {
         let mut consts = Vec::new();
-        flatten(&json[group], "", group, &mut consts);
+        flatten(v, "", group, &mut consts);
         writeln!(out, "pub mod {group} {{").unwrap();
         for (name, v) in consts {
             writeln!(out, "    pub const {name}: f32 = {v:?};").unwrap();

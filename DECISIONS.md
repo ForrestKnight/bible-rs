@@ -149,6 +149,36 @@ disk. Export to JSON (round-trips via import) and Markdown.
 - `scripts/bundle-macos.sh` builds `bible-rs.app` (icon, Info.plist, ad-hoc or Developer ID
   signature) and a DMG; CI does this on `macos-latest` and uploads the DMG.
 
+## Visual design: the Paper designs
+
+The interface follows the high-fidelity designs in the Paper file "Bible" (frames 01–09 and the
+Design System page). How they map onto the app:
+
+- **Tokens are compiled in.** `crates/app/assets/design-tokens.json` is the design's token file,
+  copied verbatim. `build.rs` turns it into Rust constants: one `Palette` per theme whose fields
+  are the design's colour roles (`paper`, `ink`, `ink_2`, `accent_soft`, `fill`, …), the six
+  highlight fills and swatches, the shadows as ring + drop `Elevation`s, the type scale
+  (`text::BODY`, `text::LABEL`, …) and the metric groups (`space`, `radius`, `titlebar`,
+  `reading`, …). Nothing is parsed at startup; a changed token is a rebuild.
+- **CSS baselines.** egui puts a baseline at the font's ascent from the top of its row (and
+  centres a font against the tallest fallback in its family), where CSS centres the font's
+  content area in the line box. Text blocks and headings are moved by the difference — measured
+  from egui and computed from the fonts' hhea metrics — so lines sit within half a point of the
+  design. Inline verse numbers get a line height that puts their baseline where the design's
+  raised numbers are.
+- **The reader runs under the toolbar.** The toolbar is a row of glass capsules over the top of
+  the reader; at rest it is transparent over the page, and once text scrolls beneath it takes the
+  translucent toolbar material and a hairline. Each chapter ends with 80 pt of space, more than
+  the toolbar plus the page's top margin, so a chapter scrolled to its start shows nothing of the
+  previous one above it.
+- **Floating source list.** The sidebar is a 256 pt panel inset 8 pt from the window's edges,
+  holding the traffic lights and its own toggle in its header, then Study (bookmarks, highlights,
+  notes, expandable in place) and Books (testaments → books → a chapter grid with activity dots).
+  Search moved to the toolbar's field; while it has a query the sidebar shows the results.
+- Static Inter 500/600 instances (made with fonttools from the variable font) keep semibold UI
+  text and verse numbers off egui's per-run variation path. Literata keeps its default optical
+  size: at 20 pt its widths differ from opsz 20 by 0.3 %, so line breaks match the design anyway.
+
 ## What was traded away
 
 - No per-word highlighting (verse-level only) and no free text selection inside verses — verse

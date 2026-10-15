@@ -16,9 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use bible_core::books::{CHAPTER_COUNT, ChapterIdx, VerseRef};
 use bible_core::library::{Chapter, Library};
 use bible_core::study::{HighlightColor, StudyStore};
-use eframe::egui::{
-    self, Color32, CornerRadius, CursorIcon, Id, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
-};
+use eframe::egui::{self, Color32, CornerRadius, CursorIcon, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
 
 use self::layout::{ChapterLayout, ColumnText, Ctx, Typography};
 use crate::actions::Action;
@@ -43,6 +41,8 @@ pub struct Env<'a> {
     pub keyboard: bool,
     /// Incremented whenever online text arrives (provisional layouts are redone).
     pub online_generation: &'a AtomicU64,
+    /// Height of the toolbar floating over the reader's top edge.
+    pub toolbar: f32,
 }
 
 struct Cached {
@@ -63,7 +63,13 @@ pub struct Reader {
     reanchor: Option<(ChapterIdx, u8, f32)>,
     scroll_remaining: f32,
     viewport_h: f32,
+    /// From the reader's top edge to the top of a chapter scrolled to its start.
     top_pad: f32,
+    toolbar: f32,
+    /// Whether text is scrolled beneath the toolbar (it then takes the toolbar material).
+    pub under_toolbar: bool,
+    /// When the view last scrolled: the scroller shows while scrolling, like macOS overlay scrollers.
+    scrolled_at: f64,
     /// Chapter/verse currently at the reading line (for the toolbar and saved position).
     pub location: (ChapterIdx, u8),
     frames: u64,
@@ -82,7 +88,10 @@ impl Reader {
             reanchor: None,
             scroll_remaining: 0.0,
             viewport_h: 800.0,
-            top_pad: 12.0,
+            top_pad: 76.0,
+            toolbar: 52.0,
+            under_toolbar: false,
+            scrolled_at: f64::NEG_INFINITY,
             location: (chapter, verse.max(1)),
             frames: 0,
         };
@@ -103,7 +112,7 @@ impl Reader {
     }
 
     pub fn page(&self) -> f32 {
-        (self.viewport_h - self.em * 3.0).max(self.em * 4.0)
+        (self.viewport_h - self.toolbar - self.em * 3.0).max(self.em * 4.0)
     }
 
     pub fn invalidate(&mut self) {
@@ -181,8 +190,8 @@ impl Reader {
             }
         }
         let margin = self.em * 3.0;
-        if y < margin {
-            self.scroll_remaining = y - margin;
+        if y < self.toolbar + margin {
+            self.scroll_remaining = y - self.toolbar - margin;
         } else if y + (a.bottom - a.top) > self.viewport_h - margin {
             self.scroll_remaining = y + (a.bottom - a.top) - self.viewport_h + margin;
         }
@@ -278,8 +287,12 @@ impl Reader {
         let rect = ui.available_rect_before_wrap();
         let p = env.theme.palette();
         ui.painter().rect_filled(rect, 0.0, p.paper);
+        self.toolbar = env.toolbar;
+        self.top_pad = env.toolbar + layout::PAGE_TOP;
         let id = Id::new("reader");
-        let resp = ui.interact(rect, id, Sense::click_and_drag());
+        // Text runs under the toolbar, but clicks there belong to the toolbar (and the window).
+        let below_toolbar = Rect::from_min_max(pos2(rect.left(), rect.top() + env.toolbar), rect.max);
+        let resp = ui.interact(below_toolbar, id, Sense::click_and_drag());
         let geom = Geometry::new(rect, env.typo, env.columns.len());
         self.em = env.typo.size;
         self.viewport_h = rect.height();
@@ -333,7 +346,7 @@ impl Reader {
         }
         // Scrollbar.
         let bar = Rect::from_min_max(
-            pos2(rect.right() - 12.0, rect.top() + 4.0),
+            pos2(rect.right() - 12.0, rect.top() + env.toolbar + 4.0),
             pos2(rect.right() - 2.0, rect.bottom() - 4.0),
         );
         let bar_resp = ui.interact(bar, id.with("bar"), Sense::click_and_drag());
@@ -348,6 +361,9 @@ impl Reader {
             dy = 0.0;
         }
         self.anchor.offset += dy;
+        if dy != 0.0 {
+            self.scrolled_at = ui.input(|i| i.time);
+        }
         self.normalize(ui, env, &geom);
 
         // Paint chapters from the anchor down.
@@ -370,6 +386,8 @@ impl Reader {
         let mut marker_hit: Option<VerseRef> = None;
         let mut first_visible: Option<(ChapterIdx, u8)> = None;
         let reading_line = rect.top() + rect.height() * 0.22;
+        let toolbar_bottom = rect.top() + env.toolbar;
+        let mut under_toolbar = false;
         while let Some(ch) = c {
             if y > rect.bottom() {
                 break;
@@ -380,6 +398,7 @@ impl Reader {
                 let at = (origin + *pos).to_pos2();
                 if at.y < rect.bottom() && at.y + g.size().y > rect.top() {
                     painter.galley(at, g.clone(), p.ink);
+                    under_toolbar |= at.y < toolbar_bottom;
                 }
             }
             for block in &l.blocks {
@@ -387,6 +406,7 @@ impl Reader {
                 if br.bottom() < rect.top() || br.top() > rect.bottom() {
                     continue;
                 }
+                under_toolbar |= br.top() < toolbar_bottom;
                 let bo = origin + block.pos;
                 // Underlays: highlights, selection, flash.
                 for (k, (start, _vi, number)) in block.verses.iter().enumerate() {
@@ -409,23 +429,18 @@ impl Reader {
                     if fills.is_empty() {
                         continue;
                     }
-                    for r in block.char_rects(*start..end) {
-                        let r = r.translate(bo);
-                        let shrink = ((r.height() - self.em * 1.34) / 2.0).max(0.0);
+                    // The design's highlight is the verse text's own 28 pt line box (at 20 pt),
+                    // rounded 4 pt: from 1.13 em above the baseline to 0.27 em below, leaving the
+                    // verse number and the space before the next verse unmarked.
+                    let (above, below) = (self.em * 1.1345, self.em * 0.2655);
+                    let end = end.min(block.galley.job.text.chars().count());
+                    for (x0, x1, baseline) in block.char_runs(block.text_chars(*start..end)) {
                         let r = Rect::from_min_max(
-                            pos2(r.left() - 2.0, r.top() + shrink + 1.0),
-                            pos2(r.right() + 2.0, r.bottom() - shrink + 1.0),
+                            pos2(bo.x + x0, bo.y + baseline - above),
+                            pos2(bo.x + x1, bo.y + baseline + below),
                         );
                         for f in &fills {
-                            painter.rect_filled(r, CornerRadius::same(3), *f);
-                        }
-                        if is_selected {
-                            painter.rect_stroke(
-                                r,
-                                CornerRadius::same(3),
-                                Stroke::new(1.25, p.accent),
-                                StrokeKind::Inside,
-                            );
+                            painter.rect_filled(r, CornerRadius::same(4), *f);
                         }
                     }
                 }
@@ -442,8 +457,8 @@ impl Reader {
                     }
                 }
             }
-            // Margin markers (notes, bookmarks) at each verse's first line, right of the text.
-            let right = geom.x0 + geom.total_w + self.em * 0.9;
+            // Margin markers (notes, bookmarks) at each verse's first line, 32 pt right of the text.
+            let right = geom.x0 + geom.total_w + layout::MARKER_GAP * self.em / layout::DESIGN_EM;
             for a in l.anchors.iter().filter(|a| a.column == 0) {
                 let vref = VerseRef::new(ch.book(), ch.chapter(), a.number);
                 let top = y + a.top;
@@ -453,18 +468,20 @@ impl Reader {
                 if first_visible.is_none() && top + (a.bottom - a.top) > reading_line {
                     first_visible = Some((ch, a.number));
                 }
+                // 16 pt glyphs in 20 pt boxes, centred on the first line.
                 let mut x = right;
-                let cy = top + self.em * env.typo.line_height * 0.5;
+                let lh = (self.em * env.typo.line_height).round();
+                let cy = top + lh / 2.0 - 1.0;
                 if env.study.is_bookmarked(vref) {
-                    let r = Rect::from_center_size(pos2(x + 6.0, cy), vec2(10.0, 14.0));
+                    let r = Rect::from_center_size(pos2(x + 10.0, cy), vec2(16.0, 16.0));
                     icons::bookmark(&painter, r, p.accent, true);
                     if pointer.is_some_and(|pt| r.expand(4.0).contains(pt)) {
                         marker_hit = Some(vref);
                     }
-                    x += 18.0;
+                    x += 24.0;
                 }
                 if env.study.note(vref).is_some() {
-                    let r = Rect::from_center_size(pos2(x + 7.0, cy), vec2(13.0, 13.0));
+                    let r = Rect::from_center_size(pos2(x + 10.0, cy), vec2(16.0, 16.0));
                     icons::note(&painter, r, p.accent);
                     if pointer.is_some_and(|pt| r.expand(4.0).contains(pt)) {
                         marker_hit = Some(vref);
@@ -486,6 +503,7 @@ impl Reader {
         if let Some(fv) = first_visible {
             self.location = fv;
         }
+        self.under_toolbar = under_toolbar;
         let last_visible = c.and_then(|n| n.prev()).unwrap_or(ChapterIdx::LAST);
         // While idle, typeset the neighbouring chapters (one per frame) so that scrolling or
         // turning the page into them never has to lay out text first.
@@ -592,6 +610,15 @@ impl Reader {
     ) {
         let painter = ui.painter();
         let active = resp.hovered() || resp.dragged();
+        // Overlay scroller: visible while scrolling and for a moment after, or under the pointer.
+        let since = ui.input(|i| i.time) - self.scrolled_at;
+        let shown = ui.ctx().animate_bool_with_time(Id::new("reader-scroller"), active || since < 1.0, 0.2);
+        if since < 1.0 {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+        }
+        if shown == 0.0 {
+            return;
+        }
         if active {
             painter.rect_filled(bar.expand(1.0), CornerRadius::same(6), p.fill.gamma_multiply(0.8));
         }
@@ -604,7 +631,7 @@ impl Reader {
         painter.rect_filled(
             thumb,
             CornerRadius::same(4),
-            if active { p.ink_2 } else { p.ink_3.gamma_multiply(0.7) },
+            if active { p.ink_2 } else { p.ink_3.gamma_multiply(0.7 * shown) },
         );
         // Testament divider tick.
         let nt = bible_core::books::FIRST_NT_BOOK.first_chapter().0 as f32 / CHAPTER_COUNT as f32;

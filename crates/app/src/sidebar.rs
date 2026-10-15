@@ -1,5 +1,7 @@
-//! Left sidebar: book/chapter picker, instant search and study lists.
+//! Left sidebar: a floating source list (study collections, then the books with a chapter grid)
+//! that turns into search results while a search is active.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,27 +10,43 @@ use bible_core::library::Library;
 use bible_core::search::{Query, Scope};
 use bible_core::study::StudyStore;
 use eframe::egui::text::{LayoutJob, TextFormat, TextWrapping};
-use eframe::egui::{self, Align, CornerRadius, FontId, Key, Rect, Response, ScrollArea, Sense, Ui, vec2};
+use eframe::egui::{
+    self, Align, Align2, Color32, FontId, Key, Painter, Rect, Response, ScrollArea, Sense, Ui, pos2, vec2,
+};
 
 use crate::actions::{Action, ExportKind, SidebarTab};
-use crate::theme::{self, Theme};
+use crate::theme::{self, Palette, Theme, text};
 use crate::widgets;
 
-/// Source-list geometry: row highlights inset from the sidebar's edges, text further in.
-const ROW_INSET: f32 = 12.0;
-const TEXT_INSET: f32 = 20.0;
-const ROW_HEIGHT: f32 = 28.0;
+/// Source-list geometry (points): rows inset from the panel's edges, 32 pt rows on 8 pt padding.
+const LIST_INSET: f32 = 8.0;
+const ROW_HEIGHT: f32 = 32.0;
+const ROW_PAD: f32 = 8.0;
+const ICON_LANE: f32 = 16.0;
+const GAP: f32 = 8.0;
+/// Book rows indent their labels to line up with the labels of icon rows.
+const BOOK_INDENT: f32 = 32.0;
+/// Chapter chips: 24 pt circles, 8 pt apart, seven to a row, indented 24 pt.
+const CHIP: f32 = 24.0;
+const CHIP_GAP: f32 = 8.0;
+const CHIP_INDENT: f32 = 24.0;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum StudyTab {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum StudyKind {
     Bookmarks,
     Highlights,
     Notes,
 }
 
 pub struct Sidebar {
+    /// Which testaments are expanded (OT, NT).
+    testaments: [bool; 2],
+    /// The book whose chapter grid is open.
     expanded: Option<BookId>,
-    query: String,
+    study_open: Option<StudyKind>,
+    pub query: String,
+    /// Whether the toolbar's search field has focus (arrow keys then move through results).
+    pub field_focused: bool,
     focus: bool,
     scope: Scope,
     results: Arc<Vec<u32>>,
@@ -36,16 +54,20 @@ pub struct Sidebar {
     elapsed: Duration,
     selected: usize,
     scroll_to_selected: bool,
-    study_tab: StudyTab,
-    /// The book last scrolled into view in the Books list.
+    /// The book last revealed (testament opened, scrolled into view) in the source list.
     revealed: Option<BookId>,
+    /// Chapters with highlights or notes, keyed by the study store's generation.
+    activity: (u64, HashSet<ChapterIdx>),
 }
 
 impl Sidebar {
     pub fn new(_tab: SidebarTab) -> Self {
         Self {
+            testaments: [false, false],
             expanded: None,
+            study_open: None,
             query: String::new(),
+            field_focused: false,
             focus: false,
             scope: Scope::All,
             results: Arc::new(Vec::new()),
@@ -53,8 +75,8 @@ impl Sidebar {
             elapsed: Duration::ZERO,
             selected: 0,
             scroll_to_selected: false,
-            study_tab: StudyTab::Bookmarks,
             revealed: None,
+            activity: (0, HashSet::new()),
         }
     }
 
@@ -65,6 +87,11 @@ impl Sidebar {
         }
     }
 
+    /// Whether the toolbar's search field should take focus this frame.
+    pub fn take_focus(&mut self) -> bool {
+        std::mem::take(&mut self.focus)
+    }
+
     pub fn invalidate_search(&mut self) {
         self.key = None;
     }
@@ -73,11 +100,14 @@ impl Sidebar {
         &self.query
     }
 
+    pub fn searching(&self) -> bool {
+        !self.query.trim().is_empty()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         ui: &mut Ui,
-        tab: &mut SidebarTab,
         library: &Library,
         study: &StudyStore,
         translation: &str,
@@ -86,34 +116,19 @@ impl Sidebar {
         location: (ChapterIdx, u8),
         actions: &mut Vec<Action>,
     ) {
-        ui.add_space(4.0);
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(ROW_INSET as i8, 0)).show(ui, |ui| {
-            let idx = match tab {
-                SidebarTab::Books => 0,
-                SidebarTab::Search => 1,
-                SidebarTab::Study => 2,
-            };
-            if let Some(i) = widgets::segmented(ui, &["Books", "Search", "Study"], idx) {
-                *tab = [SidebarTab::Books, SidebarTab::Search, SidebarTab::Study][i];
-                if *tab == SidebarTab::Search {
-                    self.focus = true;
-                }
-            }
-        });
-        ui.add_space(8.0);
-        match tab {
-            SidebarTab::Books => self.books(ui, library, translation, theme, location, actions),
-            SidebarTab::Search => {
-                self.search(ui, library, translation, whole_words, theme, location, actions)
-            }
-            SidebarTab::Study => self.study(ui, library, study, translation, theme, actions),
+        if self.searching() {
+            self.search(ui, library, translation, whole_words, theme, location, actions);
+        } else {
+            self.source_list(ui, library, study, translation, theme, location, actions);
         }
     }
 
-    fn books(
+    #[allow(clippy::too_many_arguments)]
+    fn source_list(
         &mut self,
         ui: &mut Ui,
         library: &Library,
+        study: &StudyStore,
         translation: &str,
         theme: Theme,
         location: (ChapterIdx, u8),
@@ -122,73 +137,224 @@ impl Sidebar {
         let p = theme.palette();
         let meta = library.get(translation).map(|e| e.meta.clone());
         let current_book = location.0.book();
-        ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            egui::Frame::NONE.inner_margin(egui::Margin::symmetric(ROW_INSET as i8, 0)).show(ui, |ui| {
-                for (title, range) in
-                    [("Old Testament", 0..FIRST_NT_BOOK.0), ("New Testament", FIRST_NT_BOOK.0..66)]
-                {
-                    ui.add_space(if range.start == 0 { 4.0 } else { 16.0 });
-                    ui.horizontal(|ui| {
-                        ui.add_space(TEXT_INSET - ROW_INSET);
-                        widgets::caption(ui, title);
-                    });
-                    ui.add_space(2.0);
-                    // Rows touch, like a source list's.
+        let reveal = self.revealed != Some(current_book);
+        if reveal {
+            self.revealed = Some(current_book);
+            self.testaments[usize::from(current_book >= FIRST_NT_BOOK)] = true;
+            self.expanded = Some(current_book);
+        }
+        if self.activity.0 != study.generation() {
+            let mut set = HashSet::new();
+            set.extend(study.highlights().into_iter().map(|(v, _)| v.chapter_idx()));
+            set.extend(study.notes().into_iter().map(|(v, _)| v.chapter_idx()));
+            self.activity = (study.generation(), set);
+        }
+        let (nh, nn, nb) = study.counts();
+        ScrollArea::vertical().auto_shrink(false).id_salt("source-list").show(ui, |ui| {
+            egui::Frame::NONE.inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 8 }).show(
+                ui,
+                |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    for b in range.map(BookId) {
-                        let name = meta
-                            .as_ref()
-                            .map(|m| m.book_short(b).to_string())
-                            .unwrap_or_else(|| b.name().into());
-                        let open = self.expanded == Some(b);
-                        let here = b == current_book;
-                        let (rect, resp) =
-                            ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
-                        let fill =
-                            if here { Some(p.accent_soft) } else { widgets::hover_fill(ui, &resp, p, open) };
-                        if let Some(fill) = fill {
-                            ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
-                        }
-                        let pad = TEXT_INSET - ROW_INSET;
-                        ui.painter().text(
-                            rect.left_center() + vec2(pad, 0.0),
-                            egui::Align2::LEFT_CENTER,
-                            &name,
-                            if here { theme::ui_medium(13.5) } else { theme::ui_font(13.5) },
-                            p.ink,
+                    section(ui, p, "Study", true);
+                    for (kind, label, n, icon) in [
+                        (StudyKind::Bookmarks, "Bookmarks", nb, icon_bookmark as IconFn),
+                        (StudyKind::Highlights, "Highlights", nh, crate::icons::highlighter),
+                        (StudyKind::Notes, "Notes", nn, crate::icons::note),
+                    ] {
+                        let open = self.study_open == Some(kind);
+                        let r = row(
+                            ui,
+                            p,
+                            &Row { icon: Some(icon), label, count: Some(n.to_string()), ..Row::default() },
                         );
-                        ui.painter().text(
-                            rect.right_center() - vec2(pad, 0.0),
-                            egui::Align2::RIGHT_CENTER,
-                            b.chapters().to_string(),
-                            theme::ui_font(11.5),
-                            if here { p.ink_2 } else { p.ink_3 },
-                        );
-                        if here && self.revealed != Some(b) {
-                            self.revealed = Some(b);
-                            resp.scroll_to_me(Some(Align::Center));
-                        }
-                        if resp.clicked() {
-                            if b.chapters() == 1 {
-                                actions.push(Action::Jump {
-                                    chapter: b.first_chapter(),
-                                    verse: None,
-                                    flash: false,
-                                });
-                            } else {
-                                self.expanded = if open { None } else { Some(b) };
-                            }
+                        if r.clicked() {
+                            self.study_open = if open { None } else { Some(kind) };
                         }
                         if open {
-                            ui.add_space(4.0);
-                            chapter_grid(ui, b, location.0, theme, actions);
-                            ui.add_space(8.0);
+                            self.study_items(ui, library, study, translation, theme, kind, actions);
                         }
                     }
-                }
-                ui.add_space(12.0);
-            });
+
+                    section(ui, p, "Books", false);
+                    for (t, (label, range)) in
+                        [("Old Testament", 0..FIRST_NT_BOOK.0), ("New Testament", FIRST_NT_BOOK.0..66)]
+                            .into_iter()
+                            .enumerate()
+                    {
+                        let open = self.testaments[t];
+                        let r = row(
+                            ui,
+                            p,
+                            &Row {
+                                icon: Some(crate::icons::book),
+                                label,
+                                count: Some(range.len().to_string()),
+                                disclosure: Some(open),
+                                ..Row::default()
+                            },
+                        );
+                        if r.clicked() {
+                            self.testaments[t] = !open;
+                        }
+                        if !open {
+                            continue;
+                        }
+                        for b in range.map(BookId) {
+                            let name = meta
+                                .as_ref()
+                                .map(|m| m.book_short(b).to_string())
+                                .unwrap_or_else(|| b.name().into());
+                            let here = b == current_book;
+                            let resp = row(
+                                ui,
+                                p,
+                                &Row {
+                                    label: &name,
+                                    indent: BOOK_INDENT - ROW_PAD,
+                                    count: here.then(|| b.chapters().to_string()),
+                                    selected: here,
+                                    ..Row::default()
+                                },
+                            );
+                            if here && reveal {
+                                resp.scroll_to_me(Some(Align::Center));
+                            }
+                            if resp.clicked() {
+                                if b.chapters() == 1 {
+                                    actions.push(Action::Jump {
+                                        chapter: b.first_chapter(),
+                                        verse: None,
+                                        flash: false,
+                                    });
+                                } else {
+                                    self.expanded = if self.expanded == Some(b) { None } else { Some(b) };
+                                }
+                            }
+                            if self.expanded == Some(b) && b.chapters() > 1 {
+                                chapter_grid(ui, p, b, location.0, &self.activity.1, actions);
+                            }
+                        }
+                    }
+                },
+            );
         });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn study_items(
+        &mut self,
+        ui: &mut Ui,
+        library: &Library,
+        study: &StudyStore,
+        translation: &str,
+        theme: Theme,
+        kind: StudyKind,
+        actions: &mut Vec<Action>,
+    ) {
+        let p = theme.palette();
+        let t = library.load(translation).ok();
+        let items: Vec<(VerseRef, Option<Color32>, String)> = match kind {
+            StudyKind::Bookmarks => {
+                study.bookmarks().into_iter().map(|(v, b)| (v, None, b.label.clone())).collect()
+            }
+            StudyKind::Highlights => {
+                study.highlights().into_iter().map(|(v, c)| (v, Some(p.swatch(c)), String::new())).collect()
+            }
+            StudyKind::Notes => study.notes().into_iter().map(|(v, n)| (v, None, n.body.clone())).collect(),
+        };
+        if items.is_empty() {
+            let hint = match kind {
+                StudyKind::Bookmarks => "No bookmarks yet. Select a verse and press B (or ⌘D).",
+                StudyKind::Highlights => "No highlights yet. Select a verse and press 1–6.",
+                StudyKind::Notes => "No notes yet. Select a verse and press N.",
+            };
+            egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
+                ui.label(egui::RichText::new(hint).font(text::SMALL.font()).color(p.ink_2));
+            });
+            return;
+        }
+        for (v, swatch, extra) in items {
+            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 72.0), Sense::click());
+            if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+                ui.painter().rect_filled(rect, 10.0, fill);
+            }
+            let inner = rect.shrink2(vec2(12.0, 10.0));
+            let mut x = inner.left();
+            if let Some(c) = swatch {
+                let bar = Rect::from_min_size(pos2(x, inner.top()), vec2(3.0, inner.height()));
+                ui.painter().rect_filled(bar, 1.5, c);
+                x += 12.0;
+            }
+            let name = t
+                .as_ref()
+                .map(|t| t.meta.ref_name(v.book).to_string())
+                .unwrap_or_else(|| v.book.ref_name().into());
+            ui.painter().text(
+                pos2(x, inner.top()),
+                Align2::LEFT_TOP,
+                format!("{name} {}:{}", v.chapter, v.verse),
+                text::UI_STRONG.font(),
+                p.ink,
+            );
+            if let Some(t) = &t {
+                ui.painter().text(
+                    pos2(inner.right(), inner.top() + 2.0),
+                    Align2::RIGHT_TOP,
+                    &t.meta.abbrev,
+                    theme::ui_medium(11.0),
+                    p.ink_3,
+                );
+            }
+            let body = if extra.is_empty() {
+                t.as_ref().and_then(|t| t.find(v)).map(|v| v.plain_text()).unwrap_or_default()
+            } else {
+                extra
+            };
+            let mut job = LayoutJob::single_section(
+                body.replace('\n', " "),
+                TextFormat {
+                    font_id: FontId::new(text::SNIPPET_SM.size, theme::family(theme::SERIF)),
+                    color: p.ink_2,
+                    line_height: Some(text::SNIPPET_SM.line_height),
+                    ..Default::default()
+                },
+            );
+            job.wrap = TextWrapping {
+                max_width: inner.right() - x,
+                max_rows: 2,
+                break_anywhere: false,
+                overflow_character: Some('…'),
+            };
+            let g = ui.painter().layout_job(job);
+            ui.painter().galley(pos2(x, inner.top() + 22.0), g, p.ink_2);
+            if resp.clicked() {
+                actions.push(Action::Jump { chapter: v.chapter_idx(), verse: Some(v.verse), flash: true });
+            }
+            resp.context_menu(|ui| {
+                let (label, a) = match kind {
+                    StudyKind::Bookmarks => ("Remove bookmark", Action::RemoveBookmark(v)),
+                    StudyKind::Highlights => ("Remove highlight", Action::RemoveHighlight(v)),
+                    StudyKind::Notes => ("Delete note", Action::RemoveNote(v)),
+                };
+                if ui.button(label).clicked() {
+                    actions.push(a);
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button("Export as Markdown…").clicked() {
+                    actions.push(Action::Export(ExportKind::Markdown));
+                    ui.close();
+                }
+                if ui.button("Export as JSON…").clicked() {
+                    actions.push(Action::Export(ExportKind::Json));
+                    ui.close();
+                }
+                if ui.button("Import…").clicked() {
+                    actions.push(Action::ImportStudy);
+                    ui.close();
+                }
+            });
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -210,65 +376,54 @@ impl Sidebar {
             return;
         };
         let mut jump_to: Option<u32> = None;
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(ROW_INSET as i8, 0)).show(ui, |ui| {
-            let edit = egui::TextEdit::singleline(&mut self.query)
-                .hint_text("Search the Bible")
-                .desired_width(f32::INFINITY)
-                .margin(egui::Margin { left: 26, right: 8, top: 6, bottom: 6 });
-            let resp = ui.add(edit);
-            let glass = Rect::from_center_size(
-                egui::pos2(resp.rect.left() + 14.0, resp.rect.center().y),
-                vec2(14.0, 14.0),
-            );
-            crate::icons::search(ui.painter(), glass, p.ink_2);
-            if self.focus {
-                resp.request_focus();
-                self.focus = false;
+        // The query lives in the toolbar's field; arrow keys and return drive the results.
+        let (down, up, enter) = if self.field_focused {
+            ui.input_mut(|i| {
+                (
+                    i.consume_key(egui::Modifiers::NONE, Key::ArrowDown),
+                    i.consume_key(egui::Modifiers::NONE, Key::ArrowUp),
+                    i.key_pressed(Key::Enter),
+                )
+            })
+        } else {
+            (false, false, false)
+        };
+        if down && !self.results.is_empty() {
+            self.selected = (self.selected + 1).min(self.results.len() - 1);
+            self.scroll_to_selected = true;
+            jump_to = self.results.get(self.selected).copied();
+        }
+        if up {
+            self.selected = self.selected.saturating_sub(1);
+            self.scroll_to_selected = true;
+            jump_to = self.results.get(self.selected).copied();
+        }
+        if enter {
+            jump_to = self.results.get(self.selected).copied();
+        }
+        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| {
+            let idx = match self.scope {
+                Scope::OldTestament => 1,
+                Scope::NewTestament => 2,
+                _ => 0,
+            };
+            if let Some(i) = widgets::segmented(ui, p, &["Bible", "Old Testament", "New Testament"], idx) {
+                self.scope = [Scope::All, Scope::OldTestament, Scope::NewTestament][i];
             }
-            if resp.has_focus() {
-                let (down, up, enter, esc) = ui.input_mut(|i| {
-                    (
-                        i.consume_key(egui::Modifiers::NONE, Key::ArrowDown),
-                        i.consume_key(egui::Modifiers::NONE, Key::ArrowUp),
-                        i.key_pressed(Key::Enter),
-                        i.consume_key(egui::Modifiers::NONE, Key::Escape),
-                    )
-                });
-                if down && !self.results.is_empty() {
-                    self.selected = (self.selected + 1).min(self.results.len() - 1);
-                    self.scroll_to_selected = true;
-                }
-                if up {
-                    self.selected = self.selected.saturating_sub(1);
-                    self.scroll_to_selected = true;
-                }
-                if enter {
-                    jump_to = self.results.get(self.selected).copied();
-                }
-                if esc {
-                    resp.surrender_focus();
-                }
-            }
-            if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                jump_to = self.results.get(self.selected).copied();
-            }
-            ui.add_space(4.0);
+            ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let book = location.0.book();
                 let label = |s: Scope| match s {
-                    Scope::All => "Whole Bible".to_string(),
-                    Scope::OldTestament => "Old Testament".into(),
-                    Scope::NewTestament => "New Testament".into(),
-                    Scope::Book(b) => b.name().into(),
+                    Scope::Book(b) => b.name().to_string(),
+                    _ => "All books".into(),
                 };
-                egui::ComboBox::from_id_salt("scope")
+                egui::ComboBox::from_id_salt("scope-book")
                     .selected_text(label(self.scope))
                     .width(150.0)
                     .icon(widgets::combo_chevron)
                     .show_ui(ui, |ui| {
-                        for s in [Scope::All, Scope::OldTestament, Scope::NewTestament, Scope::Book(book)] {
-                            ui.selectable_value(&mut self.scope, s, label(s));
-                        }
+                        ui.selectable_value(&mut self.scope, Scope::All, "All books");
+                        ui.selectable_value(&mut self.scope, Scope::Book(book), book.name());
                         ui.separator();
                         ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                             for b in BookId::all() {
@@ -290,24 +445,20 @@ impl Sidebar {
             self.selected = 0;
         }
         let query = Query::parse(&self.query, *whole_words);
-        ui.add_space(6.0);
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(TEXT_INSET as i8, 0)).show(ui, |ui| {
-            let status = if self.query.trim().is_empty() {
-                "Type to search · \"exact phrase\" · -exclude".to_string()
-            } else {
-                let n = self.results.len();
-                format!(
-                    "{} {} · {:.2} ms · {}",
-                    group(n),
-                    if n == 1 { "verse" } else { "verses" },
-                    self.elapsed.as_secs_f64() * 1000.0,
-                    t.meta.abbrev
-                )
-            };
-            ui.label(egui::RichText::new(status).font(theme::ui_font(11.5)).color(p.ink_2));
+        ui.add_space(8.0);
+        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(16, 0)).show(ui, |ui| {
+            let n = self.results.len();
+            let status = format!(
+                "{} {} · {:.2} ms · {}",
+                group(n),
+                if n == 1 { "verse" } else { "verses" },
+                self.elapsed.as_secs_f64() * 1000.0,
+                t.meta.abbrev
+            );
+            ui.label(egui::RichText::new(status).font(text::SMALL.font()).color(p.ink_2));
         });
         ui.add_space(4.0);
-        let row_h = 66.0;
+        let row_h = 76.0;
         let results = self.results.clone();
         let mut sa = ScrollArea::vertical().auto_shrink(false).id_salt("results");
         if self.scroll_to_selected {
@@ -324,24 +475,34 @@ impl Sidebar {
                 let vi = results[i];
                 let Some(v) = t.verse_view(vi) else { continue };
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
-                let fill = widgets::hover_fill(ui, &resp, p, i == self.selected);
-                if let Some(fill) = fill {
-                    ui.painter().rect_filled(rect.shrink2(vec2(ROW_INSET, 2.0)), CornerRadius::same(8), fill);
+                let item = rect.shrink2(vec2(LIST_INSET, 2.0));
+                let selected = i == self.selected;
+                if selected {
+                    ui.painter().rect_filled(item, 10.0, p.accent_soft);
+                } else if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+                    ui.painter().rect_filled(item, 10.0, fill);
                 }
-                let inner = rect.shrink2(vec2(TEXT_INSET, 8.0));
+                let inner = item.shrink2(vec2(12.0, 10.0));
                 let reference =
                     format!("{} {}:{}", t.meta.ref_name(v.chapter.book()), v.chapter.chapter(), v.number);
                 ui.painter().text(
                     inner.left_top(),
-                    egui::Align2::LEFT_TOP,
+                    Align2::LEFT_TOP,
                     reference,
-                    theme::ui_medium(12.0),
-                    p.accent,
+                    text::UI_STRONG.font(),
+                    if selected { p.accent } else { p.ink },
+                );
+                ui.painter().text(
+                    inner.right_top() + vec2(0.0, 2.0),
+                    Align2::RIGHT_TOP,
+                    &t.meta.abbrev,
+                    theme::ui_medium(11.0),
+                    p.ink_3,
                 );
                 let text = v.plain_text();
                 let job = snippet_job(&text, &query, inner.width(), theme);
                 let g = ui.painter().layout_job(job);
-                ui.painter().galley(inner.left_top() + vec2(0.0, 18.0), g, p.ink);
+                ui.painter().galley(inner.left_top() + vec2(0.0, 22.0), g, p.ink_2);
                 if resp.clicked() {
                     self.selected = i;
                     jump_to = Some(vi);
@@ -355,143 +516,130 @@ impl Sidebar {
             actions.push(Action::Jump { chapter: v.chapter, verse: Some(v.number), flash: true });
         }
     }
+}
 
-    fn study(
-        &mut self,
-        ui: &mut Ui,
-        library: &Library,
-        study: &StudyStore,
-        translation: &str,
-        theme: Theme,
-        actions: &mut Vec<Action>,
-    ) {
-        let p = theme.palette();
-        let t = library.load(translation).ok();
-        let (nh, nn, nb) = study.counts();
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(ROW_INSET as i8, 0)).show(ui, |ui| {
-            let labels = [format!("Bookmarks {nb}"), format!("Highlights {nh}"), format!("Notes {nn}")];
-            let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-            let idx = match self.study_tab {
-                StudyTab::Bookmarks => 0,
-                StudyTab::Highlights => 1,
-                StudyTab::Notes => 2,
-            };
-            if let Some(i) = widgets::segmented(ui, &refs, idx) {
-                self.study_tab = [StudyTab::Bookmarks, StudyTab::Highlights, StudyTab::Notes][i];
-            }
-        });
-        ui.add_space(6.0);
-        let items: Vec<(VerseRef, Option<egui::Color32>, String)> = match self.study_tab {
-            StudyTab::Bookmarks => {
-                study.bookmarks().into_iter().map(|(v, b)| (v, None, b.label.clone())).collect()
-            }
-            StudyTab::Highlights => {
-                study.highlights().into_iter().map(|(v, c)| (v, Some(p.swatch(c)), String::new())).collect()
-            }
-            StudyTab::Notes => study.notes().into_iter().map(|(v, n)| (v, None, n.body.clone())).collect(),
+type IconFn = fn(&Painter, Rect, Color32);
+
+fn icon_bookmark(p: &Painter, r: Rect, c: Color32) {
+    crate::icons::bookmark(p, r, c, false);
+}
+
+/// A source-list row.
+#[derive(Default)]
+struct Row<'a> {
+    icon: Option<IconFn>,
+    label: &'a str,
+    /// Extra space before the label (book rows have no icon but line up with icon rows).
+    indent: f32,
+    count: Option<String>,
+    /// A disclosure chevron: `Some(open)`.
+    disclosure: Option<bool>,
+    selected: bool,
+}
+
+fn row(ui: &mut Ui, p: &Palette, r: &Row<'_>) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
+    if r.selected {
+        ui.painter().rect_filled(rect, theme::radius::SM, p.accent_soft);
+    } else if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+        ui.painter().rect_filled(rect, theme::radius::SM, fill);
+    }
+    let painter = ui.painter();
+    let cy = rect.center().y;
+    let mut x = rect.left() + ROW_PAD + r.indent;
+    if let Some(icon) = r.icon {
+        icon(
+            painter,
+            Rect::from_min_size(pos2(x, cy - ICON_LANE / 2.0), vec2(ICON_LANE, ICON_LANE)),
+            p.accent,
+        );
+        x += ICON_LANE + GAP;
+    }
+    let (font, color) =
+        if r.selected { (text::UI_STRONG.font(), p.accent) } else { (text::UI.font(), p.ink) };
+    painter.text(pos2(x, cy), Align2::LEFT_CENTER, r.label, font, color);
+    let mut right = rect.right() - ROW_PAD;
+    if let Some(open) = r.disclosure {
+        let lane =
+            Rect::from_min_size(pos2(right - ICON_LANE, cy - ICON_LANE / 2.0), vec2(ICON_LANE, ICON_LANE));
+        let chevron = Rect::from_center_size(lane.center(), vec2(12.0, 12.0));
+        if open {
+            crate::icons::chevron_down(painter, chevron, p.ink_3);
+        } else {
+            crate::icons::disclosure(painter, chevron, p.ink_3);
+        }
+        right = lane.left() - GAP;
+    }
+    if let Some(count) = &r.count {
+        let (font, color) = if r.selected {
+            (theme::ui_medium(text::SMALL.size), p.accent)
+        } else {
+            (text::SMALL.font(), p.ink_3)
         };
-        let footer_h = 44.0;
-        let list_h = (ui.available_height() - footer_h).max(80.0);
-        ScrollArea::vertical().auto_shrink(false).max_height(list_h).id_salt("study-list").show(ui, |ui| {
-            if items.is_empty() {
-                egui::Frame::NONE.inner_margin(egui::Margin::symmetric(TEXT_INSET as i8, 12)).show(
-                    ui,
-                    |ui| {
-                        let hint = match self.study_tab {
-                            StudyTab::Bookmarks => "No bookmarks yet. Select a verse and press B (or ⌘D).",
-                            StudyTab::Highlights => "No highlights yet. Select a verse and press 1–6.",
-                            StudyTab::Notes => "No notes yet. Select a verse and press N.",
-                        };
-                        ui.label(egui::RichText::new(hint).color(p.ink_2));
-                    },
-                );
-            }
-            for (v, swatch, extra) in items {
-                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
-                if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
-                    ui.painter().rect_filled(rect.shrink2(vec2(ROW_INSET, 2.0)), CornerRadius::same(8), fill);
-                }
-                let inner = rect.shrink2(vec2(TEXT_INSET, 8.0));
-                let mut x = inner.left();
-                if let Some(c) = swatch {
-                    ui.painter().circle_filled(egui::pos2(x + 5.0, inner.top() + 8.0), 5.0, c);
-                    x += 16.0;
-                }
-                let name = t
-                    .as_ref()
-                    .map(|t| t.meta.ref_name(v.book).to_string())
-                    .unwrap_or_else(|| v.book.ref_name().into());
-                ui.painter().text(
-                    egui::pos2(x, inner.top()),
-                    egui::Align2::LEFT_TOP,
-                    format!("{name} {}:{}", v.chapter, v.verse),
-                    theme::ui_medium(12.0),
-                    p.accent,
-                );
-                let body = if extra.is_empty() {
-                    t.as_ref().and_then(|t| t.find(v)).map(|v| v.plain_text()).unwrap_or_default()
-                } else {
-                    extra
-                };
-                let mut job = LayoutJob::single_section(
-                    body.replace('\n', " "),
-                    TextFormat {
-                        font_id: FontId::new(13.0, theme::family(theme::SERIF)),
-                        color: p.ink,
-                        ..Default::default()
-                    },
-                );
-                job.wrap = TextWrapping {
-                    max_width: inner.width(),
-                    max_rows: 2,
-                    break_anywhere: false,
-                    overflow_character: Some('…'),
-                };
-                let g = ui.painter().layout_job(job);
-                ui.painter().galley(inner.left_top() + vec2(0.0, 18.0), g, p.ink);
-                // Remove button on hover.
-                let del = Rect::from_center_size(inner.right_top() + vec2(-6.0, 8.0), vec2(18.0, 18.0));
-                if resp.hovered() {
-                    crate::icons::close(ui.painter(), del, p.ink_2);
-                }
-                let pointer_on_del = ui.input(|i| i.pointer.hover_pos()).is_some_and(|pt| del.contains(pt));
-                if resp.clicked() {
-                    if pointer_on_del {
-                        actions.push(match self.study_tab {
-                            StudyTab::Bookmarks => Action::RemoveBookmark(v),
-                            StudyTab::Highlights => Action::RemoveHighlight(v),
-                            StudyTab::Notes => Action::RemoveNote(v),
-                        });
-                    } else {
-                        actions.push(Action::Jump {
-                            chapter: v.chapter_idx(),
-                            verse: Some(v.verse),
-                            flash: true,
-                        });
-                    }
-                }
-            }
-        });
-        // Footer: a hairline, then export and import.
-        let y = ui.cursor().top() + 0.5;
-        ui.painter().hline(ui.max_rect().x_range(), y, egui::Stroke::new(1.0, p.separator));
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.add_space(ROW_INSET);
-            ui.menu_button("Export", |ui| {
-                if ui.button("Markdown…").clicked() {
-                    actions.push(Action::Export(ExportKind::Markdown));
-                    ui.close();
-                }
-                if ui.button("JSON…").clicked() {
-                    actions.push(Action::Export(ExportKind::Json));
-                    ui.close();
-                }
-            });
-            if ui.button("Import…").on_hover_text("Merge a bible-rs JSON export").clicked() {
-                actions.push(Action::ImportStudy);
-            }
-        });
+        painter.text(pos2(right, cy), Align2::RIGHT_CENTER, count, font, color);
+    }
+    resp
+}
+
+/// A section header: 11 pt semibold tertiary text, 8 pt below the previous row (16 for later
+/// sections).
+fn section(ui: &mut Ui, p: &Palette, label: &str, first: bool) {
+    let (top, h) = if first { (8.0, 28.0) } else { (16.0, 36.0) };
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+    let y = rect.top() + top + (h - top) / 2.0;
+    ui.painter().text(
+        pos2(rect.left() + ROW_PAD, y),
+        Align2::LEFT_CENTER,
+        label,
+        text::CAPTION.font(),
+        p.ink_3,
+    );
+}
+
+/// The open book's chapters: 24 pt chips, the current one solid accent; a dot marks chapters
+/// with highlights or notes.
+fn chapter_grid(
+    ui: &mut Ui,
+    p: &Palette,
+    book: BookId,
+    current: ChapterIdx,
+    activity: &HashSet<ChapterIdx>,
+    actions: &mut Vec<Action>,
+) {
+    let n = book.chapters() as usize;
+    let cols = 7;
+    let rows = n.div_ceil(cols);
+    let h = 8.0 + rows as f32 * CHIP + (rows.saturating_sub(1)) as f32 * 4.0 + 8.0;
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+    for i in 0..n {
+        let (r, c) = (i / cols, i % cols);
+        let chip = Rect::from_min_size(
+            pos2(
+                rect.left() + CHIP_INDENT + c as f32 * (CHIP + CHIP_GAP),
+                rect.top() + 8.0 + r as f32 * (CHIP + 4.0),
+            ),
+            vec2(CHIP, CHIP),
+        );
+        let idx = ChapterIdx::new(book, (i + 1) as u8).unwrap();
+        let resp = ui.interact(chip, ui.id().with(("chapter", book.0, i)), Sense::click());
+        let here = idx == current;
+        if here {
+            ui.painter().circle_filled(chip.center(), CHIP / 2.0, p.accent);
+        } else if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+            ui.painter().circle_filled(chip.center(), CHIP / 2.0, fill);
+        }
+        let (font, color) = if here {
+            (theme::ui_semibold(text::SMALL.size), p.on_accent)
+        } else {
+            (text::SMALL.font(), p.ink_2)
+        };
+        ui.painter().text(chip.center(), Align2::CENTER_CENTER, (i + 1).to_string(), font, color);
+        if !here && activity.contains(&idx) {
+            ui.painter().circle_filled(pos2(chip.center().x, chip.bottom() + 1.0), 2.0, p.accent);
+        }
+        if resp.clicked() {
+            actions.push(Action::Jump { chapter: idx, verse: None, flash: false });
+        }
     }
 }
 
@@ -511,12 +659,14 @@ fn group(n: usize) -> String {
 pub fn snippet_job(text: &str, query: &Query, width: f32, theme: Theme) -> LayoutJob {
     let p = theme.palette();
     let base = TextFormat {
-        font_id: FontId::new(13.5, theme::family(theme::SERIF)),
-        color: p.ink,
+        font_id: FontId::new(text::SNIPPET_SM.size, theme::family(theme::SERIF)),
+        color: p.ink_2,
+        line_height: Some(text::SNIPPET_SM.line_height),
         ..Default::default()
     };
     let mut hit = base.clone();
     hit.background = p.highlights[0];
+    hit.color = p.ink;
     // Merge hits separated only by spaces so "love one another" reads as one highlight.
     let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
     for r in query.match_ranges(text) {
@@ -525,10 +675,10 @@ pub fn snippet_job(text: &str, query: &Query, width: f32, theme: Theme) -> Layou
             _ => ranges.push(r),
         }
     }
-    // Start the snippet a little before the first hit so it is visible in two lines.
+    // Start the snippet a few words before the first hit so it is visible in two lines.
     let start = ranges.first().map_or(0, |r| {
-        if r.start > 90 {
-            let mut s = r.start - 60;
+        if r.start > 50 {
+            let mut s = r.start - 30;
             while !text.is_char_boundary(s) {
                 s -= 1;
             }
@@ -558,45 +708,6 @@ pub fn snippet_job(text: &str, query: &Query, width: f32, theme: Theme) -> Layou
         };
     job.halign = Align::LEFT;
     job
-}
-
-fn chapter_grid(ui: &mut Ui, book: BookId, current: ChapterIdx, theme: Theme, actions: &mut Vec<Action>) {
-    let p = theme.palette();
-    let n = book.chapters() as usize;
-    let gap = 4.0;
-    // Columns of about 36 pt that span the row exactly, so the grid lines up with the rows.
-    let width = ui.available_width();
-    let cols = ((width + gap) / 40.0).floor().max(4.0) as usize;
-    let size = vec2((width - gap * (cols - 1) as f32) / cols as f32, ROW_HEIGHT);
-    for row in 0..n.div_ceil(cols) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            for k in 0..cols {
-                let ch = row * cols + k + 1;
-                if ch > n {
-                    break;
-                }
-                let idx = ChapterIdx::new(book, ch as u8).unwrap();
-                let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-                let here = idx == current;
-                let fill = if here { Some(p.accent) } else { widgets::hover_fill(ui, &resp, p, false) };
-                if let Some(fill) = fill {
-                    ui.painter().rect_filled(r, CornerRadius::same(6), fill);
-                }
-                ui.painter().text(
-                    r.center(),
-                    egui::Align2::CENTER_CENTER,
-                    ch.to_string(),
-                    if here { theme::ui_medium(12.5) } else { theme::ui_font(12.5) },
-                    if here { p.paper } else { p.ink },
-                );
-                if resp.clicked() {
-                    actions.push(Action::Jump { chapter: idx, verse: None, flash: false });
-                }
-            }
-        });
-        ui.add_space(gap - ui.spacing().item_spacing.y);
-    }
 }
 
 /// Popup under the toolbar's location button: books, then chapters.
@@ -662,7 +773,7 @@ pub fn book_picker_popup(
                     if ui.button("‹ Books").clicked() {
                         ui.data_mut(|d| d.remove::<BookId>(id));
                     }
-                    ui.label(egui::RichText::new(b.name()).font(theme::ui_medium(14.0)));
+                    ui.label(egui::RichText::new(b.name()).font(text::UI_TITLE.font()));
                 });
                 ui.add_space(4.0);
                 let n = b.chapters() as usize;

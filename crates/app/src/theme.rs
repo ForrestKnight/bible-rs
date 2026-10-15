@@ -225,8 +225,11 @@ pub mod metrics {
     pub const ICON_SM: f32 = icon::ROW;
     pub const ICON_STROKE: f32 = icon::STROKE_20;
     pub const ICON_STROKE_SM: f32 = icon::STROKE_16;
-    /// From the traffic lights (or the sidebar) to the first toolbar control, and between groups.
+    /// Between toolbar groups, and from the sidebar to the first toolbar control.
     pub const GROUP_GAP: f32 = titlebar::GROUP_GAP;
+    /// From the traffic lights to the first toolbar control: their group's own 8 pt padding plus
+    /// the group gap.
+    pub const AFTER_TRAFFIC_LIGHTS: f32 = 2.0 * titlebar::GROUP_GAP;
     /// Toolbar margins at the window's edges without traffic lights.
     pub const LEADING_INSET: f32 = titlebar::LEADING_INSET_SIDEBAR_HIDDEN;
     pub const TRAILING_INSET: f32 = titlebar::TRAILING_INSET;
@@ -356,7 +359,8 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
         v.selection.stroke = Stroke::new(1.0, p.ink);
         v.text_cursor.stroke = Stroke::new(1.5, p.accent);
         v.override_text_color = Some(p.ink);
-        v.weak_text_color = Some(p.ink_2);
+        // Placeholders, captions and menu shortcuts are tertiary ink in the design.
+        v.weak_text_color = Some(p.ink_3);
         v.indent_has_left_vline = false;
         let corner = CornerRadius::same(radius::SM as u8);
         let w = &mut v.widgets;

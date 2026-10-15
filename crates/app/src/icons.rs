@@ -1,133 +1,238 @@
-//! Small vector icons painted with egui primitives (no icon font needed).
+//! Line icons painted with egui primitives (no icon font needed).
 //!
-//! Each icon is drawn on a 16 × 16 grid scaled to fit its box, with one stroke weight
-//! ([`metrics::ICON_STROKE`]) and round line ends. Lines sit on quarter points so that, in the
-//! toolbar's 16 pt box, a 1.5 pt stroke covers whole pixels on a Retina display.
+//! The geometry is the design's icon set (SF-Symbols-like, see `ds-05-icons` in the Paper file):
+//! a 20 × 20 grid with a 16 pt live area, 1.5-unit strokes with round caps and joins, copied
+//! from the design's SVGs. An icon scales with its box, stroke included, exactly as the SVGs
+//! do: 20 pt in the toolbar, 16 pt in rows and menus. A few small glyphs (disclosure chevrons)
+//! use their own 12-unit grid.
 
-use eframe::egui::{Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, pos2, vec2};
+use std::f32::consts::{FRAC_PI_2, PI};
 
-use crate::theme::metrics;
+use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, vec2};
 
-/// A 16 × 16 design grid mapped onto the centre of a box.
-struct Grid {
+/// Stroke width in grid units.
+const STROKE: f32 = 1.5;
+
+/// An `units`-square design grid mapped onto the centre of a box.
+struct Grid<'a> {
+    painter: &'a Painter,
     origin: Pos2,
     scale: f32,
+    color: Color32,
+    width: f32,
 }
 
-impl Grid {
-    fn new(r: Rect) -> Self {
-        let scale = r.width().min(r.height()) / 16.0;
-        Self { origin: r.center() - vec2(8.0, 8.0) * scale, scale }
+impl<'a> Grid<'a> {
+    fn new(painter: &'a Painter, r: Rect, color: Color32) -> Self {
+        Self::with(painter, r, color, 20.0, STROKE)
+    }
+
+    fn with(painter: &'a Painter, r: Rect, color: Color32, units: f32, stroke: f32) -> Self {
+        let scale = r.width().min(r.height()) / units;
+        Self {
+            painter,
+            origin: r.center() - vec2(units, units) * (scale / 2.0),
+            scale,
+            color,
+            width: stroke * scale,
+        }
     }
 
     fn p(&self, x: f32, y: f32) -> Pos2 {
         self.origin + vec2(x, y) * self.scale
     }
 
-    fn rect(&self, x0: f32, y0: f32, x1: f32, y1: f32) -> Rect {
-        Rect::from_min_max(self.p(x0, y0), self.p(x1, y1))
+    fn stroke(&self) -> Stroke {
+        Stroke::new(self.width, self.color)
     }
-}
 
-fn stroke(c: Color32) -> Stroke {
-    Stroke::new(metrics::ICON_STROKE, c)
-}
-
-/// An open path with round ends.
-fn path(p: &Painter, pts: Vec<Pos2>, c: Color32) {
-    let r = metrics::ICON_STROKE / 2.0;
-    p.circle_filled(pts[0], r, c);
-    p.circle_filled(pts[pts.len() - 1], r, c);
-    p.add(Shape::line(pts, stroke(c)));
-}
-
-/// A rounded rectangle outline, the stroke centred on the rectangle's edge.
-fn frame(p: &Painter, r: Rect, radius: f32, c: Color32) {
-    p.rect_stroke(r, CornerRadius::same(radius.round() as u8), stroke(c), StrokeKind::Middle);
-}
-
-pub fn bookmark(p: &Painter, r: Rect, c: Color32, filled: bool) {
-    let pts = vec![
-        r.left_top(),
-        r.right_top(),
-        r.right_bottom(),
-        pos2(r.center().x, r.bottom() - r.height() * 0.28),
-        r.left_bottom(),
-    ];
-    if filled {
-        p.add(Shape::convex_polygon(pts, c, Stroke::NONE));
-    } else {
-        p.add(Shape::closed_line(pts, stroke(c)));
+    /// An open polyline with round caps and joins.
+    fn line(&self, pts: &[(f32, f32)]) {
+        let pts: Vec<Pos2> = pts.iter().map(|&(x, y)| self.p(x, y)).collect();
+        self.polyline(pts, false);
     }
-}
 
-pub fn note(p: &Painter, r: Rect, c: Color32) {
-    let g = Grid::new(r);
-    frame(p, g.rect(2.75, 1.75, 13.25, 14.25), 2.0 * g.scale, c);
-    for (y, x1) in [(5.75, 10.75), (8.75, 10.75), (11.75, 8.25)] {
-        path(p, vec![g.p(5.25, y), g.p(x1, y)], c);
+    fn polyline(&self, pts: Vec<Pos2>, closed: bool) {
+        let r = self.width / 2.0;
+        for (i, q) in pts.iter().enumerate() {
+            // Caps, and joins at corners (a miter would poke out at sharp angles).
+            if !closed && (i == 0 || i == pts.len() - 1) || pts.len() <= 8 {
+                self.painter.circle_filled(*q, r, self.color);
+            }
+        }
+        if closed {
+            self.painter.add(Shape::closed_line(pts, self.stroke()));
+        } else {
+            self.painter.add(Shape::line(pts, self.stroke()));
+        }
     }
-}
 
-pub fn chevron_left(p: &Painter, r: Rect, c: Color32) {
-    let g = Grid::new(r);
-    path(p, vec![g.p(10.25, 2.75), g.p(5.25, 8.0), g.p(10.25, 13.25)], c);
-}
+    fn closed(&self, pts: &[(f32, f32)]) {
+        let pts: Vec<Pos2> = pts.iter().map(|&(x, y)| self.p(x, y)).collect();
+        self.polyline(pts, true);
+    }
 
-pub fn chevron_right(p: &Painter, r: Rect, c: Color32) {
-    let g = Grid::new(r);
-    path(p, vec![g.p(5.75, 2.75), g.p(10.75, 8.0), g.p(5.75, 13.25)], c);
-}
+    fn fill(&self, pts: &[(f32, f32)]) {
+        let pts: Vec<Pos2> = pts.iter().map(|&(x, y)| self.p(x, y)).collect();
+        self.painter.add(Shape::convex_polygon(pts, self.color, Stroke::NONE));
+    }
 
-pub fn chevron_down(p: &Painter, r: Rect, c: Color32) {
-    let g = Grid::new(r);
-    path(p, vec![g.p(3.25, 5.75), g.p(8.0, 10.25), g.p(12.75, 5.75)], c);
-}
+    /// A rounded rectangle outline (SVG `rect` with `rx`), the stroke centred on its edge.
+    fn rect(&self, x: f32, y: f32, w: f32, h: f32, rx: f32) {
+        let r = Rect::from_min_max(self.p(x, y), self.p(x + w, y + h));
+        self.painter.rect_stroke(r, rx * self.scale, self.stroke(), StrokeKind::Middle);
+    }
 
-pub fn search(p: &Painter, r: Rect, c: Color32) {
-    let g = Grid::new(r);
-    p.circle_stroke(g.p(6.75, 6.75), 5.0 * g.scale, stroke(c));
-    path(p, vec![g.p(10.5, 10.5), g.p(14.25, 14.25)], c);
+    fn circle(&self, cx: f32, cy: f32, r: f32) {
+        self.painter.circle_stroke(self.p(cx, cy), r * self.scale, self.stroke());
+    }
+
+    fn dot(&self, cx: f32, cy: f32, r: f32) {
+        self.painter.circle_filled(self.p(cx, cy), r * self.scale, self.color);
+    }
+
+    /// Points along a circular arc around `(cx, cy)` from angle `a0` to `a1` (radians, y down).
+    fn arc(cx: f32, cy: f32, r: f32, a0: f32, a1: f32) -> impl Iterator<Item = (f32, f32)> {
+        let n = 8;
+        (0..=n).map(move |i| {
+            let a = a0 + (a1 - a0) * i as f32 / n as f32;
+            (cx + r * a.cos(), cy + r * a.sin())
+        })
+    }
 }
 
 pub fn sidebar(p: &Painter, r: Rect, c: Color32) {
-    let g = Grid::new(r);
-    frame(p, g.rect(1.25, 2.75, 14.75, 13.25), 2.0 * g.scale, c);
-    p.line_segment([g.p(5.75, 2.75), g.p(5.75, 13.25)], stroke(c));
+    let g = Grid::new(p, r, c);
+    g.rect(2.75, 4.25, 14.5, 11.5, 2.5);
+    g.line(&[(7.75, 4.25), (7.75, 15.75)]);
 }
 
+/// Side-by-side columns (parallel translations).
 pub fn columns(p: &Painter, r: Rect, c: Color32) {
-    let g = Grid::new(r);
-    frame(p, g.rect(1.25, 2.75, 14.25, 13.25), 2.0 * g.scale, c);
-    p.line_segment([g.p(7.75, 2.75), g.p(7.75, 13.25)], stroke(c));
+    let g = Grid::new(p, r, c);
+    g.rect(2.75, 4.25, 14.5, 11.5, 2.5);
+    g.line(&[(10.0, 4.25), (10.0, 15.75)]);
 }
 
-/// A large and a small "A" (text size and theme).
+pub fn chevron_left(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(12.0, 4.5), (6.5, 10.0), (12.0, 15.5)]);
+}
+
+pub fn chevron_right(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(8.0, 4.5), (13.5, 10.0), (8.0, 15.5)]);
+}
+
+/// The small disclosure chevrons (12-unit grid): pickers, selects and source-list rows.
+pub fn chevron_down(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::with(p, r, c, 12.0, STROKE);
+    g.line(&[(3.0, 4.5), (6.0, 7.5), (9.0, 4.5)]);
+}
+
+pub fn chevron_up(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::with(p, r, c, 12.0, STROKE);
+    g.line(&[(3.0, 7.5), (6.0, 4.5), (9.0, 7.5)]);
+}
+
+pub fn disclosure(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::with(p, r, c, 12.0, STROKE);
+    g.line(&[(4.5, 3.0), (7.5, 6.0), (4.5, 9.0)]);
+}
+
+/// Up-and-down chevrons of a select (popup button).
+pub fn chevrons_up_down(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(6.5, 8.0), (10.0, 4.5), (13.5, 8.0)]);
+    g.line(&[(6.5, 12.0), (10.0, 15.5), (13.5, 12.0)]);
+}
+
+/// A large and a small "A" (text format).
 pub fn text_size(p: &Painter, r: Rect, c: Color32) {
-    let g = Grid::new(r);
-    path(p, vec![g.p(0.75, 13.25), g.p(4.75, 2.75), g.p(8.75, 13.25)], c);
-    path(p, vec![g.p(2.25, 9.75), g.p(7.25, 9.75)], c);
-    path(p, vec![g.p(9.75, 13.25), g.p(12.5, 6.25), g.p(15.25, 13.25)], c);
-    path(p, vec![g.p(10.75, 10.75), g.p(14.25, 10.75)], c);
+    let g = Grid::new(p, r, c);
+    g.line(&[(2.75, 15.5), (7.0, 4.5), (11.25, 15.5)]);
+    g.line(&[(4.4, 11.5), (9.6, 11.5)]);
+    g.line(&[(12.5, 15.5), (15.0, 9.25), (17.5, 15.5)]);
+    g.line(&[(13.4, 13.4), (16.6, 13.4)]);
+}
+
+/// The magnifying glass. Drawn a little heavier (1.75 units), as the design does in fields.
+pub fn search(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::with(p, r, c, 20.0, 1.75);
+    g.circle(8.75, 8.75, 5.25);
+    g.line(&[(12.75, 12.75), (16.75, 16.75)]);
+}
+
+pub fn bookmark(p: &Painter, r: Rect, c: Color32, filled: bool) {
+    let g = Grid::new(p, r, c);
+    let pts = [(5.75, 3.25), (14.25, 3.25), (14.25, 16.75), (10.0, 13.25), (5.75, 16.75)];
+    if filled {
+        // Not convex at the notch: fill the two halves.
+        g.fill(&[(5.75, 3.25), (10.0, 3.25), (10.0, 13.25), (5.75, 16.75)]);
+        g.fill(&[(10.0, 3.25), (14.25, 3.25), (14.25, 16.75), (10.0, 13.25)]);
+    }
+    g.closed(&pts);
+}
+
+pub fn highlighter(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.closed(&[(11.75, 3.75), (16.25, 8.25), (8.75, 15.75), (4.25, 15.75), (4.25, 11.25)]);
+    g.line(&[(9.5, 6.0), (14.0, 10.5)]);
+}
+
+pub fn note(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.rect(4.0, 2.75, 12.0, 14.5, 2.25);
+    g.line(&[(7.25, 7.0), (12.75, 7.0)]);
+    g.line(&[(7.25, 10.0), (12.75, 10.0)]);
+    g.line(&[(7.25, 13.0), (10.25, 13.0)]);
+}
+
+/// A closed book seen from the front, with its page edge curling under.
+pub fn book(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    let mut pts = vec![(4.25, 15.5), (4.25, 4.75)];
+    pts.extend(Grid::arc(6.25, 4.75, 2.0, PI, PI + FRAC_PI_2));
+    pts.extend([(15.75, 2.75), (15.75, 15.25), (6.25, 15.25)]);
+    pts.extend(Grid::arc(6.25, 17.25, 2.0, -FRAC_PI_2, -3.0 * FRAC_PI_2));
+    pts.push((15.75, 19.25));
+    let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
+    g.polyline(pts, false);
 }
 
 pub fn close(p: &Painter, r: Rect, c: Color32) {
-    let g = Grid::new(r);
-    path(p, vec![g.p(4.25, 4.25), g.p(11.75, 11.75)], c);
-    path(p, vec![g.p(11.75, 4.25), g.p(4.25, 11.75)], c);
+    let g = Grid::new(p, r, c);
+    g.line(&[(5.5, 5.5), (14.5, 14.5)]);
+    g.line(&[(14.5, 5.5), (5.5, 14.5)]);
 }
 
-pub fn book(p: &Painter, r: Rect, c: Color32) {
-    let g = Grid::new(r);
-    for side in [-1.0, 1.0] {
-        let x = |dx: f32| 8.0 + side * dx;
-        p.add(Shape::closed_line(
-            vec![g.p(8.0, 4.25), g.p(x(6.75), 2.75), g.p(x(6.75), 12.25), g.p(8.0, 13.75)],
-            stroke(c),
-        ));
+/// A clock face (recent places).
+pub fn clock(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.circle(10.0, 10.0, 7.25);
+    g.line(&[(10.0, 6.0), (10.0, 10.0), (12.75, 11.75)]);
+}
+
+/// A filled circle with an × knocked out (clear a field).
+pub fn clear(p: &Painter, r: Rect, circle: Color32, cross: Color32) {
+    p.circle_filled(r.center(), r.width() / 2.0, circle);
+    let g = Grid::with(p, r, cross, 16.0, 1.5);
+    g.line(&[(5.75, 5.75), (10.25, 10.25)]);
+    g.line(&[(10.25, 5.75), (5.75, 10.25)]);
+}
+
+pub fn ellipsis(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    for x in [5.0, 10.0, 15.0] {
+        g.dot(x, 10.0, 1.4);
     }
 }
 
 pub fn dot(p: &Painter, center: Pos2, radius: f32, c: Color32) {
     p.circle_filled(center, radius, c);
+}
+
+/// A rectangle of `size` points centred on `center`, for placing an icon.
+pub fn icon_rect(center: Pos2, size: f32) -> Rect {
+    Rect::from_center_size(center, vec2(size, size))
 }

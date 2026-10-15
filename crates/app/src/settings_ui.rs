@@ -75,7 +75,7 @@ impl SettingsUi {
                     SettingsTab::Translations => 1,
                     SettingsTab::Data => 2,
                 };
-                if let Some(i) = widgets::segmented(ui, &["Reading", "Translations", "Data"], idx) {
+                if let Some(i) = widgets::segmented(ui, p, &["Reading", "Translations", "Data"], idx) {
                     self.tab = [SettingsTab::Reading, SettingsTab::Translations, SettingsTab::Data][i];
                 }
                 ui.add_space(10.0);
