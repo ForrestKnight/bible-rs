@@ -177,6 +177,8 @@ pub struct BibleApp {
     saved: (String, f64),
     warmed: bool,
     scroll_probe: Option<ScrollProbe>,
+    /// `BIBLE_RS_DEMO`: steps that put the window into a given state (screenshots), one per frame.
+    demo: std::collections::VecDeque<String>,
     chrome: Chrome,
     /// The toolbar's button groups, this frame.
     #[cfg(target_os = "macos")]
@@ -257,6 +259,9 @@ impl BibleApp {
                 start_chapter: chapter,
                 started: None,
             }),
+            demo: std::env::var("BIBLE_RS_DEMO")
+                .map(|s| s.split(';').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
+                .unwrap_or_default(),
             chrome: Chrome { height: theme::metrics::TOOLBAR_HEIGHT, leading: theme::metrics::LEADING_INSET },
             #[cfg(target_os = "macos")]
             toolbar_items: Vec::new(),
@@ -622,6 +627,36 @@ impl BibleApp {
             }
             Action::Toast(m) => self.toast(ctx, m),
             Action::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+        }
+    }
+
+    /// One `BIBLE_RS_DEMO` step: `jump:<reference>`, `select:<reference>`, `palette:<query>`,
+    /// `search:<query>`, `note:<reference>`, `compare:<reference>`, `study:<bookmarks|highlights|notes>`,
+    /// `settings:<reading|translations|data>`.
+    fn demo_step(&mut self, step: &str, actions: &mut Vec<Action>) {
+        let (cmd, arg) = step.split_once(':').unwrap_or((step, ""));
+        let verse = || bible_core::reference::parse(arg).map(|r| r.verse_ref());
+        match cmd {
+            "jump" => {
+                if let Some(r) = bible_core::reference::parse(arg) {
+                    actions.push(Action::Jump { chapter: r.chapter_idx(), verse: r.verse, flash: false });
+                }
+            }
+            "select" => self.reader.set_selection(verse()),
+            "palette" => self.palette = Some(CommandPalette::with_query(arg)),
+            "search" => actions.push(Action::OpenSearch(Some(arg.to_string()))),
+            "note" => actions.extend(verse().map(Action::EditNote)),
+            "compare" => {
+                self.reader.set_selection(verse());
+                actions.push(Action::Compare);
+            }
+            "study" => self.sidebar.open_study(arg),
+            "settings" => actions.push(Action::OpenSettings(match arg {
+                "translations" => SettingsTab::Translations,
+                "data" => SettingsTab::Data,
+                _ => SettingsTab::Reading,
+            })),
+            _ => eprintln!("BIBLE_RS_DEMO: unknown step {step:?}"),
         }
     }
 
@@ -1128,6 +1163,18 @@ impl eframe::App for BibleApp {
         #[cfg(target_os = "macos")]
         if let Some(menu) = &self.menu {
             menu.poll(&mut actions);
+        }
+        // Demo steps wait for the window to be focused (or a few seconds), so a screenshot
+        // script can activate it before any popup opens; a background launch doesn't wait.
+        let focused = ctx.input(|i| i.focused)
+            || std::env::var_os("BIBLE_RS_BACKGROUND").is_some()
+            || self.startup.t0.elapsed() > Duration::from_secs(4);
+        if self.startup.frames > 2
+            && focused
+            && let Some(step) = self.demo.pop_front()
+        {
+            self.demo_step(&step, &mut actions);
+            ctx.request_repaint();
         }
         let p = self.settings.theme.palette();
 

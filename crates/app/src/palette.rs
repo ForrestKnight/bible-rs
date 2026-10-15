@@ -53,6 +53,10 @@ fn commands(settings: &Settings) -> Vec<(&'static str, Action)> {
 }
 
 impl CommandPalette {
+    pub fn with_query(query: &str) -> Self {
+        Self { query: query.to_string(), ..Self::default() }
+    }
+
     fn items(&self, library: &Library, history: &History, settings: &Settings) -> Vec<Item> {
         let q = self.query.trim();
         let mut items = Vec::new();

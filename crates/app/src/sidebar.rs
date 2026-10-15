@@ -92,6 +92,16 @@ impl Sidebar {
         std::mem::take(&mut self.focus)
     }
 
+    /// Expands one of the study collections by name (`bookmarks`, `highlights`, `notes`).
+    pub fn open_study(&mut self, name: &str) {
+        self.study_open = match name {
+            "bookmarks" => Some(StudyKind::Bookmarks),
+            "highlights" => Some(StudyKind::Highlights),
+            "notes" => Some(StudyKind::Notes),
+            _ => None,
+        };
+    }
+
     pub fn invalidate_search(&mut self) {
         self.key = None;
     }
