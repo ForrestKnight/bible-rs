@@ -5,8 +5,9 @@ typeset, searchable as you type, with highlights, notes and bookmarks kept on yo
 
 ![Reading John 1 in the King James Version](docs/screenshots/reader-light.png)
 
-- **Instant.** First text on screen in about a tenth of a second; full-text search across the whole
-  Bible in well under a millisecond for most queries; scrolling costs ~0.2 ms of CPU per frame.
+- **Instant.** The first frame already shows the text — about 15 ms of work on top of opening a
+  window; full-text search across the whole Bible in under 2 ms (most queries well under 1 ms);
+  scrolling costs ~0.2 ms of CPU per frame. [Numbers below.](#performance)
 - **Typeset for reading.** Literata serif, a comfortable measure, superscript verse numbers,
   chapter and section headings, poetry with hanging indents, LORD in small capitals, optional red
   letters, paragraphs or verse-per-line, adjustable size, light / sepia / dark.
@@ -162,16 +163,86 @@ chapter by chapter and appear in parallel and compare views as their chapters lo
 | ⌘B · ⌘, · ⌘/ | Sidebar · settings · shortcut help |
 | ⌘E · ⌘⇧E · ⌘I | Export Markdown · export JSON · import translation |
 
+⌘/ shows them in the app:
+
+![Keyboard shortcuts overlay](docs/screenshots/shortcuts.png)
+
 ## Performance
 
-PERFORMANCE_TABLE
+Measured on the machine bible-rs was built on: a headless Ubuntu VPS (AMD EPYC 7B13, 16 vCPUs)
+with **no GPU** — the app runs under Xvfb with Mesa's llvmpipe software OpenGL, so window and frame
+timings are pessimistic compared with a Mac. Criterion medians (`cargo bench`); startup is the
+median of 15 launches (`scripts/bench-startup.sh`).
+
+**Startup** — target: first painted text in under 150 ms
+
+| | Median |
+|---|---|
+| bible-rs: launch → first frame built (chapter typeset, ready to draw) | 118 ms |
+| bible-rs: launch → first frame presented on screen | 162 ms |
+| Empty eframe window with the same options (the platform floor): built / presented | 104 ms / 146 ms |
+| **bible-rs's own cost on top of the floor** | **≈ 15 ms** |
+
+The first frame always contains the text. While the window and OpenGL context are created
+(~100 ms here, almost all of it software GL), the translation being read is decoded on a
+background thread (~25 ms; its search corpus is built later, after the first frame); frame 0 then
+typesets the visible chapter (2–7 ms). Under software rendering the empty-window
+floor alone is 146 ms, so presentation lands just over the target here; the app's own work fits
+in ~15 ms, and on a Mac the GPU context is far cheaper. The macOS CI job runs the same probe.
+
+**Search** — target: under 10 ms. KJV, 31,102 verses, whole Bible unless noted.
+
+| Query | Time |
+|---|---|
+| `the` (a very common word — 27,435 verses) | 1.79 ms |
+| `lov` (word prefix) | 0.20 ms |
+| `melchizedek` | 0.15 ms |
+| `love one another` | 0.28 ms |
+| `"in the beginning"` (phrase) | 0.15 ms |
+| `"jesus wept"` (phrase) | 0.16 ms |
+| `light -darkness` (exclusion) | 0.28 ms |
+| `faith`, New Testament only | 0.055 ms |
+| `shepherd`, Psalms only | 0.008 ms |
+| Building a translation's search corpus (once, on a background thread after the first frame) | 33 ms |
+
+**Scrolling** — target: 60 fps or better. 900 frames scripted at ~2,200 px/s through 13
+consecutive chapters:
+
+| | Mean | p50 | p95 | p99 | Max |
+|---|---|---|---|---|---|
+| App work per frame (layout, underlays, tessellation input) | 0.18 ms | 0.12 ms | 0.22 ms | 3.1 ms | 4.7 ms |
+| Frame interval (software rendering of the whole window) | 6.5 ms | 6.3 ms | 8.4 ms | | |
+
+The p99 frames are the ones where a new chapter scrolls into view and is typeset; even those stay
+well inside a 120 Hz frame (8.3 ms). Chapters next to the reading position are typeset while idle.
+
+**Typesetting one chapter** (uncached, default settings):
+
+| Chapter | Time |
+|---|---|
+| John 3, paragraphs (36 verses) | 1.95 ms |
+| Genesis 1 (31 verses) | 2.14 ms |
+| Psalm 23 (poetry) | 0.28 ms |
+| Psalm 119 (176 verses, the longest chapter) | 8.6 ms |
+| John 3, verse per line | 1.91 ms |
+| John 3, KJV + WEB in parallel columns | 4.25 ms |
+
+**Everything else**
+
+| | Time |
+|---|---|
+| Decode the KJV (`.bbl` → in-memory model) | 17.7 ms |
+| Read the metadata of all 7 bundled translations | 0.13 ms |
+| Parse `1co13:4-7` | 1.3 µs |
+| Suggest `revalation 21` (fuzzy book name with a typo) | 92 µs |
+| Open the SQLite study store | 0.36 ms |
 
 Reproduce with:
 
 ```sh
 cargo bench -p bible-core          # search, decoding, references, SQLite
 cargo bench -p bible-rs            # chapter typesetting
-scripts/bench-startup.sh           # launch → first frame, and a 900-frame scroll run
+scripts/bench-startup.sh           # launch → first frame (vs. an empty window), 900-frame scroll run
 bible-rs search "love one another" # prints the query time
 ```
 
