@@ -9,6 +9,8 @@ pub mod cli;
 pub mod icons;
 #[cfg(target_os = "macos")]
 pub mod macos_menu;
+#[cfg(target_os = "macos")]
+pub mod macos_window;
 pub mod palette;
 pub mod panel;
 pub mod reader;
@@ -63,6 +65,22 @@ pub fn wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
         }
     }
     options
+}
+
+/// `BIBLE_RS_BACKGROUND=1` opens the window without taking focus from the user (screenshots,
+/// benchmarks).
+#[cfg(target_os = "macos")]
+fn background_launch() -> Option<eframe::EventLoopBuilderHook> {
+    std::env::var_os("BIBLE_RS_BACKGROUND")?;
+    Some(Box::new(|builder| {
+        use winit::platform::macos::EventLoopBuilderExtMacOS;
+        builder.with_activate_ignoring_other_apps(false);
+    }))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn background_launch() -> Option<eframe::EventLoopBuilderHook> {
+    None
 }
 
 /// Whether this process runs from inside a macOS `.app` bundle.
@@ -125,6 +143,7 @@ pub fn run() -> eframe::Result {
         renderer: renderer(),
         wgpu_options: wgpu_options(),
         centered: true,
+        event_loop_builder: background_launch(),
         ..Default::default()
     };
     let probe = std::env::var_os("BIBLE_RS_STARTUP_PROBE").is_some();

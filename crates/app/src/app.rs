@@ -177,8 +177,42 @@ pub struct BibleApp {
     saved: (String, f64),
     warmed: bool,
     scroll_probe: Option<ScrollProbe>,
+    chrome: Chrome,
+    /// The toolbar's button groups, this frame.
+    #[cfg(target_os = "macos")]
+    toolbar_items: Vec<egui::Rect>,
+    #[cfg(target_os = "macos")]
+    no_drag: crate::macos_window::NoDragAreas,
     #[cfg(target_os = "macos")]
     menu: Option<crate::macos_menu::AppMenu>,
+}
+
+/// Toolbar geometry for the current frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Chrome {
+    pub height: f32,
+    /// Where the first toolbar item starts.
+    pub leading: f32,
+}
+
+/// On macOS the toolbar follows the window's traffic lights: its centre line is theirs and its
+/// first item sits a fixed gap after them. Full screen hides them, so the toolbar starts at the edge.
+#[cfg(target_os = "macos")]
+fn chrome(frame: &eframe::Frame, ctx: &egui::Context) -> Chrome {
+    use theme::metrics::{AFTER_TRAFFIC_LIGHTS, EDGE, TOOLBAR_HEIGHT};
+    let zoom = ctx.zoom_factor();
+    match crate::macos_window::traffic_lights(frame) {
+        Some(r) => Chrome {
+            height: (2.0 * r.center().y / zoom).clamp(28.0, 2.0 * TOOLBAR_HEIGHT),
+            leading: r.right() / zoom + AFTER_TRAFFIC_LIGHTS,
+        },
+        None => Chrome { height: TOOLBAR_HEIGHT, leading: EDGE },
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn chrome(_frame: &eframe::Frame, _ctx: &egui::Context) -> Chrome {
+    Chrome { height: theme::metrics::COMPACT_TOOLBAR_HEIGHT, leading: theme::metrics::EDGE }
 }
 
 impl BibleApp {
@@ -190,6 +224,8 @@ impl BibleApp {
     ) -> Self {
         let Init { data_dir, study, library, settings, elapsed } = init;
         theme::apply(&cc.egui_ctx, settings.theme);
+        #[cfg(target_os = "macos")]
+        crate::macos_window::install_unified_toolbar(cc);
         let chapter = ChapterIdx(settings.chapter.min(ChapterIdx::LAST.0));
         let reader = Reader::new(chapter, settings.verse);
         let (task_tx, task_rx) = channel();
@@ -220,6 +256,11 @@ impl BibleApp {
                 start_chapter: chapter,
                 started: None,
             }),
+            chrome: Chrome { height: theme::metrics::TOOLBAR_HEIGHT, leading: theme::metrics::EDGE },
+            #[cfg(target_os = "macos")]
+            toolbar_items: Vec::new(),
+            #[cfg(target_os = "macos")]
+            no_drag: Default::default(),
             settings,
             #[cfg(target_os = "macos")]
             menu: crate::macos_menu::AppMenu::install(),
@@ -668,65 +709,52 @@ impl BibleApp {
     }
 
     fn toolbar(&mut self, ui: &mut Ui, actions: &mut Vec<Action>) {
+        use theme::metrics::{EDGE, GROUP_GAP, ITEM_GAP, TOOLBAR_BUTTON};
         let p = self.settings.theme.palette();
-        let rect = ui.max_rect();
-        ui.painter().rect_filled(rect, 0.0, p.chrome);
-        ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, p.border));
-        let inset = if cfg!(target_os = "macos") { 78.0 } else { 10.0 };
-        ui.add_space(0.0);
-        ui.horizontal_centered(|ui| {
-            ui.add_space(inset);
-            if widgets::icon_button(ui, "Sidebar (⌘B)", self.settings.sidebar_open, crate::icons::sidebar)
-                .clicked()
-            {
-                actions.push(Action::ToggleSidebar);
-            }
-            ui.add_enabled_ui(self.history.can_back(), |ui| {
-                if widgets::icon_button(ui, "Back (⌘[)", false, crate::icons::chevron_left).clicked() {
-                    actions.push(Action::Back);
+        let bar = ui.max_rect();
+        ui.painter().rect_filled(bar, 0.0, p.chrome);
+        // The hairline is the bar's last point, so the bar's centre stays the traffic lights'.
+        let y = bar.bottom() - 0.5;
+        ui.painter().line_segment(
+            [egui::pos2(bar.left(), y), egui::pos2(bar.right(), y)],
+            Stroke::new(1.0, p.border),
+        );
+        // Every item is centred on the bar's centre line, which on macOS is the traffic lights'.
+        let row = |left: f32, right: f32| {
+            egui::Rect::from_x_y_ranges(
+                left..=right,
+                bar.center().y - TOOLBAR_BUTTON[1] / 2.0..=bar.center().y + TOOLBAR_BUTTON[1] / 2.0,
+            )
+        };
+        let builder = |r: egui::Rect, layout: egui::Layout| egui::UiBuilder::new().max_rect(r).layout(layout);
+        let leading = bar.left() + self.chrome.leading;
+        let lead = ui.scope_builder(
+            builder(row(leading, bar.right()), egui::Layout::left_to_right(egui::Align::Center)),
+            |ui| {
+                ui.spacing_mut().item_spacing.x = ITEM_GAP;
+                if widgets::icon_button(ui, "Sidebar (⌘B)", self.settings.sidebar_open, crate::icons::sidebar)
+                    .clicked()
+                {
+                    actions.push(Action::ToggleSidebar);
                 }
-            });
-            ui.add_enabled_ui(self.history.can_forward(), |ui| {
-                if widgets::icon_button(ui, "Forward (⌘])", false, crate::icons::chevron_right).clicked() {
-                    actions.push(Action::Forward);
-                }
-            });
-            let right_w = 150.0;
-            let center_w = ui.available_width() - right_w;
-            ui.allocate_ui_with_layout(
-                vec2(center_w, 30.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    let (c, _) = self.reader.location;
-                    let tmeta = self.library.get(&self.settings.translation).map(|e| e.meta.clone());
-                    let title = format!(
-                        "{} {}",
-                        tmeta
-                            .as_ref()
-                            .map(|m| m.ref_name(c.book()).to_string())
-                            .unwrap_or_else(|| c.book().ref_name().into()),
-                        c.chapter()
-                    );
-                    let label_w = 260.0;
-                    ui.add_space(((ui.available_width() - label_w) / 2.0).max(0.0));
-                    let loc = widgets::pill(ui, &title, true, "Jump to a book or chapter (⌘K)");
-                    crate::sidebar::book_picker_popup(
-                        ui,
-                        &loc,
-                        &self.library,
-                        &self.settings.translation,
-                        actions,
-                    );
-                    let abbrev = tmeta.as_ref().map(|m| m.abbrev.clone()).unwrap_or_default();
-                    let tr = widgets::pill(ui, &abbrev, true, "Translation (⌘1…⌘9)");
-                    egui::Popup::menu(&tr).show(|ui| {
-                        ui.set_min_width(300.0);
-                        translation_menu(ui, &self.library, &self.settings, actions);
-                    });
-                },
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(10.0);
+                ui.add_space(GROUP_GAP - ITEM_GAP);
+                ui.add_enabled_ui(self.history.can_back(), |ui| {
+                    if widgets::icon_button(ui, "Back (⌘[)", false, crate::icons::chevron_left).clicked() {
+                        actions.push(Action::Back);
+                    }
+                });
+                ui.add_enabled_ui(self.history.can_forward(), |ui| {
+                    if widgets::icon_button(ui, "Forward (⌘])", false, crate::icons::chevron_right).clicked()
+                    {
+                        actions.push(Action::Forward);
+                    }
+                });
+            },
+        );
+        let trail = ui.scope_builder(
+            builder(row(bar.left(), bar.right() - EDGE), egui::Layout::right_to_left(egui::Align::Center)),
+            |ui| {
+                ui.spacing_mut().item_spacing.x = ITEM_GAP;
                 let aa = widgets::icon_button(ui, "Text & theme", false, crate::icons::text_size);
                 egui::Popup::menu(&aa).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(
                     |ui| {
@@ -747,8 +775,53 @@ impl BibleApp {
                 if widgets::icon_button(ui, "Search (⌘F)", false, crate::icons::search).clicked() {
                     actions.push(Action::OpenSearch(None));
                 }
-            });
-        });
+            },
+        );
+
+        // Location and translation, centred in the window unless that would collide.
+        let (c, _) = self.reader.location;
+        let tmeta = self.library.get(&self.settings.translation).map(|e| e.meta.clone());
+        let title = format!(
+            "{} {}",
+            tmeta
+                .as_ref()
+                .map(|m| m.ref_name(c.book()).to_string())
+                .unwrap_or_else(|| c.book().ref_name().into()),
+            c.chapter()
+        );
+        let abbrev = tmeta.as_ref().map(|m| m.abbrev.clone()).unwrap_or_default();
+        let width = widgets::pill_width(ui, &title) + ITEM_GAP + widgets::pill_width(ui, &abbrev);
+        let lo = lead.response.rect.right() + GROUP_GAP;
+        let hi = trail.response.rect.left() - GROUP_GAP - width;
+        let left = (bar.center().x - width / 2.0).min(hi).max(lo).round();
+        let centre = ui.scope_builder(
+            builder(row(left, left + width), egui::Layout::left_to_right(egui::Align::Center)),
+            |ui| {
+                ui.spacing_mut().item_spacing.x = ITEM_GAP;
+                let loc = widgets::pill(ui, &title, "Jump to a book or chapter (⌘K)");
+                crate::sidebar::book_picker_popup(
+                    ui,
+                    &loc,
+                    &self.library,
+                    &self.settings.translation,
+                    actions,
+                );
+                let tr = widgets::pill(ui, &abbrev, "Translation (⌘1…⌘9)");
+                egui::Popup::menu(&tr).show(|ui| {
+                    ui.set_min_width(300.0);
+                    translation_menu(ui, &self.library, &self.settings, actions);
+                });
+            },
+        );
+
+        // Empty toolbar space moves the window and double-clicks to zoom, like a title bar;
+        // the buttons don't.
+        #[cfg(target_os = "macos")]
+        {
+            self.toolbar_items = vec![lead.response.rect, centre.response.rect, trail.response.rect];
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = centre;
     }
 
     fn selection_bar(&mut self, ui: &mut Ui, reader_rect: egui::Rect, actions: &mut Vec<Action>) {
@@ -957,7 +1030,7 @@ fn translation_menu(ui: &mut Ui, library: &Library, settings: &Settings, actions
 }
 
 impl eframe::App for BibleApp {
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let frame_start = Instant::now();
         if self.startup.frames < 2 {
             crate::trace(self.startup.t0, &format!("frame {} start", self.startup.frames));
@@ -984,9 +1057,14 @@ impl eframe::App for BibleApp {
         }
         let p = self.settings.theme.palette();
 
-        egui::Panel::top("toolbar").exact_size(46.0).frame(Frame::NONE).show(ui, |ui| {
-            self.toolbar(ui, &mut actions);
-        });
+        self.chrome = chrome(frame, &ctx);
+        egui::Panel::top("toolbar")
+            .exact_size(self.chrome.height)
+            .frame(Frame::NONE)
+            .show_separator_line(false)
+            .show(ui, |ui| {
+                self.toolbar(ui, &mut actions);
+            });
         if self.settings.sidebar_open {
             egui::Panel::left("sidebar")
                 .resizable(true)
@@ -1074,6 +1152,27 @@ impl eframe::App for BibleApp {
         }
         self.shortcuts_help(&ctx);
         self.toasts(&ctx);
+        #[cfg(target_os = "macos")]
+        {
+            // Popups over the title bar aren't drag handles either.
+            let bar = egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                vec2(ctx.content_rect().width(), self.chrome.height),
+            );
+            let mut rects = self.toolbar_items.clone();
+            ctx.memory(|m| {
+                for layer in m.areas().visible_layer_ids() {
+                    if layer.order != egui::Order::Background
+                        && let Some(r) = m.area_rect(layer.id)
+                        && r.intersects(bar)
+                    {
+                        rects.push(r.intersect(bar));
+                    }
+                }
+            });
+            rects.sort_by(|a, b| a.left().total_cmp(&b.left()));
+            self.no_drag.set(frame, &rects, ctx.zoom_factor());
+        }
 
         let had_actions = !actions.is_empty();
         self.apply(&ctx, actions);

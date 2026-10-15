@@ -184,6 +184,27 @@ impl Palette {
     }
 }
 
+/// Interface metrics in points, on a 4 pt grid.
+pub mod metrics {
+    /// Height of the macOS unified toolbar. AppKit lays a unified toolbar out 52 pt tall and
+    /// centres the traffic lights on it; toolbar items centred in the same height share their line.
+    pub const TOOLBAR_HEIGHT: f32 = 52.0;
+    /// Toolbar height where the window has its own title bar (Linux, Windows).
+    pub const COMPACT_TOOLBAR_HEIGHT: f32 = 44.0;
+    /// A toolbar button's hover and press shape.
+    pub const TOOLBAR_BUTTON: [f32; 2] = [32.0, 28.0];
+    /// Every icon is drawn to fit this box, with [`ICON_STROKE`] lines.
+    pub const ICON: f32 = 16.0;
+    pub const ICON_STROKE: f32 = 1.5;
+    /// From the traffic lights to the first toolbar button (Safari's spacing).
+    pub const AFTER_TRAFFIC_LIGHTS: f32 = 16.0;
+    /// Between buttons of one group (back / forward), and between groups.
+    pub const ITEM_GAP: f32 = 4.0;
+    pub const GROUP_GAP: f32 = 12.0;
+    /// Toolbar margin at a window edge without traffic lights.
+    pub const EDGE: f32 = 12.0;
+}
+
 // Font families.
 pub const SERIF: &str = "serif";
 pub const SERIF_ITALIC: &str = "serif-italic";

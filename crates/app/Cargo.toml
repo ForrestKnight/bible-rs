@@ -29,9 +29,22 @@ eframe = { version = "0.36", default-features = false, features = [
 rfd = "0.17"
 dirs = "6"
 
-# Native menu bar (macOS only).
+# Native menu bar and window chrome (macOS only).
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = { version = "0.21", default-features = false }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSButton",
+    "NSControl",
+    "NSResponder",
+    "NSToolbar",
+    "NSView",
+    "NSWindow",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry"] }
+raw-window-handle = "0.6"
+winit = { version = "0.30", default-features = false }
 
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
