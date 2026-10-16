@@ -6,6 +6,9 @@
 //!     cargo run --release --example shot -- out.png [1280x800]
 //! ```
 //!
+//! `BIBLE_RS_SHOT_CLICKS` and `BIBLE_RS_SHOT_HOVER` (points, `x,y`) click and point after the
+//! demo steps, for states only the pointer reaches, such as an open menu.
+//!
 //! egui's test harness drives the real app with wgpu at 2× scale. On macOS the window's traffic
 //! lights belong to AppKit, so they are drawn onto the image where AppKit puts them.
 
@@ -39,11 +42,46 @@ fn main() {
             cc.egui_ctx.set_fonts(theme::font_definitions());
             BibleApp::new(cc, init, online_counter(), startup)
         });
+    // The harness sets its own (dark) egui theme after the app has applied the reading theme,
+    // which would leave egui's widgets (menus, fields) in stock dark style.
+    let ctx = harness.ctx.clone();
+    theme::apply(&ctx, harness.state().settings.theme);
+    ctx.all_styles_mut(|style| style.animation_time = 0.0);
+    // A font atlas as large as the GPU's (egui assumes 2048 px without one): a small atlas fills
+    // at 2× and egui rebuilds it, leaving the reader's cached text pointing at the old glyphs.
+    harness.input_mut().max_texture_side = Some(8192);
+    harness.step();
+    harness.state_mut().reader.invalidate();
     let demo_steps = std::env::var("BIBLE_RS_DEMO").map(|s| s.split(';').count()).unwrap_or(0);
     let steps =
         std::env::var("BIBLE_RS_SHOT_STEPS").ok().and_then(|s| s.parse().ok()).unwrap_or(30 + 4 * demo_steps);
     for _ in 0..steps {
         harness.step();
+    }
+    // `BIBLE_RS_SHOT_CLICKS="x,y;x,y"`: click those points in turn (opening a menu from its
+    // button, say), then `BIBLE_RS_SHOT_HOVER="x,y"`: leave the pointer there.
+    let point = |s: &str| {
+        let (x, y) = s.split_once(',')?;
+        Some(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?))
+    };
+    let clicks = std::env::var("BIBLE_RS_SHOT_CLICKS").unwrap_or_default();
+    for pos in clicks.split(';').filter_map(point) {
+        harness.hover_at(pos);
+        harness.step();
+        for pressed in [true, false] {
+            harness.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+            harness.step();
+        }
+        harness.run_steps(8);
+    }
+    if let Some(pos) = std::env::var("BIBLE_RS_SHOT_HOVER").ok().as_deref().and_then(point) {
+        harness.hover_at(pos);
+        harness.run_steps(8);
     }
     let mut img = harness.render().expect("rendering");
     if cfg!(target_os = "macos") && std::env::var_os("BIBLE_RS_NO_TRAFFIC_LIGHTS").is_none() {
