@@ -1,25 +1,36 @@
 #!/usr/bin/env bash
-# Builds dist/bible-rs.app and dist/bible-rs-<version>.dmg on macOS.
+# Builds dist/bible-rs.app on macOS. scripts/release-macos.sh wraps it to make the signed,
+# notarized DMG and zip (see RELEASING.md).
 #
-#   scripts/bundle-macos.sh              # native architecture
+#   scripts/bundle-macos.sh              # native architecture, ad-hoc signature
 #   UNIVERSAL=1 scripts/bundle-macos.sh  # arm64 + x86_64 universal binary
-#   SIGN_IDENTITY="Developer ID Application: …" scripts/bundle-macos.sh
+#   SIGN_IDENTITY="Developer ID Application: …" scripts/bundle-macos.sh  # timestamped signature
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "bundle-macos.sh must run on macOS (needs sips, iconutil, codesign, hdiutil)" >&2
+  echo "bundle-macos.sh must run on macOS (needs sips, iconutil, lipo, codesign)" >&2
   exit 1
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  # CFBundleShortVersionString and CFBundleVersion take at most three integers.
+  echo "workspace version '$VERSION' is not MAJOR.MINOR.PATCH" >&2
+  exit 1
+fi
+COPYRIGHT="$(sed -n 's/^Copyright (c) /Copyright © /p' LICENSE | head -1)"
 APP="dist/bible-rs.app"
+ENTITLEMENTS="packaging/macos/entitlements.plist"
+
+# The window code calls NSWindow.toolbarStyle, new in macOS 11, and the x86_64 target would
+# otherwise default to 10.12. This also reaches the C code that cc builds (SQLite, zstd).
+export MACOSX_DEPLOYMENT_TARGET=11.0
 
 if [[ "${UNIVERSAL:-0}" == "1" ]]; then
   rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null
-  cargo build --release -p bible-rs --target aarch64-apple-darwin
-  cargo build --release -p bible-rs --target x86_64-apple-darwin
+  cargo build --release -p bible-rs --target aarch64-apple-darwin --target x86_64-apple-darwin
   BIN="$(mktemp -d)/bible-rs"
   lipo -create -output "$BIN" \
     target/aarch64-apple-darwin/release/bible-rs \
@@ -44,6 +55,9 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
+# The bundle ID is part of the signature's designated requirement, which the Keychain checks
+# before handing stored API keys back: changing it after a release makes every user approve
+# access again.
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -55,26 +69,28 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>bible-rs</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${VERSION}</string>
-  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>LSMinimumSystemVersion</key><string>${MACOSX_DEPLOYMENT_TARGET}</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.reference</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
   <key>NSRequiresAquaSystemAppearance</key><false/>
-  <key>NSHumanReadableCopyright</key><string>bible-rs is MIT licensed. Bundled translations are public domain.</string>
+  <key>NSHumanReadableCopyright</key><string>${COPYRIGHT}. MIT License. Bundled translations are public domain.</string>
 </dict>
 </plist>
 PLIST
+plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
-# Ad-hoc signature by default (required on Apple silicon); pass SIGN_IDENTITY for a real one.
-codesign --force --deep --options runtime --sign "${SIGN_IDENTITY:--}" "$APP"
+# Hardened runtime either way. An ad-hoc signature (required on Apple silicon) runs only on the
+# Mac that built it; a Developer ID signature gets a secure timestamp, which notarization needs.
+if [[ -n "${SIGN_IDENTITY:-}" ]]; then
+  codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
+    --sign "$SIGN_IDENTITY" "$APP"
+else
+  codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign - "$APP"
+fi
 
-DMG="dist/bible-rs-${VERSION}.dmg"
-rm -f "$DMG"
-STAGE="$(mktemp -d)"
-cp -R "$APP" "$STAGE/"
-ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname "bible-rs" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
-
-echo "Built $APP and $DMG"
+echo "Built $APP ($VERSION, $(lipo -archs "$APP/Contents/MacOS/bible-rs"))"
