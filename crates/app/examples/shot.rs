@@ -11,6 +11,10 @@
 //! `BIBLE_RS_SHOT_PAUSE_MS` waits that long after each frame, so chapters of an online translation
 //! can arrive before the picture is taken.
 //!
+//! `BIBLE_RS_SHOT_FILMSTRIP=<n>` then presses ⌘B and writes the next n frames at 120 Hz as
+//! `<out>-01.png` …, to see the sidebar's slide frame by frame. Other renders show transitions
+//! already finished.
+//!
 //! egui's test harness drives the real app with wgpu at 2× scale. On macOS the window's traffic
 //! lights belong to AppKit, so they are drawn onto the image where AppKit puts them.
 
@@ -45,11 +49,15 @@ fn main() {
     let init = initialize(bible_rs::data_dir(), notify).expect("loading data");
     let startup =
         Startup { t0: Instant::now(), probe: false, init: Duration::ZERO, first_ui: None, frames: 0 };
-    let mut harness =
-        Harness::builder().with_size(egui::vec2(w, h)).with_pixels_per_point(2.0).wgpu().build_eframe(|cc| {
-            cc.egui_ctx.set_fonts(theme::font_definitions());
-            BibleApp::new(cc, init, online, startup)
-        });
+    let filmstrip: Option<usize> = std::env::var("BIBLE_RS_SHOT_FILMSTRIP").ok().and_then(|s| s.parse().ok());
+    let mut builder = Harness::builder().with_size(egui::vec2(w, h)).with_pixels_per_point(2.0);
+    if filmstrip.is_some() {
+        builder = builder.with_step_dt(1.0 / 120.0);
+    }
+    let mut harness = builder.wgpu().build_eframe(|cc| {
+        cc.egui_ctx.set_fonts(theme::font_definitions());
+        BibleApp::new(cc, init, online, startup)
+    });
     // The harness sets its own (dark) egui theme after the app has applied the reading theme,
     // which would leave egui's widgets (menus, fields) in stock dark style.
     let ctx = harness.ctx.clone();
@@ -116,11 +124,34 @@ fn main() {
         }
         harness.run_steps(4);
     }
-    let mut img = harness.render().expect("rendering");
-    if cfg!(target_os = "macos") && std::env::var_os("BIBLE_RS_NO_TRAFFIC_LIGHTS").is_none() {
-        traffic_lights(&mut img);
+    let save = |harness: &mut Harness<'_, BibleApp>, path: &str| {
+        let mut img = harness.render().expect("rendering");
+        if cfg!(target_os = "macos") && std::env::var_os("BIBLE_RS_NO_TRAFFIC_LIGHTS").is_none() {
+            traffic_lights(&mut img);
+        }
+        img.save(path).expect("writing the image");
+    };
+    let Some(frames) = filmstrip else {
+        save(&mut harness, out);
+        return;
+    };
+    // The frame that handles ⌘B (the harness runs one frame per event, so the key's release
+    // comes with the slide's first frame), then the slide.
+    let key = |pressed| egui::Event::Key {
+        key: egui::Key::B,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    };
+    harness.event(key(true));
+    harness.step();
+    harness.event(key(false));
+    let stem = out.strip_suffix(".png").unwrap_or(out);
+    for i in 1..=frames {
+        harness.step();
+        save(&mut harness, &format!("{stem}-{i:02}.png"));
     }
-    img.save(out).expect("writing the image");
 }
 
 /// AppKit's traffic lights for a 52 pt unified toolbar: 14 pt circles 9 pt apart, the first

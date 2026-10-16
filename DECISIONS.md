@@ -158,6 +158,25 @@ disk. Export to JSON (round-trips via import) and Markdown.
 - The sidebar runs the window's full height like a source list, with the traffic lights and the
   sidebar/back/forward buttons in its top strip; the toolbar over the reading area takes the page
   colour, as in Books.
+- The sidebar slides on a critically damped spring: 95 % of the way in 135 ms, at rest by
+  265 ms. The spring is evaluated in closed form from a frame clock, so a frame's timing can't
+  bend its path, and a second ⌘B mid-slide keeps the current speed and turns back instead of
+  jumping. A late frame advances that clock by at most one and a half refresh periods: when a
+  ProMotion panel wakes from its idle refresh rate the first frames come late, and the slide
+  then starts a frame later instead of jumping ahead. The sidebar moves at its full
+  width rather than narrowing, so nothing in it is laid out again.
+- The reading column only moves while the sidebar slides as long as its measure doesn't change,
+  which is the case from a ~1,064 pt window up (640 pt of text plus 80 pt margins beside the
+  264 pt sidebar). Narrower windows reflow the chapter on screen every frame: one chapter layout
+  (0.1–2.5 ms, Psalm 119 the worst) per frame, with the reader's idle typesetting of
+  neighbouring chapters paused until the slide ends. Sliding a stale layout and reflowing once at
+  the end was the alternative; it trades the reflow cost for a visible rewrap when the slide
+  stops, and the measured frame times didn't call for it.
+- While the sidebar moves, the drag carve-out views stay where they were and catch up when it
+  stops. Moving `NSView`s every frame made AppKit ask for redraws at 60 Hz on top of the
+  display's 120 Hz frames: half again as many frames, unevenly spaced.
+- Reduce Motion, the app's setting or the system's (read when the sidebar is toggled, never at
+  launch), shows and hides the sidebar at once.
 - `scripts/bundle-macos.sh` builds `bible-rs.app` (icon, Info.plist, ad-hoc or Developer ID
   signature) and a DMG; CI does this on `macos-latest` and uploads the DMG.
 

@@ -17,6 +17,7 @@ use bible_core::books::{CHAPTER_COUNT, ChapterIdx, VerseRef};
 use bible_core::library::{Chapter, Library};
 use bible_core::study::StudyStore;
 use eframe::egui::{self, Color32, CornerRadius, CursorIcon, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
+use eframe::emath::GuiRounding as _;
 
 use self::layout::{ChapterLayout, ColumnText, Ctx, Typography};
 use crate::actions::Action;
@@ -337,7 +338,7 @@ impl Reader {
         // Text runs under the toolbar, but clicks there belong to the toolbar (and the window).
         let below_toolbar = Rect::from_min_max(pos2(rect.left(), rect.top() + env.toolbar), rect.max);
         let resp = ui.interact(below_toolbar, id, Sense::click_and_drag());
-        let geom = Geometry::new(rect, env.typo, env.columns.len());
+        let geom = Geometry::new(rect, env.typo, env.columns.len(), ui.pixels_per_point());
         self.columns_x = (0..env.columns.len())
             .map(|i| (geom.x0 + i as f32 * (geom.col_w + geom.gutter), geom.col_w))
             .collect();
@@ -787,7 +788,9 @@ impl Reader {
     }
 }
 
-/// Column placement for the current window width.
+/// Column placement for the current window width. The columns start on a whole pixel, so text
+/// stays crisp, and on any pixel, so a column gliding beside the sliding sidebar moves a pixel at
+/// a time rather than a point.
 pub struct Geometry {
     pub x0: f32,
     pub col_w: f32,
@@ -796,7 +799,8 @@ pub struct Geometry {
 }
 
 impl Geometry {
-    pub fn new(rect: Rect, typo: &Typography, columns: usize) -> Self {
+    pub fn new(rect: Rect, typo: &Typography, columns: usize, pixels_per_point: f32) -> Self {
+        let px = |x: f32| x.round_to_pixels(pixels_per_point);
         let n = columns.max(1) as f32;
         if n > 1.0 {
             // Parallel (frame 07): rows padded 8 pt inside a 24 pt left and 16 pt right margin,
@@ -809,7 +813,7 @@ impl Geometry {
             let total_w = col_w * n + gutter * (n - 1.0);
             // Centred, but never into the left margin: continuous in the width, so the columns
             // glide rather than jump as the sidebar slides.
-            let x0 = (rect.center().x - total_w / 2.0).round().max(rect.left() + left + pad);
+            let x0 = px(rect.center().x - total_w / 2.0).max(rect.left() + left + pad);
             return Self { x0, col_w, gutter, total_w };
         }
         // At least 80 pt either side (a compact window's 560 pt measure, frame 34), room for the
@@ -820,7 +824,7 @@ impl Geometry {
         let max_col = typo.size * if n > 1.0 { typo.measure * 0.82 } else { typo.measure };
         let col_w = ((avail - gutter * (n - 1.0)) / n).min(max_col).floor();
         let total_w = col_w * n + gutter * (n - 1.0);
-        let x0 = (rect.center().x - total_w / 2.0).round();
+        let x0 = px(rect.center().x - total_w / 2.0);
         Self { x0, col_w, gutter, total_w }
     }
 }

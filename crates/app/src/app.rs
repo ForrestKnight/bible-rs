@@ -1192,7 +1192,9 @@ impl BibleApp {
         let target = if self.settings.sidebar_open && !self.focus { 1.0 } else { 0.0 };
         let changed = target != self.sidebar_motion.target();
         let instant = changed
-            && (self.settings.reduce_motion || crate::offscreen() || crate::motion::system_reduces_motion());
+            && (self.settings.reduce_motion
+                || crate::offscreen_still()
+                || crate::motion::system_reduces_motion());
         if changed && !instant {
             // At most a frame and a half of the display the window is on (60 Hz elsewhere).
             #[cfg(target_os = "macos")]

@@ -78,12 +78,12 @@ for s in "${scenarios[@]}"; do
     default) run default 1280x800 '"theme":"Light"' ;;
     dark) run dark 1280x800 '"theme":"Dark"' ;;
     sepia) run sepia 1280x800 '"theme":"Sepia"' ;;
-    compact) run compact 720x760 '"theme":"Light"' ;;
-    medium) run medium 960x760 '"theme":"Light"' ;;
+    compact) run compact 720x800 '"theme":"Light"' ;;
+    medium) run medium 960x800 '"theme":"Light"' ;;
     parallel) run parallel 1280x800 '"theme":"Light","parallel_on":true,"parallel":["web"]' ;;
-    parallel-compact) run parallel-compact 720x760 '"theme":"Light","parallel_on":true,"parallel":["web"]' ;;
-    psalm119-compact) run psalm119-compact 720x760 '"theme":"Light"' 'jump:ps 119:40' ;;
-    reduce-motion) run reduce-motion 720x760 '"theme":"Light","reduce_motion":true' ;;
+    parallel-compact) run parallel-compact 720x800 '"theme":"Light","parallel_on":true,"parallel":["web"]' ;;
+    psalm119-compact) run psalm119-compact 720x800 '"theme":"Light"' 'jump:ps 119:40' ;;
+    reduce-motion) run reduce-motion 720x800 '"theme":"Light","reduce_motion":true' ;;
     *) echo "unknown scenario: $s" >&2; exit 1 ;;
   esac
 done

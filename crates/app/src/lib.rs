@@ -52,6 +52,12 @@ pub fn offscreen() -> bool {
     std::env::var_os("BIBLE_RS_OFFSCREEN").is_some()
 }
 
+/// Offscreen renders show transitions already finished, unless `BIBLE_RS_SHOT_FILMSTRIP` asks
+/// for the frames in between (`examples/shot.rs`).
+pub fn offscreen_still() -> bool {
+    offscreen() && std::env::var_os("BIBLE_RS_SHOT_FILMSTRIP").is_none()
+}
+
 /// The startup, scroll and sidebar probes (`scripts/bench-startup.sh`, `scripts/bench-sidebar.sh`)
 /// measure the reader, so they skip the first-launch screens.
 pub fn probing() -> bool {
