@@ -361,13 +361,15 @@ impl Reader {
         }
         if self.pending_jump.is_none()
             && let Some((c, _, _)) = self.deferred_jump
-            && !self.chapter_layout(ui, env, &geom, c).anchors.is_empty()
+            && self.chapter_layout(ui, env, &geom, c).anchors.iter().any(|a| a.column == 0)
         {
             self.pending_jump = self.deferred_jump.take();
         }
         if let Some((c, verse, flash)) = self.pending_jump.take() {
             let l = self.chapter_layout(ui, env, &geom, c);
-            self.deferred_jump = (verse > 1 && l.anchors.is_empty()).then_some((c, verse, flash));
+            // The first column decides where a verse is; it may still be loading while others show.
+            let loading = !l.anchors.iter().any(|a| a.column == 0);
+            self.deferred_jump = (verse > 1 && loading).then_some((c, verse, flash));
             // A verse shows a little below the top, or from its paragraph's start when that is
             // only a few lines up.
             let offset = if verse <= 1 {

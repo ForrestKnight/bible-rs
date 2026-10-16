@@ -1058,11 +1058,10 @@ impl SettingsUi {
         // At most one is clicked per frame.
         let mut add: Option<OnlineConfig> = None;
         if esv_clicked {
-            match library.set_api_key("esv-api-key", &self.esv_key) {
-                Ok(()) => self.message = None,
-                Err(e) => self.message = Some(format!("Couldn't save the key: {e:#}")),
-            }
-            if !has_esv && !self.esv_key.trim().is_empty() {
+            let saved = library.set_api_key("esv-api-key", &self.esv_key);
+            self.message = saved.as_ref().err().map(|e| format!("Couldn't save the key: {e:#}"));
+            // Without its key the ESV couldn't load, so it's only added once the key is saved.
+            if saved.is_ok() && !has_esv && !self.esv_key.trim().is_empty() {
                 let cfg = OnlineConfig {
                     id: "esv".into(),
                     abbrev: "ESV".into(),

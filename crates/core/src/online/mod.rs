@@ -387,18 +387,23 @@ impl Worker {
 /// Would keeping these chapters exceed the policy?
 fn over_limit(chapters: impl Iterator<Item = (ChapterIdx, usize)>, policy: CachePolicy) -> bool {
     let mut total = 0usize;
-    let mut per_book: HashMap<BookId, usize> = HashMap::new();
+    // Per book: verses, and which chapters.
+    let mut per_book: HashMap<BookId, (usize, HashSet<ChapterIdx>)> = HashMap::new();
     for (c, n) in chapters {
         total += n;
-        *per_book.entry(c.book()).or_default() += n;
+        let (verses, chapters) = per_book.entry(c.book()).or_default();
+        *verses += n;
+        chapters.insert(c);
     }
     if total > policy.max_verses {
         return true;
     }
-    per_book.iter().any(|(b, n)| match policy.book_share {
+    per_book.iter().any(|(b, (n, chapters))| match policy.book_share {
         BookShare::Any => false,
         BookShare::Half => *n * 2 > book_verses(*b),
-        BookShare::LessThanWhole => *n >= book_verses(*b),
+        // A whole book is every chapter of it. Verse counts can't tell: a translation may lack
+        // verses the KJV has (the NLT has no Romans 16:24).
+        BookShare::LessThanWhole => chapters.len() >= b.chapters() as usize,
     })
 }
 
@@ -548,7 +553,8 @@ impl DailyBudget {
         if s.0 == Self::today() { s.1 } else { 0 }
     }
 
-    /// Counts one request, or fails without counting if `limit` were exceeded.
+    /// Counts one request, or fails without counting if `limit` were exceeded or the count
+    /// couldn't be saved (a lost count would let the next launch go over the limit).
     pub fn spend(&self, limit: u32, what: &str) -> Result<()> {
         let mut s = self.state.lock().unwrap();
         let today = Self::today();
@@ -560,10 +566,14 @@ impl DailyBudget {
                 "{what}: the daily limit of {limit} requests is used up; it resets at midnight UTC"
             );
         }
-        s.1 += 1;
         if let Some(p) = &self.path {
-            let _ = std::fs::write(p, format!("{} {}", s.0, s.1));
+            // Written whole, then moved into place, so a crash never leaves half a count.
+            let tmp = p.with_extension("tmp");
+            std::fs::write(&tmp, format!("{} {}", s.0, s.1 + 1))
+                .and_then(|()| std::fs::rename(&tmp, p))
+                .with_context(|| format!("{what}: couldn't save today's request count to {}", p.display()))?;
         }
+        s.1 += 1;
         Ok(())
     }
 }
@@ -668,6 +678,14 @@ pub(crate) mod tests {
         // A one-chapter book is a whole book on its own.
         let jude = ChapterIdx::new(BookId(64), 1).unwrap();
         assert!(over_limit(std::iter::once((jude, 25)), p));
+        // Every chapter is the whole book even with fewer verses than the KJV: the NLT has no
+        // Romans 16:24, so all of Romans is 432 verses against the KJV's 433.
+        let romans = |n| ChapterIdx::new(BookId(44), n).unwrap();
+        let all: Vec<_> =
+            (1..=16).map(|n| (romans(n), romans(n).kjv_verses() as usize - usize::from(n == 16))).collect();
+        assert_eq!(all.iter().map(|(_, v)| v).sum::<usize>(), 432);
+        assert!(over_limit(all.iter().copied(), p));
+        assert!(!over_limit(all[..15].iter().copied(), p));
         // The verse cap still applies across books.
         let gen_ = |n| ChapterIdx::new(BookId::GENESIS, n).unwrap();
         assert!(over_limit((1..=20).map(|n| (gen_(n), 30)), p));
@@ -692,6 +710,13 @@ pub(crate) mod tests {
         // Yesterday's count doesn't carry over.
         std::fs::write(&path, format!("{} 999", DailyBudget::today() - 1)).unwrap();
         assert_eq!(DailyBudget::new(Some(path)).used(), 0);
+        // A count that can't be saved allows no request (here the file's place is a folder).
+        let blocked = dir.join("blocked");
+        std::fs::create_dir_all(&blocked).unwrap();
+        let b = DailyBudget::new(Some(blocked));
+        let err = format!("{:#}", b.spend(500, "X").unwrap_err());
+        assert!(err.contains("couldn't save today's request count"), "{err}");
+        assert_eq!(b.used(), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
