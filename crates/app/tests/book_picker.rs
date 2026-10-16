@@ -16,8 +16,13 @@ const GALATIANS: BookId = BookId(47);
 /// A button standing in for the toolbar's location button, opening the picker on John 1, with the
 /// picker open.
 fn open() -> Harness<'static, Vec<Action>> {
+    open_in(egui::vec2(1280.0, 800.0))
+}
+
+/// The same in a window of `size`.
+fn open_in(size: egui::Vec2) -> Harness<'static, Vec<Action>> {
     let here = ChapterIdx::new(JOHN, 1).unwrap();
-    let mut harness = Harness::new_ui_state(
+    let mut harness = Harness::builder().with_size(size).build_ui_state(
         move |ui, actions: &mut Vec<Action>| {
             let anchor = ui.button("John 1");
             book_picker::show(&anchor, Theme::Light.palette(), None, here, actions);
@@ -68,6 +73,21 @@ fn books_sit_in_the_menu_insets_with_the_current_one_selected() {
 
     assert!(selected(&harness, "John"), "the book being read is selected");
     assert!(!selected(&harness, "Genesis"));
+}
+
+#[test]
+fn the_books_fit_the_narrowest_window() {
+    // The window's minimum width.
+    let harness = open_in(egui::vec2(620.0, 700.0));
+    let area = harness.ctx.memory(|m| m.area_rect(egui::Id::new("book-picker"))).expect("the picker is open");
+    assert!(area.left() >= 0.0 && area.right() <= 620.0, "the picker fits the window: {area:?}");
+    let (genesis, exodus) = (harness.get_by_label("Genesis").rect(), harness.get_by_label("Exodus").rect());
+    // The cells narrow but keep the text inset before each name and a gap after the longest.
+    let longest = harness.ctx.fonts_mut(|f| {
+        f.layout_no_wrap("Lamentations".into(), theme::text::UI.font(), egui::Color32::WHITE).size().x
+    });
+    assert!(genesis.width() >= longest + tokens::ITEM_PADDING, "{} < {longest} + inset", genesis.width());
+    near(exodus.left(), genesis.right(), "columns abut");
 }
 
 #[test]

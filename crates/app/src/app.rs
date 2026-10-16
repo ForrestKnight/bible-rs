@@ -438,7 +438,7 @@ impl BibleApp {
 
     fn shortcuts(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) {
         let typing = ctx.egui_wants_keyboard_input();
-        // The book picker takes the arrow keys, return and escape while it's open.
+        // The book picker takes the single keys (arrows, return, escape) while it's open.
         let picker = crate::book_picker::is_open(ctx);
         let overlay = self.palette.is_some() || self.settings_ui.is_some() || self.shortcuts_open;
         // The rows of Settings › Shortcuts, with any chords chosen there.
@@ -496,13 +496,17 @@ impl BibleApp {
             {
                 key(cmd, k, Action::TranslationNumber(n));
             }
-            if typing || picker {
+            if typing {
                 return;
             }
-            for (c, a) in bindings.iter().filter(|(c, a)| !c.is_command() || *a == Action::Copy) {
+            // Copying works with the book picker open; the reader's single keys wait for it.
+            for (c, a) in bindings.iter().filter(|(c, a)| *a == Action::Copy || !(c.is_command() || picker)) {
                 key(c.modifiers(), c.key, a.clone());
             }
             key(cmd, Key::C, Action::CopyText);
+            if picker {
+                return;
+            }
             key(Modifiers::NONE, Key::ArrowLeft, Action::PrevChapter);
             key(Modifiers::NONE, Key::ArrowRight, Action::NextChapter);
             key(Modifiers::NONE, Key::ArrowDown, Action::ScrollLines(3.0));

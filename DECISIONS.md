@@ -206,11 +206,12 @@ The interface follows the high-fidelity designs in the Paper file "Bible" (Scree
   (the translation switcher, select fields, page menus) and the hand-painted verse and More
   menus use the same tokens; popovers with fields or controls (text settings, New Note) keep
   egui's popup frame. The book picker is a grid of menu cells in the menu frame. Its 28 pt cells
-  sit edge to edge, as wide as the longest name, with names and the testament headers in the
-  text column and one 16 pt gutter between the testaments; the book and chapter being read are
-  selected. Arrow keys move the same highlight as the pointer, return chooses and backspace goes
-  back to the books. The reader ignores single keys while the picker is open, so escape closes
-  it and the arrows stay in the grid.
+  sit edge to edge, as wide as the longest name (narrower in a 620 pt window), with names and
+  the testament headers in the text column and one 16 pt gutter between the testaments; the book
+  and chapter being read are selected. Arrow keys move the same highlight as the pointer, return
+  chooses and backspace goes back to the books. The reader's single-key shortcuts wait while the
+  picker is open, so escape closes it and the arrows stay in the grid; the copy chords still
+  copy.
 - **Empty and error states share one widget and one axis.** Notes, Bookmarks, Highlights,
   History, finished plans, the offline error and a search that found nothing all draw
   `pages::Empty`. Each sits optically centred in the space it fills, with 45 % of the leftover

@@ -22,6 +22,8 @@ const CHAPTER_COLUMNS: usize = 10;
 const GROUP_GAP: f32 = 2.0 * PADDING_X;
 /// Longer names show the book's abbreviation.
 const MAX_NAME: usize = 12;
+/// Width the books leave spare each side of a narrow window when their cells narrow to fit.
+const WINDOW_MARGIN: f32 = 8.0;
 const BOOKS: usize = 66;
 
 /// Which grid the picker shows and where its highlight is, while it's open.
@@ -158,7 +160,12 @@ fn books(
         .iter()
         .map(|n| ui.painter().layout_no_wrap(n.clone(), font.clone(), p.ink).size().x)
         .fold(0.0, f32::max);
-    let cell = vec2((widest + 2.0 * m::ITEM_PADDING).ceil(), ITEM_HEIGHT);
+    // As wide as the longest name with the text inset each side. A narrow window (down to 620 pt)
+    // narrows them to fit, taking from the inset after the names.
+    let room = ui.ctx().content_rect().width() - 2.0 * (WINDOW_MARGIN + PADDING_X) - GROUP_GAP;
+    let fit = (room / (2 * BOOK_COLUMNS) as f32).floor();
+    let width = (widest + 2.0 * m::ITEM_PADDING).ceil().min(fit).max((widest + m::ITEM_PADDING).ceil());
+    let cell = vec2(width, ITEM_HEIGHT);
     let group = BOOK_COLUMNS as f32 * cell.x;
     let rows = FIRST_NT_BOOK.index().div_ceil(BOOK_COLUMNS);
     let size = vec2(2.0 * group + GROUP_GAP, m::HEADER_HEIGHT + rows as f32 * cell.y);
