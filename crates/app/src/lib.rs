@@ -5,6 +5,7 @@
 
 pub mod actions;
 pub mod app;
+pub mod book_picker;
 pub mod cli;
 pub mod compare_popover;
 pub mod icons;

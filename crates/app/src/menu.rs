@@ -136,3 +136,42 @@ pub fn paint_row(painter: &Painter, p: &Palette, r: Rect, row: Row<'_>) {
     painter.text(pos2(glyph.right() + m::ICON_GAP, cy), Align2::LEFT_CENTER, row.label, font.clone(), ink);
     painter.text(pos2(r.right() - m::ITEM_PADDING, cy), Align2::RIGHT_CENTER, row.shortcut, font, ink3);
 }
+
+/// One cell of a grid menu (the book picker): a row-height highlight like a menu row's.
+pub struct Cell<'a> {
+    /// Drawn in the text column before the label.
+    pub icon: Option<IconFn>,
+    pub label: &'a str,
+    /// Numbers sit centred in their cell; names start in the text column.
+    pub centred: bool,
+    /// The current choice (the book or chapter being read).
+    pub selected: bool,
+    /// Under the pointer or the keyboard.
+    pub lit: bool,
+    pub pressed: bool,
+}
+
+/// Paints a grid menu cell in the colours egui menus give their rows (`theme::apply`): the
+/// selection fill for the current choice, a fill under the pointer and a stronger one pressed.
+pub fn paint_cell(painter: &Painter, p: &Palette, r: Rect, cell: Cell<'_>) {
+    let fill = if cell.selected {
+        p.selection
+    } else if cell.pressed {
+        p.fill_strong
+    } else if cell.lit {
+        p.fill
+    } else {
+        Color32::TRANSPARENT
+    };
+    painter.rect_filled(r, m::ITEM_RADIUS, fill);
+    let cy = r.center().y;
+    let mut x = text_left(r);
+    if let Some(icon) = cell.icon {
+        let glyph = Rect::from_min_size(pos2(x, cy - icon::MENU / 2.0), vec2(icon::MENU, icon::MENU));
+        crate::icons::heavy(|| icon(painter, glyph, p.ink_2));
+        x = glyph.right() + m::ICON_GAP;
+    }
+    let (pos, align) =
+        if cell.centred { (r.center(), Align2::CENTER_CENTER) } else { (pos2(x, cy), Align2::LEFT_CENTER) };
+    painter.text(pos, align, cell.label, text::UI.font(), p.ink);
+}

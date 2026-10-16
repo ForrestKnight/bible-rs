@@ -438,6 +438,8 @@ impl BibleApp {
 
     fn shortcuts(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) {
         let typing = ctx.egui_wants_keyboard_input();
+        // The book picker takes the arrow keys, return and escape while it's open.
+        let picker = crate::book_picker::is_open(ctx);
         let overlay = self.palette.is_some() || self.settings_ui.is_some() || self.shortcuts_open;
         // The rows of Settings › Shortcuts, with any chords chosen there.
         let bindings = crate::keymap::bindings(&self.settings.shortcuts);
@@ -494,7 +496,7 @@ impl BibleApp {
             {
                 key(cmd, k, Action::TranslationNumber(n));
             }
-            if typing {
+            if typing || picker {
                 return;
             }
             for (c, a) in bindings.iter().filter(|(c, a)| !c.is_command() || *a == Action::Copy) {
@@ -1387,7 +1389,7 @@ impl BibleApp {
             vec2(translation.width(), CAPSULE_HEIGHT),
         );
         let loc = book.show(ui, book_rect, p, "book", "Jump to a book or chapter (⌘K)");
-        crate::sidebar::book_picker_popup(ui, &loc, &self.library, &self.settings.translation, actions);
+        crate::book_picker::show(&loc, p, tmeta.as_ref(), c, actions);
         if show_translation {
             widgets::capsule_divider(ui.painter(), book_rect.right(), cy, p);
             let tr = translation.show(ui, tr_rect, p, "translation", "Translation (⌘1…⌘9)");

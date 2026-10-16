@@ -83,6 +83,26 @@ fn main() {
         harness.hover_at(pos);
         harness.run_steps(8);
     }
+    // `BIBLE_RS_SHOT_KEYS="ArrowRight;Enter"`: then press those keys (egui's names) in turn, for
+    // states the keyboard reaches.
+    let keys = std::env::var("BIBLE_RS_SHOT_KEYS").unwrap_or_default();
+    for name in keys.split(';').filter(|s| !s.is_empty()) {
+        let Some(key) = egui::Key::from_name(name.trim()) else {
+            eprintln!("BIBLE_RS_SHOT_KEYS: unknown key {name:?}");
+            continue;
+        };
+        for pressed in [true, false] {
+            harness.event(egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+            harness.step();
+        }
+        harness.run_steps(4);
+    }
     let mut img = harness.render().expect("rendering");
     if cfg!(target_os = "macos") && std::env::var_os("BIBLE_RS_NO_TRAFFIC_LIGHTS").is_none() {
         traffic_lights(&mut img);
