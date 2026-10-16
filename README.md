@@ -307,9 +307,11 @@ cargo build --release
 ./target/release/bible-rs
 ```
 
-On macOS, `scripts/bundle-macos.sh` builds `dist/bible-rs.app` and `dist/bible-rs-<version>.dmg`
-(`UNIVERSAL=1` for arm64 + x86_64, `SIGN_IDENTITY=…` to sign). CI builds the DMG on every push
-and uploads it as an artifact.
+On macOS, `scripts/bundle-macos.sh` builds `dist/bible-rs.app` (`UNIVERSAL=1` for arm64 +
+x86_64, `SIGN_IDENTITY=…` to sign). `scripts/release-macos.sh` makes the downloadable release: the
+universal app signed with a Developer ID and notarized, a disk image, a zip and their checksums
+([RELEASING.md](RELEASING.md)). CI builds an ad-hoc signed DMG on every push and uploads it as an
+artifact.
 
 Other tasks:
 

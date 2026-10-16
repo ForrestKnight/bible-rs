@@ -181,7 +181,20 @@ disk. Export to JSON (round-trips via import) and Markdown.
 - Reduce Motion, the app's setting or the system's (read when the sidebar is toggled, never at
   launch), shows and hides the sidebar at once.
 - `scripts/bundle-macos.sh` builds `bible-rs.app` (icon, Info.plist, ad-hoc or Developer ID
-  signature) and a DMG; CI does this on `macos-latest` and uploads the DMG.
+  signature, hardened runtime). `scripts/release-macos.sh` wraps it for releases (RELEASING.md):
+  universal binary, notarization, DMG, zip, checksums. CI runs it ad-hoc signed on `macos-latest`
+  and uploads the DMG.
+- The minimum is macOS 11 because the window code calls `NSWindow.toolbarStyle`, new in 11. The
+  build targets 11.0 for both slices; the x86_64 target would otherwise default to 10.12.
+- No entitlements. API keys use the legacy login Keychain (`SecKeychain`), which needs none under
+  the hardened runtime; each item trusts the designated requirement (bundle ID and team), so
+  releases signed by the same team read existing keys without a prompt.
+- dmgbuild lays out the DMG. It writes Finder's `.DS_Store` itself, so it needs no Finder
+  scripting and runs headless in CI. lzma compression (ULMO) makes the DMG 16 % smaller than zlib.
+- Releases carry the DMG twice: `bible-rs-<version>-universal.dmg`, and `bible-rs-universal.dmg`
+  for the website, whose Download button points at `releases/latest/download/` with a fixed name.
+- No in-app update check. The app makes no network requests of its own; About's "Check for
+  Updates…" opens the latest release page in the browser.
 
 ## Visual design: the Paper designs
 

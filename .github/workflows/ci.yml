@@ -36,16 +36,19 @@ jobs:
         run: RUNS=5 scripts/bench-startup.sh
 
   macos:
-    name: macOS · build, tests, app bundle
+    name: macOS · build, tests, universal app and DMG
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v10 # installs dmgbuild for the DMG layout
       - name: Tests
         run: cargo test --workspace
-      - name: App bundle and DMG
-        run: scripts/bundle-macos.sh
+      - name: Universal app, DMG and zip (ad-hoc signed; release.yml signs and notarizes)
+        run: scripts/release-macos.sh --ad-hoc
       - name: Startup and scrolling (glow)
         run: BIN=dist/bible-rs.app/Contents/MacOS/bible-rs BIBLE_RS_RENDERER=glow RUNS=10 scripts/bench-startup.sh || true
       - name: Startup and scrolling (wgpu / Metal)
@@ -61,4 +64,4 @@ jobs:
         with:
           name: bible-rs-macos
           path: |
-            dist/*.dmg
+            dist/bible-rs-*-universal.dmg

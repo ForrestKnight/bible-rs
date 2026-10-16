@@ -1,0 +1,125 @@
+# Builds the signed, notarized macOS release when a version tag is pushed and attaches it to a
+# draft GitHub Release. Nothing is published: a maintainer reviews the draft and publishes it.
+# scripts/release-macos.sh does the work; running it on a Mac is the primary path
+# (RELEASING.md), this workflow is the same steps on a GitHub runner.
+#
+# Repository secrets (Settings → Secrets and variables → Actions), set up in RELEASING.md:
+#   DEVELOPER_ID_P12           base64 of the "Developer ID Application" certificate and key (.p12)
+#   DEVELOPER_ID_P12_PASSWORD  the password the .p12 was exported with
+#   NOTARY_API_KEY             contents of the App Store Connect API key file (AuthKey_….p8)
+#   NOTARY_API_KEY_ID          that key's ID
+#   NOTARY_API_ISSUER          the issuer ID shown above the keys list
+name: Release (macOS)
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the draft release
+
+jobs:
+  macos:
+    name: Universal app, DMG and zip (signed, notarized)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches the workspace version
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $version (expected v$version)"
+            exit 1
+          fi
+
+      - name: Secrets are set
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+          NOTARY_API_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
+          NOTARY_API_ISSUER: ${{ secrets.NOTARY_API_ISSUER }}
+        run: |
+          missing=0
+          for name in DEVELOPER_ID_P12 DEVELOPER_ID_P12_PASSWORD NOTARY_API_KEY NOTARY_API_KEY_ID NOTARY_API_ISSUER; do
+            if [ -z "$(printenv "$name")" ]; then
+              echo "::error::repository secret $name is not set (see RELEASING.md)"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v10 # installs dmgbuild for the DMG layout
+
+      - name: Signing keychain
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/release.keychain-db"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$password" "$KEYCHAIN"
+          printf '%s' "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" \
+            -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          # Let codesign use the key without a UI prompt.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$KEYCHAIN" >/dev/null
+          # Put the new keychain first in the search list, keeping the existing ones.
+          search=("$KEYCHAIN")
+          while IFS= read -r k; do search+=("$k"); done < <(security list-keychains -d user | sed -e 's/^ *"//' -e 's/"$//')
+          security list-keychains -d user -s "${search[@]}"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Notary profile
+        env:
+          NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+          NOTARY_API_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
+          NOTARY_API_ISSUER: ${{ secrets.NOTARY_API_ISSUER }}
+        run: |
+          printf '%s\n' "$NOTARY_API_KEY" > "$RUNNER_TEMP/AuthKey.p8"
+          xcrun notarytool store-credentials bible-notary --keychain "$KEYCHAIN" \
+            --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$NOTARY_API_KEY_ID" --issuer "$NOTARY_API_ISSUER"
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Build, sign, notarize, staple
+        run: NOTARY_KEYCHAIN="$KEYCHAIN" scripts/release-macos.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bible-rs-${{ github.ref_name }}-macos
+          path: |
+            dist/bible-rs-*universal.dmg
+            dist/bible-rs-*-universal.zip
+            dist/bible-rs-*-SHA256SUMS.txt
+          if-no-files-found: error
+
+      # bible-rs-universal.dmg is the name bible-rs.vercel.app/download points at.
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          assets=(dist/bible-rs-*universal.dmg dist/bible-rs-*-universal.zip dist/bible-rs-*-SHA256SUMS.txt)
+          draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null || echo none)"
+          case "$draft" in
+            none)
+              gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes \
+                --title "bible-rs ${GITHUB_REF_NAME#v}" "${assets[@]}" ;;
+            true) # a draft made by hand keeps its notes; only the files change
+              gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber ;;
+            *) # never swap the files of a published release behind a maintainer's back
+              echo "::notice::$GITHUB_REF_NAME is already published; its files were left alone (this run's artifact has the new build)" ;;
+          esac
+
+      - name: Remove the signing keychain
+        if: always()
+        run: if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
