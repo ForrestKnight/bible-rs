@@ -98,7 +98,8 @@ impl SidebarProbe {
             None if self.toggled.is_some() => self.idle_frames += 1,
             None => {}
         }
-        let done = self.toggles_left == 0 && self.toggled.is_some_and(|t| t.elapsed() >= WINDOW);
+        // Done once every toggle's window is over; at once when there was nothing to toggle.
+        let done = self.toggles_left == 0 && self.toggled.is_none_or(|t| t.elapsed() >= WINDOW);
         done.then(|| self.report())
     }
 
