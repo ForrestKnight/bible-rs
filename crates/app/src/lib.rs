@@ -16,6 +16,7 @@ pub mod macos_menu;
 #[cfg(target_os = "macos")]
 pub mod macos_window;
 pub mod menu;
+pub mod motion;
 pub mod note_popover;
 pub mod offline;
 pub mod onboarding;

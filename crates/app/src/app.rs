@@ -218,6 +218,17 @@ pub struct BibleApp {
     pub reader: Reader,
     pub history: History,
     pub sidebar: Sidebar,
+    /// The sidebar's slide (0 hidden, 1 shown), and this frame's value and full width.
+    sidebar_motion: crate::motion::Spring,
+    sidebar_shown: f32,
+    sidebar_extent: f32,
+    /// The previous frame's time (egui seconds), and the clock motion runs on: frame time, except
+    /// that one frame advances it by at most [`BibleApp::motion_step`]. A frame that comes late,
+    /// say while a ProMotion panel wakes from its idle refresh rate, then delays a slide by a
+    /// frame rather than making it jump.
+    last_frame_time: f64,
+    motion_clock: f64,
+    motion_step: f64,
     palette: Option<CommandPalette>,
     pub panel: Option<VersePanel>,
     settings_ui: Option<SettingsUi>,
@@ -342,6 +353,12 @@ impl BibleApp {
             reader,
             history: History::default(),
             sidebar,
+            sidebar_motion: crate::motion::Spring::new(if settings.sidebar_open { 1.0 } else { 0.0 }),
+            sidebar_shown: if settings.sidebar_open { 1.0 } else { 0.0 },
+            sidebar_extent: 0.0,
+            last_frame_time: 0.0,
+            motion_clock: 0.0,
+            motion_step: 1.5 / 60.0,
             palette: None,
             panel: None,
             settings_ui: None,
@@ -1164,6 +1181,41 @@ impl BibleApp {
         }
     }
 
+    /// How far out the sidebar is this frame (0 hidden, 1 shown), moving it toward where the
+    /// settings and focus mode want it and repainting until it gets there. Reduce Motion (the
+    /// app's setting or the system's) and offscreen rendering show and hide it at once.
+    fn sidebar_open_fraction(&mut self, ctx: &egui::Context, frame: &eframe::Frame) -> f32 {
+        use theme::metrics::{SIDEBAR_INSET, SIDEBAR_WIDTH};
+        let width = if self.sidebar.searching() { SEARCH_SIDEBAR_WIDTH } else { SIDEBAR_WIDTH };
+        let inset = if self.settings.sidebar_attached { 0.0 } else { SIDEBAR_INSET };
+        self.sidebar_extent = inset + width;
+        let target = if self.settings.sidebar_open && !self.focus { 1.0 } else { 0.0 };
+        let changed = target != self.sidebar_motion.target();
+        let instant = changed
+            && (self.settings.reduce_motion || crate::offscreen() || crate::motion::system_reduces_motion());
+        if changed && !instant {
+            // At most a frame and a half of the display the window is on (60 Hz elsewhere).
+            #[cfg(target_os = "macos")]
+            let refresh = crate::macos_window::refresh_interval(frame);
+            #[cfg(not(target_os = "macos"))]
+            let refresh: Option<f64> = {
+                let _ = frame;
+                None
+            };
+            self.motion_step = 1.5 * refresh.unwrap_or(1.0 / 60.0);
+        }
+        let now = ctx.input(|i| i.time);
+        let since = self.motion_clock;
+        self.motion_clock += (now - self.last_frame_time).clamp(0.0, self.motion_step);
+        self.last_frame_time = now;
+        let open = self.sidebar_motion.update(target, since, self.motion_clock, instant);
+        if self.sidebar_motion.moving() {
+            ctx.request_repaint();
+        }
+        self.sidebar_shown = open;
+        open
+    }
+
     /// The toolbar over the reading area (`ds-06` in the design): back/forward (after the
     /// sidebar toggle when the sidebar is hidden), the location and translation pickers centred,
     /// view tools and the search field at the end. Every control is a glass capsule centred on
@@ -1171,7 +1223,7 @@ impl BibleApp {
     fn toolbar(&mut self, ui: &mut Ui, main: egui::Rect, material: f32, actions: &mut Vec<Action>) {
         use theme::metrics::{
             BUTTON_WIDTH, CAPSULE_HEIGHT, GROUP_GAP, LEADING_INSET, SEARCH_FIELD_WIDTH,
-            SEARCH_FIELD_WIDTH_COMPACT, SIDEBAR_TOGGLE_WIDTH, TRAILING_INSET,
+            SEARCH_FIELD_WIDTH_COMPACT, TRAILING_INSET,
         };
         use widgets::CapsuleButton;
         let p = self.settings.theme.palette();
@@ -1187,28 +1239,15 @@ impl BibleApp {
         let cy = bar.center().y;
         let mut items = Vec::new();
 
-        // Leading: the sidebar toggle (when the sidebar, which otherwise holds it, is hidden),
-        // then back and forward.
-        let sidebar = self.settings.sidebar_open;
-        let mut x = if sidebar {
-            bar.left() + GROUP_GAP
-        } else {
-            self.chrome.leading.max(bar.left() + LEADING_INSET)
-        };
-        if !sidebar {
-            let toggle = CapsuleButton {
-                tooltip: "Show sidebar (⌘B)",
-                enabled: true,
-                on: false,
-                icon: crate::icons::sidebar,
-            };
-            let (r, resp) = widgets::button_capsule(ui, p, x, cy, SIDEBAR_TOGGLE_WIDTH, false, &[toggle]);
-            if resp[0].clicked() {
-                actions.push(Action::ToggleSidebar);
-            }
-            items.push(r);
-            x = r.right() + GROUP_GAP;
-        }
+        // Leading: the sidebar toggle, then back and forward.
+        let open = self.sidebar_shown;
+        let extent = self.sidebar_extent;
+        let window_left = bar.left() - extent * open;
+        let docked = self.chrome.leading.max(window_left + LEADING_INSET);
+        let lead = Leading::new(open, extent, window_left, docked);
+        let target_open = self.sidebar_motion.target() > 0.5;
+        items.push(sidebar_toggle(ui, p, lead.toggle_x, cy, lead.capsule, target_open, actions));
+        let x = lead.nav_x;
         let nav = [
             CapsuleButton {
                 tooltip: "Back (⌘[)",
@@ -1261,7 +1300,9 @@ impl BibleApp {
 
         // Trailing: view tools, then the search field. A compact window folds both into one
         // capsule, Search and More (frame 34), and shows the narrower field while searching.
-        let compact = bar.width() < COMPACT_TOOLBAR;
+        // Judged at the width the bar is heading for, so a sliding sidebar switches it at once
+        // rather than halfway.
+        let compact = bar.width() + extent * (open - self.sidebar_motion.target()) < COMPACT_TOOLBAR;
         let focus_field = self.sidebar.take_focus();
         let show_field = !compact || focus_field || self.sidebar.searching() || self.sidebar.field_focused;
         let trailing_left;
@@ -1381,7 +1422,7 @@ impl BibleApp {
         let book = widgets::Picker::new(ui, &title, 14.0, if show_translation { 10.0 } else { 12.0 });
         let translation = widgets::Picker::new(ui, &abbrev, 10.0, 12.0);
         let width = book.width() + if show_translation { 1.0 + translation.width() } else { 0.0 };
-        let pad_left = if sidebar { GROUP_GAP } else { LEADING_INSET };
+        let pad_left = LEADING_INSET + (GROUP_GAP - LEADING_INSET) * open;
         let centre = (bar.left() + pad_left + bar.right() - TRAILING_INSET) / 2.0;
         let lo = nav_rect.right() + GROUP_GAP;
         let hi = trailing_left - GROUP_GAP - width;
@@ -1871,17 +1912,73 @@ const SEARCH_BAND: f32 = 48.0;
 
 /// Height of the sidebar's header (traffic lights and toggle) and the search sidebar's width.
 const SIDEBAR_HEADER: f32 = 36.0;
+/// From the sidebar's edge to the centre of the toggle in its header: 4 pt, then half its 32 pt.
+const SIDEBAR_HEADER_TOGGLE_INSET: f32 = 4.0 + 16.0;
 const SEARCH_SIDEBAR_WIDTH: f32 = 352.0;
 
-/// The sidebar's own toggle: a borderless 32 pt button in secondary ink.
-fn sidebar_toggle(ui: &mut Ui, p: &theme::Palette, rect: egui::Rect) -> egui::Response {
-    let resp = ui.interact(rect, Id::new("sidebar-toggle"), Sense::click());
-    if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
-        ui.painter().circle_filled(rect.center(), rect.width() / 2.0, fill);
+/// The toolbar's leading group while the sidebar is `open` (0 hidden, 1 shown) of its `extent`.
+/// With the sidebar out the toggle sits in its header; hidden, in a capsule at `docked` (after the
+/// traffic lights). In between it rides the sidebar's edge until it reaches that place, the
+/// capsule fading in over the rest of the way, and back and forward ride after it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Leading {
+    /// The toggle's centre, and how much of its capsule shows (0–1).
+    toggle_x: f32,
+    capsule: f32,
+    /// Where back and forward start.
+    nav_x: f32,
+}
+
+impl Leading {
+    fn new(open: f32, extent: f32, window_left: f32, docked: f32) -> Self {
+        use theme::metrics::{GROUP_GAP, SIDEBAR_TOGGLE_WIDTH};
+        let edge = window_left + extent * open;
+        let parked = docked + SIDEBAR_TOGGLE_WIDTH / 2.0;
+        // How far out the sidebar is when the toggle riding its edge reaches the parking place.
+        let dock_at = ((parked + SIDEBAR_HEADER_TOGGLE_INSET - window_left) / extent).max(1e-3);
+        Self {
+            toggle_x: (edge - SIDEBAR_HEADER_TOGGLE_INSET).max(parked),
+            capsule: (1.0 - open / dock_at).clamp(0.0, 1.0),
+            nav_x: (edge + GROUP_GAP).max(docked + SIDEBAR_TOGGLE_WIDTH + GROUP_GAP),
+        }
     }
-    let icon = egui::Rect::from_center_size(rect.center(), vec2(theme::metrics::ICON, theme::metrics::ICON));
-    crate::icons::sidebar(ui.painter(), icon, p.ink_2);
-    resp.on_hover_text("Hide sidebar (⌘B)")
+}
+
+/// The sidebar toggle centred at `centre_x` on the toolbar's line. In the sidebar's header it is a
+/// borderless 32 pt button in secondary ink; after the traffic lights, a 40 pt glass capsule in
+/// ink. `capsule` (0–1) blends the two while the sidebar slides. Painted over the sidebar, whose
+/// edge it follows, so it isn't clipped to the main area.
+fn sidebar_toggle(
+    ui: &mut Ui,
+    p: &theme::Palette,
+    centre_x: f32,
+    centre_y: f32,
+    capsule: f32,
+    open: bool,
+    actions: &mut Vec<Action>,
+) -> egui::Rect {
+    use theme::metrics::{CAPSULE_HEIGHT, ICON, SIDEBAR_TOGGLE_WIDTH};
+    let width = 32.0 + (SIDEBAR_TOGGLE_WIDTH - 32.0) * capsule;
+    let rect = egui::Rect::from_center_size(egui::pos2(centre_x, centre_y), vec2(width, CAPSULE_HEIGHT));
+    let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+    ui.set_clip_rect(ui.ctx().content_rect());
+    let resp = ui.interact(rect, Id::new("sidebar-toggle"), Sense::click());
+    let radius = rect.height() / 2.0;
+    if capsule > 0.0 {
+        let mut glass = ui.painter().clone();
+        glass.multiply_opacity(capsule);
+        widgets::capsule(&glass, rect, p);
+    }
+    if let Some(fill) = widgets::hover_fill(&ui, &resp, p, false) {
+        ui.painter().rect_filled(rect, radius, fill);
+    }
+    let icon = egui::Rect::from_center_size(rect.center(), vec2(ICON, ICON));
+    crate::icons::sidebar(ui.painter(), icon, p.ink_2.lerp_to_gamma(p.ink, capsule));
+    let resp = resp.on_hover_text(if open { "Hide sidebar (⌘B)" } else { "Show sidebar (⌘B)" });
+    if resp.clicked() {
+        actions.push(Action::ToggleSidebar);
+    }
+    rect
 }
 
 fn translation_menu(ui: &mut Ui, library: &Library, settings: &Settings, actions: &mut Vec<Action>) {
@@ -1953,7 +2050,12 @@ impl BibleApp {
                 }
             });
             rects.sort_by(|a, b| a.left().total_cmp(&b.left()));
-            self.no_drag.set(frame, &rects, ctx.zoom_factor());
+            // Not while the sidebar slides: moving AppKit views every frame makes AppKit ask for
+            // extra redraws between the display's, which upsets the pacing. They catch up when
+            // it stops.
+            if !self.sidebar_motion.moving() {
+                self.no_drag.set(frame, &rects, ctx.zoom_factor());
+            }
         }
 
         let had_actions = !actions.is_empty();
@@ -2024,7 +2126,7 @@ impl BibleApp {
             }
         }
         if let Some(probe) = &mut self.sidebar_probe
-            && let Some(report) = probe.end(frame_start, self.reader.layouts)
+            && let Some(report) = probe.end(frame_start, self.reader.layouts, self.sidebar_shown)
         {
             println!("{report}");
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -2102,20 +2204,25 @@ impl eframe::App for BibleApp {
         }
         #[cfg(target_os = "macos")]
         self.toolbar_items.clear();
-        if self.settings.sidebar_open && !self.focus {
+        // The sidebar slides in from the window's edge at its full width, so nothing in it is laid
+        // out again, while the main area beside it narrows; a spring drives both.
+        let open = self.sidebar_open_fraction(&ctx, frame);
+        if open > 0.0 {
             // A floating source list, full height: the traffic lights and the sidebar toggle sit
             // in its header.
-            use theme::metrics::{SIDEBAR_INSET, SIDEBAR_WIDTH};
-            let width = if self.sidebar.searching() { SEARCH_SIDEBAR_WIDTH } else { SIDEBAR_WIDTH };
+            let extent = self.sidebar_extent;
             let attached = self.settings.sidebar_attached;
-            let inset = if attached { 0.0 } else { SIDEBAR_INSET };
+            let inset = if attached { 0.0 } else { theme::metrics::SIDEBAR_INSET };
             egui::Panel::left("sidebar")
                 .resizable(false)
-                .exact_size(inset + width)
+                .exact_size(extent * open)
                 .frame(Frame::NONE.fill(p.paper))
                 .show_separator_line(false)
                 .show(ui, |ui| {
-                    let full = ui.max_rect();
+                    // Its full width, as far left of the window's edge as it isn't out yet.
+                    let area = ui.max_rect();
+                    let full =
+                        egui::Rect::from_min_max(egui::pos2(area.right() - extent, area.top()), area.max);
                     let panel = egui::Rect::from_min_max(
                         full.min + vec2(inset, inset),
                         egui::pos2(full.right(), full.bottom() - inset),
@@ -2133,16 +2240,8 @@ impl eframe::App for BibleApp {
                         p.shadows.panel.paint(ui.painter(), panel, radius);
                         ui.painter().rect_filled(panel, radius, p.sidebar);
                     }
-                    // The toggle, 4 pt from the panel's edge, on the traffic lights' line.
-                    let toggle = egui::Rect::from_center_size(
-                        egui::pos2(panel.right() - 4.0 - 16.0, self.chrome.height / 2.0),
-                        vec2(32.0, 32.0),
-                    );
-                    if sidebar_toggle(ui, p, toggle).clicked() {
-                        actions.push(Action::ToggleSidebar);
-                    }
-                    #[cfg(target_os = "macos")]
-                    self.toolbar_items.push(toggle);
+                    // The toggle in its header is the toolbar's (see `sidebar_toggle`), which follows
+                    // the panel's edge.
                     let content = egui::Rect::from_min_max(panel.min + vec2(0.0, SIDEBAR_HEADER), panel.max);
                     let mut child = ui.new_child(
                         egui::UiBuilder::new()
@@ -2230,6 +2329,7 @@ impl eframe::App for BibleApp {
                 keyboard,
                 online_generation: &self.online_gen,
                 toolbar: top,
+                resizing: self.sidebar_motion.moving(),
             };
             let mut reader_ui = ui.new_child(egui::UiBuilder::new().max_rect(reader_rect));
             if let (Some(state), Some(retrying)) = (&self.offline, offline) {
@@ -2468,4 +2568,38 @@ pub fn online_counter() -> Arc<AtomicU64> {
 
 pub fn bump(counter: &AtomicU64) {
     counter.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Leading;
+
+    // The default window: a 264 pt floating sidebar, the toolbar starting at 96 pt after the
+    // traffic lights.
+    const EXTENT: f32 = 264.0;
+    const DOCKED: f32 = 96.0;
+
+    #[test]
+    fn the_leading_group_ends_where_the_static_layouts_put_it() {
+        // Shown: the toggle in the sidebar's header, 20 pt in from its edge; back and forward
+        // 8 pt after the sidebar.
+        let shown = Leading::new(1.0, EXTENT, 0.0, DOCKED);
+        assert_eq!(shown, Leading { toggle_x: 244.0, capsule: 0.0, nav_x: 272.0 });
+        // Hidden: the 40 pt toggle capsule after the traffic lights, then back and forward.
+        let hidden = Leading::new(0.0, EXTENT, 0.0, DOCKED);
+        assert_eq!(hidden, Leading { toggle_x: 116.0, capsule: 1.0, nav_x: 144.0 });
+    }
+
+    #[test]
+    fn the_leading_group_moves_without_jumps() {
+        let mut last = Leading::new(0.0, EXTENT, 0.0, DOCKED);
+        for i in 1..=1000 {
+            let now = Leading::new(i as f32 / 1000.0, EXTENT, 0.0, DOCKED);
+            // A thousandth of the slide moves nothing by more than a thousandth of the sidebar.
+            assert!((now.toggle_x - last.toggle_x).abs() <= EXTENT / 1000.0 + 1e-3, "{last:?} → {now:?}");
+            assert!((now.nav_x - last.nav_x).abs() <= EXTENT / 1000.0 + 1e-3, "{last:?} → {now:?}");
+            assert!(now.capsule <= last.capsule && last.capsule - now.capsule < 0.01, "{last:?} → {now:?}");
+            last = now;
+        }
+    }
 }

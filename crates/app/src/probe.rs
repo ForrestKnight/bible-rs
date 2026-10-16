@@ -5,6 +5,7 @@
 //! The toggle goes through the same action as the toolbar button and ⌘B. A frame belongs to a
 //! toggle while it starts within [`WINDOW`] of it; frames outside every window are counted as
 //! idle frames, which shows whether the app stops drawing once a change is over.
+//! `BIBLE_RS_SIDEBAR_PROBE_TRACE=1` also prints every frame of every window to stderr.
 
 use std::time::{Duration, Instant};
 
@@ -29,6 +30,7 @@ pub struct SidebarProbe {
     frames_per_toggle: Vec<u32>,
     layouts_per_toggle: Vec<u64>,
     idle_frames: u32,
+    trace: bool,
 }
 
 impl SidebarProbe {
@@ -45,6 +47,7 @@ impl SidebarProbe {
             frames_per_toggle: Vec::new(),
             layouts_per_toggle: Vec::new(),
             idle_frames: 0,
+            trace: std::env::var("BIBLE_RS_SIDEBAR_PROBE_TRACE").is_ok_and(|v| !v.is_empty()),
         })
     }
 
@@ -65,15 +68,24 @@ impl SidebarProbe {
     }
 
     /// At the end of the frame that started at `start`, with the reader's running count of
-    /// chapter layouts. Returns the report once every toggle's window is over.
-    pub fn end(&mut self, start: Instant, layouts: u64) -> Option<String> {
+    /// chapter layouts and how far out the sidebar was drawn. Returns the report once every
+    /// toggle's window is over.
+    pub fn end(&mut self, start: Instant, layouts: u64, open: f32) -> Option<String> {
         let new_layouts = layouts - self.layouts_seen.min(layouts);
         self.layouts_seen = layouts;
         match self.toggled.filter(|t| start.duration_since(*t) < WINDOW) {
-            Some(_) => {
-                self.ui_ms.push(start.elapsed().as_secs_f64() * 1000.0);
-                if let Some(last) = self.last {
-                    self.intervals.push(start.duration_since(last).as_secs_f64() * 1000.0);
+            Some(toggled) => {
+                let ui_ms = start.elapsed().as_secs_f64() * 1000.0;
+                self.ui_ms.push(ui_ms);
+                let interval = self.last.map(|last| start.duration_since(last).as_secs_f64() * 1000.0);
+                self.intervals.extend(interval);
+                if self.trace {
+                    eprintln!(
+                        "toggle {} at {:7.2} ms  ui {ui_ms:6.3} ms  interval {:6.2} ms  layouts {new_layouts}  open {open:.4}",
+                        self.frames_per_toggle.len(),
+                        start.duration_since(toggled).as_secs_f64() * 1000.0,
+                        interval.unwrap_or(0.0),
+                    );
                 }
                 self.last = Some(start);
                 if let (Some(f), Some(l)) =

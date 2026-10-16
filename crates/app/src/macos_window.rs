@@ -88,6 +88,16 @@ pub fn traffic_lights(handle: &impl HasWindowHandle) -> Option<Rect> {
     out
 }
 
+/// How often the display the window is on refreshes at its fastest (seconds per frame): 1/120 s
+/// on a ProMotion panel.
+pub fn refresh_interval(handle: &impl HasWindowHandle) -> Option<f64> {
+    if !objc2::available!(macos = 12.0) {
+        return None;
+    }
+    let fps = ns_window(handle)?.screen()?.maximumFramesPerSecond();
+    (fps > 0).then(|| 1.0 / fps as f64)
+}
+
 define_class!(
     /// Marks its frame as "not a window drag handle" while letting clicks through to egui.
     #[unsafe(super(NSView, objc2_app_kit::NSResponder, objc2_foundation::NSObject))]

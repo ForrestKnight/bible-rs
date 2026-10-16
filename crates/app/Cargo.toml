@@ -42,14 +42,17 @@ muda = { version = "0.21", default-features = false }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
+    "NSAccessibility",
     "NSApplication",
     "NSButton",
     "NSControl",
     "NSResponder",
+    "NSScreen",
     "NSSharingService",
     "NSToolbar",
     "NSView",
     "NSWindow",
+    "NSWorkspace",
 ] }
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "std",

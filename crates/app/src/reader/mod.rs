@@ -43,6 +43,9 @@ pub struct Env<'a> {
     pub online_generation: &'a AtomicU64,
     /// Height of the toolbar floating over the reader's top edge.
     pub toolbar: f32,
+    /// The reader's width is changing frame by frame (the sidebar sliding): typeset only what is
+    /// on screen, not the neighbouring chapters, which would be laid out again next frame.
+    pub resizing: bool,
 }
 
 struct Cached {
@@ -634,7 +637,8 @@ impl Reader {
         // turning the page into them never has to lay out text first.
         self.frames += 1;
         // Not during the first frames: nothing should delay the first paint.
-        let idle = self.frames > 2 && dy == 0.0 && self.scroll_remaining == 0.0 && !resp.dragged();
+        let idle =
+            self.frames > 2 && dy == 0.0 && self.scroll_remaining == 0.0 && !resp.dragged() && !env.resizing;
         if idle {
             let wanted = [
                 last_visible.next(),
@@ -803,11 +807,9 @@ impl Geometry {
             let avail = (rect.width() - left - right - 2.0 * pad).max(200.0);
             let col_w = ((avail - gutter * (n - 1.0)) / n).min(typo.size * 20.0).floor();
             let total_w = col_w * n + gutter * (n - 1.0);
-            let x0 = if total_w + 1.0 < avail {
-                (rect.center().x - total_w / 2.0).round()
-            } else {
-                rect.left() + left + pad
-            };
+            // Centred, but never into the left margin: continuous in the width, so the columns
+            // glide rather than jump as the sidebar slides.
+            let x0 = (rect.center().x - total_w / 2.0).round().max(rect.left() + left + pad);
             return Self { x0, col_w, gutter, total_w };
         }
         // At least 80 pt either side (a compact window's 560 pt measure, frame 34), room for the
