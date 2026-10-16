@@ -1,4 +1,4 @@
-//! API.Bible (rest.api.bible) — licensed translations such as NASB, LSB or NLT where the user's
+//! API.Bible (rest.api.bible) — licensed translations such as NASB, NKJV or CSB where the user's
 //! plan and the publisher allow it.
 //!
 //! Chapters are requested with `content-type=json`, a USX-derived tree whose paragraph and
@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{CachePolicy, FetchedChapter, Source, http_agent, read_body};
+use super::{BookShare, CachePolicy, FetchedChapter, Source, http_agent, read_body};
 use crate::books::ChapterIdx;
 use crate::model::{Translation, TranslationBuilder, TranslationMeta};
 use crate::usfm::{Para, char_style, para_kind, verse_range};
@@ -104,7 +104,7 @@ impl Source for ApiBible {
         CachePolicy {
             // "fewer than 500 consecutive verses", refreshed at least every 14 days.
             max_verses: 499,
-            half_book_limit: false,
+            book_share: BookShare::Any,
             max_age_secs: 14 * 86_400,
             min_request_interval: Duration::from_millis(500),
         }

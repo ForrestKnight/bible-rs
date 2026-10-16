@@ -168,3 +168,38 @@ fn parallel_cells_flow_poetry_as_prose() {
     assert!(cell.galley.rows.len() >= 2);
     assert!(cell.galley.rows.iter().all(|r| !r.ends_with_newline), "no forced line breaks");
 }
+
+#[test]
+fn publisher_notices_follow_the_text_as_links() {
+    // An online chapter ends with its publisher's notice, below the last verse, across the columns.
+    let kjv = bible_core::bundled::load("kjv").unwrap();
+    let web = bible_core::bundled::load("web").unwrap();
+    let c = ChapterIdx::new(BookId(42), 3).unwrap();
+    let typo = Typography::default();
+    let notice = |abbrev: &str| layout::Notice {
+        abbrev: abbrev.into(),
+        text: "Used by permission. All rights reserved. ".repeat(8),
+        url: "https://example.org",
+    };
+    with_fonts(|ctx| {
+        let cx = Ctx::new(&typo, Theme::Light, 420.0, 30.0);
+        let mut single = ctx.fonts_mut(|f| layout::layout_chapter(f, &cx, &kjv, c));
+        let (height, last) = (single.height, single.anchors.last().unwrap().bottom);
+        ctx.fonts_mut(|f| layout::add_notices(f, &cx, &mut single, &[notice("ESV")], 1));
+        let (rect, url) = single.links[0];
+        assert_eq!(url, "https://example.org");
+        assert!(rect.top() > last && rect.left() == 0.0 && rect.width() <= 420.0);
+        assert!(single.height > height && single.height > rect.bottom());
+
+        let cols =
+            [("NLT".to_string(), ColumnText::Ready(&kjv)), ("WEB".to_string(), ColumnText::Ready(&web))];
+        let mut parallel = ctx.fonts_mut(|f| layout::layout_parallel(f, &cx, &cols, c));
+        ctx.fonts_mut(|f| layout::add_notices(f, &cx, &mut parallel, &[notice("NLT"), notice("NET")], 2));
+        assert_eq!(parallel.links.len(), 2);
+        let (first, second) = (parallel.links[0].0, parallel.links[1].0);
+        assert!(second.top() >= first.bottom(), "one under the other");
+        // A long notice wraps at the column's width alone, and across both columns side by side.
+        assert!(first.width() > 420.0, "{first:?}");
+        assert!(first.left() > 0.0, "it starts after the verse-number lane");
+    });
+}

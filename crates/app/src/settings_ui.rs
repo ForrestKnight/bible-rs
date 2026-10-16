@@ -42,6 +42,7 @@ const TABS: [(SettingsTab, &str, IconFn); 6] = [
 pub struct SettingsUi {
     tab: SettingsTab,
     esv_key: String,
+    nlt_key: String,
     apibible_key: String,
     bibles: Option<Result<Vec<RemoteBible>, String>>,
     loading_bibles: bool,
@@ -61,6 +62,7 @@ impl SettingsUi {
         Self {
             tab,
             esv_key: library.api_key("esv-api-key").unwrap_or_default(),
+            nlt_key: library.api_key("nlt-api-key").unwrap_or_default(),
             apibible_key: library.api_key("api-bible-key").unwrap_or_default(),
             bibles: None,
             loading_bibles: false,
@@ -832,11 +834,11 @@ impl SettingsUi {
                             format!("{format} · {size}")
                         }
                         EntryKind::Online(o) => {
-                            let host = match o.config.provider {
-                                ProviderKind::Esv => "api.esv.org",
-                                ProviderKind::ApiBible { .. } => "api.scripture.api.bible",
-                            };
-                            format!("{host} · {} verses cached", library.cached_verses(&m.id))
+                            format!(
+                                "{} · {} verses cached",
+                                o.config.provider.host(),
+                                library.cached_verses(&m.id)
+                            )
                         }
                     };
                     let tx0 = tile.right() + 12.0;
@@ -937,98 +939,104 @@ impl SettingsUi {
         );
         ui.add_space(24.0);
 
-        // API keys.
-        group_title(ui, p, "API keys");
+        // Online translations: the publishers' own APIs.
+        group_title(ui, p, "Online translations");
         let esv_saved = library.api_key("esv-api-key").unwrap_or_default();
+        let nlt_saved = library.api_key("nlt-api-key").unwrap_or_default();
         let bible_saved = library.api_key("api-bible-key").unwrap_or_default();
-        let has_esv = library
-            .entries()
-            .iter()
-            .any(|e| e.online().is_some_and(|o| o.config.provider == ProviderKind::Esv));
-        let mut save_esv = false;
-        let mut add_esv = false;
+        let added = |kind: &ProviderKind| {
+            library.entries().iter().any(|e| e.online().is_some_and(|o| o.config.provider == *kind))
+        };
+        let (has_esv, has_nlt, has_net) =
+            (added(&ProviderKind::Esv), added(&ProviderKind::Nlt), added(&ProviderKind::Net));
+        let mut esv_clicked = false;
+        let mut nlt_clicked = false;
+        let mut add_net = false;
         let mut save_bible = false;
         let mut list_bibles = false;
-        rows_card(ui, p, &[56.0, 56.0, 48.0], |ui, i, r| {
+        rows_card(ui, p, &[56.0, 56.0, 56.0, 56.0, 48.0], |ui, i, r| {
             let right = r.right() - 16.0;
             let cy = r.center().y;
+            let field_at = |x: f32| Rect::from_min_size(pos2(x - 10.0 - 220.0, cy - 16.0), vec2(220.0, 32.0));
             match i {
                 0 => {
+                    row_label(ui, p, r, "ESV (Crossway)", Some("api.esv.org · free key, non-commercial"));
+                    // Without a key: where to get one. A pasted key adds the ESV in one click.
+                    let trailing = if self.esv_key.trim() != esv_saved {
+                        Trailing::Button(Kind::Primary, if has_esv { "Save" } else { "Add ESV" })
+                    } else if esv_saved.is_empty() {
+                        Trailing::Button(Kind::Secondary, "Get Free Key…")
+                    } else if !has_esv {
+                        Trailing::Button(Kind::Primary, "Add ESV")
+                    } else {
+                        Trailing::Badge("Connected")
+                    };
+                    let get_key = matches!(trailing, Trailing::Button(_, "Get Free Key…"));
+                    let (x, clicked) = trailing.show(ui, p, right, cy, "esv");
+                    if clicked && get_key {
+                        crate::app::open_url(bible_core::online::esv::SIGN_UP_URL);
+                    } else {
+                        esv_clicked = clicked;
+                    }
+                    key_field(
+                        ui,
+                        p,
+                        field_at(x),
+                        &mut self.esv_key,
+                        "Paste your ESV API key",
+                        egui::Id::new("esv-key"),
+                    );
+                }
+                1 => {
+                    row_label(ui, p, r, "NLT (Tyndale)", Some("api.nlt.to · free, no key needed"));
+                    let trailing = if !has_nlt {
+                        Trailing::Button(Kind::Primary, "Add NLT")
+                    } else if self.nlt_key.trim() != nlt_saved {
+                        Trailing::Button(Kind::Primary, "Save")
+                    } else {
+                        Trailing::Badge("Added")
+                    };
+                    let (x, clicked) = trailing.show(ui, p, right, cy, "nlt");
+                    nlt_clicked = clicked;
+                    key_field(
+                        ui,
+                        p,
+                        field_at(x),
+                        &mut self.nlt_key,
+                        "Optional key (higher limits)",
+                        egui::Id::new("nlt-key"),
+                    );
+                }
+                2 => {
                     row_label(
                         ui,
                         p,
                         r,
-                        "ESV API (Crossway)",
-                        Some("api.esv.org · free for non-commercial use"),
+                        "NET Bible (bible.org)",
+                        Some("labs.bible.org · free, no key needed"),
                     );
-                    let x = if self.esv_key != esv_saved {
-                        let (b, resp) = Button::new(Kind::Primary, "Save").small().show_right(
-                            ui,
-                            p,
-                            right,
-                            cy,
-                            ui.id().with("save-esv"),
-                        );
-                        save_esv = resp.clicked();
-                        b.left()
-                    } else if !esv_saved.is_empty() && !has_esv {
-                        let (b, resp) = Button::new(Kind::Primary, "Add ESV").small().show_right(
-                            ui,
-                            p,
-                            right,
-                            cy,
-                            ui.id().with("add-esv"),
-                        );
-                        add_esv = resp.clicked();
-                        b.left()
-                    } else if !esv_saved.is_empty() {
-                        let w = widgets::badge_width(ui.painter(), widgets::BadgeKind::Success, "Connected");
-                        widgets::badge(
-                            ui.painter(),
-                            p,
-                            right - w,
-                            cy,
-                            widgets::BadgeKind::Success,
-                            "Connected",
-                        )
-                        .left()
+                    let trailing = if has_net {
+                        Trailing::Badge("Added")
                     } else {
-                        right + 10.0
+                        Trailing::Button(Kind::Primary, "Add NET")
                     };
-                    let field = Rect::from_min_size(pos2(x - 10.0 - 220.0, cy - 16.0), vec2(220.0, 32.0));
-                    key_field(ui, p, field, &mut self.esv_key, "ESV API token", egui::Id::new("esv-key"));
+                    add_net = trailing.show(ui, p, right, cy, "net").1;
                 }
-                1 => {
-                    row_label(ui, p, r, "API.Bible", Some("scripture.api.bible"));
-                    let x = if self.apibible_key != bible_saved {
-                        let (b, resp) = Button::new(Kind::Primary, "Save").small().show_right(
-                            ui,
-                            p,
-                            right,
-                            cy,
-                            ui.id().with("save-bible"),
-                        );
-                        save_bible = resp.clicked();
-                        b.left()
+                3 => {
+                    row_label(ui, p, r, "API.Bible", Some("scripture.api.bible · your own key"));
+                    let trailing = if self.apibible_key != bible_saved {
+                        Trailing::Button(Kind::Primary, "Save")
                     } else if !bible_saved.is_empty() {
-                        let w = widgets::badge_width(ui.painter(), widgets::BadgeKind::Success, "Connected");
-                        widgets::badge(
-                            ui.painter(),
-                            p,
-                            right - w,
-                            cy,
-                            widgets::BadgeKind::Success,
-                            "Connected",
-                        )
-                        .left()
+                        Trailing::Badge("Connected")
                     } else {
-                        right + 10.0
+                        Trailing::None
                     };
-                    let field = Rect::from_min_size(pos2(x - 10.0 - 220.0, cy - 16.0), vec2(220.0, 32.0));
+                    let (x, clicked) = trailing.show(ui, p, right, cy, "bible");
+                    save_bible = clicked;
                     key_field(
                         ui,
                         p,
-                        field,
+                        field_at(x),
                         &mut self.apibible_key,
                         "API.Bible key",
                         egui::Id::new("api-bible-key"),
@@ -1047,20 +1055,51 @@ impl SettingsUi {
                 }
             }
         });
-        if save_esv {
+        // At most one is clicked per frame.
+        let mut add: Option<OnlineConfig> = None;
+        if esv_clicked {
             match library.set_api_key("esv-api-key", &self.esv_key) {
                 Ok(()) => self.message = None,
                 Err(e) => self.message = Some(format!("Couldn't save the key: {e:#}")),
             }
+            if !has_esv && !self.esv_key.trim().is_empty() {
+                let cfg = OnlineConfig {
+                    id: "esv".into(),
+                    abbrev: "ESV".into(),
+                    name: "English Standard Version".into(),
+                    provider: ProviderKind::Esv,
+                    copyright: bible_core::online::esv::COPYRIGHT.into(),
+                };
+                add = Some(cfg);
+            }
         }
-        if add_esv {
-            let cfg = OnlineConfig {
-                id: "esv".into(),
-                abbrev: "ESV".into(),
-                name: "English Standard Version".into(),
-                provider: ProviderKind::Esv,
-                copyright: bible_core::online::esv::COPYRIGHT.into(),
-            };
+        if nlt_clicked {
+            if self.nlt_key.trim() != nlt_saved
+                && let Err(e) = library.set_api_key("nlt-api-key", &self.nlt_key)
+            {
+                self.message = Some(format!("Couldn't save the key: {e:#}"));
+            }
+            if !has_nlt {
+                let cfg = OnlineConfig {
+                    id: "nlt".into(),
+                    abbrev: "NLT".into(),
+                    name: "New Living Translation".into(),
+                    provider: ProviderKind::Nlt,
+                    copyright: bible_core::online::nlt::COPYRIGHT.into(),
+                };
+                add = Some(cfg);
+            }
+        }
+        if add_net {
+            add = Some(OnlineConfig {
+                id: "net".into(),
+                abbrev: "NET".into(),
+                name: "NET Bible".into(),
+                provider: ProviderKind::Net,
+                copyright: bible_core::online::net::COPYRIGHT.into(),
+            });
+        }
+        if let Some(cfg) = add {
             match library.add_online(cfg) {
                 Ok(id) => actions.push(Action::SetTranslation(id)),
                 Err(e) => self.message = Some(format!("{e:#}")),
@@ -1089,7 +1128,10 @@ impl SettingsUi {
             ui,
             p,
             &format!(
-                "Keys live in the {}. Cached text follows each API’s terms (ESV: at most 500 verses, never half a book).",
+                "Chapters are fetched as you read and shown with the publisher’s notice; cached text \
+                 follows each one’s terms (ESV and NLT: at most 500 verses). The NLT needs no key: 50 \
+                 verses a request and 500 requests a day, or 500 and 5,000 with a free key from \
+                 api.nlt.to. Keys live in the {}.",
                 library.secrets().backend_name()
             ),
         );
@@ -1926,6 +1968,32 @@ pub fn quick_text_settings(ui: &mut Ui, settings: &mut Settings, actions: &mut V
 }
 
 /// An API key field: monospace, a key glyph, the key shown only while editing.
+/// What ends a row of the online translations card.
+enum Trailing<'a> {
+    Button(Kind, &'a str),
+    Badge(&'a str),
+    None,
+}
+
+impl Trailing<'_> {
+    /// Draws it with its right edge at `right`; returns its left edge and whether it was clicked.
+    fn show(&self, ui: &mut Ui, p: &Palette, right: f32, cy: f32, id: &str) -> (f32, bool) {
+        match self {
+            Trailing::Button(kind, label) => {
+                let (b, resp) =
+                    Button::new(*kind, label).small().show_right(ui, p, right, cy, ui.id().with(id));
+                (b.left(), resp.clicked())
+            }
+            Trailing::Badge(label) => {
+                let kind = widgets::BadgeKind::Success;
+                let w = widgets::badge_width(ui.painter(), kind, label);
+                (widgets::badge(ui.painter(), p, right - w, cy, kind, label).left(), false)
+            }
+            Trailing::None => (right + 10.0, false),
+        }
+    }
+}
+
 fn key_field(ui: &mut Ui, p: &Palette, rect: Rect, value: &mut String, placeholder: &str, id: egui::Id) {
     let focused = ui.memory(|m| m.has_focus(id));
     let painter = ui.painter();

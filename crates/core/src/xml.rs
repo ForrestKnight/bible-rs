@@ -145,6 +145,14 @@ pub fn unescape(s: &str) -> Cow<'_, str> {
             "quot" => Some('"'),
             "apos" => Some('\''),
             "nbsp" => Some('\u{a0}'),
+            // HTML typography (the NLT API's passages).
+            "lsquo" => Some('‘'),
+            "rsquo" => Some('’'),
+            "ldquo" => Some('“'),
+            "rdquo" => Some('”'),
+            "ndash" => Some('–'),
+            "mdash" => Some('—'),
+            "hellip" => Some('…'),
             _ if ent.starts_with("#x") || ent.starts_with("#X") => {
                 u32::from_str_radix(&ent[2..], 16).ok().and_then(char::from_u32)
             }

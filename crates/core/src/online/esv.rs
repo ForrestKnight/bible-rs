@@ -8,7 +8,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use super::{CachePolicy, FetchedChapter, Source, http_agent, read_body};
+use super::{BookShare, CachePolicy, FetchedChapter, Source, http_agent, read_body};
 use crate::books::{BookId, ChapterIdx};
 use crate::model::{MarkKind, Style, Translation, TranslationBuilder, TranslationMeta};
 
@@ -18,6 +18,9 @@ pub const COPYRIGHT: &str = "Scripture quotations are from the ESV® Bible (The 
 may not be quoted in any publication made available to the public by a Creative Commons license. The ESV may not be \
 translated into any other language. Users may not copy or download more than 500 verses of the ESV Bible or more than \
 one half of any book of the ESV Bible. www.esv.org";
+
+/// Where a free key is made: an "API application" on the user's esv.org account.
+pub const SIGN_UP_URL: &str = "https://api.esv.org/account/create-application/";
 
 pub struct Esv {
     base: String,
@@ -45,7 +48,7 @@ impl Source for Esv {
     fn policy(&self) -> CachePolicy {
         CachePolicy {
             max_verses: 500,
-            half_book_limit: true,
+            book_share: BookShare::Half,
             max_age_secs: 30 * 86_400,
             // Terms: no more than 60 requests a minute.
             min_request_interval: Duration::from_millis(1_050),

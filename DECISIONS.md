@@ -89,16 +89,28 @@ The pluggable provider interface (`Library` → bundled / imported / online entr
    module** (zText/RawText, KJV/KJVA/NRSV/NRSVA versification, OSIS/ThML/GBF markup, and Sapphire-II-locked
    modules with the user's unlock key — the cipher is verified against SWORD's own C++
    implementation). The converted `.bbl` lives only in the user's data folder.
-2. **Fetch with their own API key** — the ESV API (Crossway) and API.Bible (NASB, LSB, NLT, …
-   where the user's plan and the publisher allow). Keys are stored in the macOS Keychain (the
-   `keyring` crate; a 0600 file elsewhere). A per-translation background worker fetches chapters
-   on demand, rate-limited, and the cache follows each API's terms:
+2. **Fetch from a publisher's API.** The NLT API (Tyndale) and the NET Bible API (bible.org)
+   without a key, the ESV API (Crossway) with a free key, and API.Bible (NASB, NKJV, CSB, … where
+   the user's plan and the publisher allow) with the user's key. Keys are stored in the macOS
+   Keychain (the `keyring` crate; a 0600 file elsewhere). A per-translation background worker
+   fetches chapters on demand, rate-limited, and the cache follows each API's terms:
+   - NLT: 50 verses a request and 500 requests a day anonymously, 500 and 5,000 with a free key.
+     Long chapters are fetched as consecutive ranges, every request is spaced ≥ 1 s, and the day's
+     count persists across launches so the limit is never passed. Tyndale's permission statement
+     caps quotation at 500 verses and never a complete book; the cache keeps to both.
+   - NET: no storage limit in its terms; requests spaced ≥ 1 s, chapters refreshed after 30 days.
+     The NET isn't bundled even though it is free to copy: "free means free" forbids bundling it
+     with anything sold, and this repository's licence allows selling builds.
    - ESV: never more than 500 verses stored and never more than half of any book (a one-chapter
-     book is displayed but not stored); requests spaced ≥ 1 s (limit is 60/min); Crossway's
-     copyright notice shown with the text.
-   - API.Bible: fewer than 500 consecutive verses cached, refreshed within 14 days; the copyright
-     returned with each chapter is shown; every displayed chapter is reported through **FUMS**
-     (Fair Use Management System) with an anonymous device id.
+     book is displayed but not stored); requests spaced ≥ 1 s (limit is 60/min).
+   - API.Bible: fewer than 500 consecutive verses cached, refreshed within 14 days; every
+     displayed chapter is reported through **FUMS** (Fair Use Management System) with an
+     anonymous device id.
+
+   Each online chapter ends with the publisher's notice (the copyright API.Bible returns, plus its
+   citation), and the notice is a link to the publisher's site: the ESV, NET and API.Bible terms
+   ask for a link as well as the notice. [TRANSLATIONS.md](TRANSLATIONS.md) records which modern
+   translations can be had free this way and why the rest can't.
 
 Highlights, notes and bookmarks are keyed by canonical reference, not by translation, so they
 follow the reader across translations.

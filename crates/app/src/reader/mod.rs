@@ -60,6 +60,9 @@ pub struct Reader {
     pub selection: Option<(VerseRef, VerseRef)>,
     flash: Option<(VerseRef, f64)>,
     pending_jump: Option<(ChapterIdx, u8, bool)>,
+    /// A jump to a verse of a chapter still loading (online text): made again when the text
+    /// arrives, unless the reader scrolls first.
+    deferred_jump: Option<(ChapterIdx, u8, bool)>,
     reanchor: Option<(ChapterIdx, u8, f32)>,
     scroll_remaining: f32,
     viewport_h: f32,
@@ -94,6 +97,7 @@ impl Reader {
             selection: None,
             flash: None,
             pending_jump: None,
+            deferred_jump: None,
             reanchor: None,
             scroll_remaining: 0.0,
             viewport_h: 800.0,
@@ -256,9 +260,24 @@ impl Reader {
             };
             chapters.push((abbrev, state));
         }
+        // Online text carries its publisher's notice.
+        let notices: Vec<layout::Notice> = env
+            .columns
+            .iter()
+            .zip(&chapters)
+            .filter(|(_, (_, state))| state.is_ok())
+            .filter_map(|(id, (abbrev, _))| {
+                let o = env.library.get(id)?.online()?;
+                Some(layout::Notice {
+                    abbrev: abbrev.clone(),
+                    text: o.notice(),
+                    url: o.config.provider.website(),
+                })
+            })
+            .collect();
         let t_layout = std::time::Instant::now();
         let layout = ui.ctx().fonts_mut(|fonts| {
-            if chapters.len() == 1 {
+            let mut layout = if chapters.len() == 1 {
                 match &chapters[0].1 {
                     Ok(t) => layout::layout_chapter(fonts, &cx, t, c),
                     Err(m) => layout::layout_message(fonts, &cx, c, m),
@@ -277,7 +296,9 @@ impl Reader {
                     })
                     .collect();
                 layout::layout_parallel(fonts, &cx, &cols, c)
-            }
+            };
+            layout::add_notices(fonts, &cx, &mut layout, &notices, chapters.len());
+            layout
         });
         if std::env::var_os("BIBLE_RS_TRACE_STARTUP").is_some() && self.frames < 3 {
             eprintln!(
@@ -338,8 +359,15 @@ impl Reader {
                 self.anchor = Anchor { chapter: c, offset: a.top + frac * (a.bottom - a.top) };
             }
         }
+        if self.pending_jump.is_none()
+            && let Some((c, _, _)) = self.deferred_jump
+            && !self.chapter_layout(ui, env, &geom, c).anchors.is_empty()
+        {
+            self.pending_jump = self.deferred_jump.take();
+        }
         if let Some((c, verse, flash)) = self.pending_jump.take() {
             let l = self.chapter_layout(ui, env, &geom, c);
+            self.deferred_jump = (verse > 1 && l.anchors.is_empty()).then_some((c, verse, flash));
             // A verse shows a little below the top, or from its paragraph's start when that is
             // only a few lines up.
             let offset = if verse <= 1 {
@@ -390,10 +418,12 @@ impl Reader {
             let l = self.chapter_layout(ui, env, &geom, c);
             self.anchor = Anchor { chapter: c, offset: f.fract() * l.height };
             self.scroll_remaining = 0.0;
+            self.deferred_jump = None;
             dy = 0.0;
         }
         self.anchor.offset += dy;
         if dy != 0.0 {
+            self.deferred_jump = None;
             self.scrolled_at = ui.input(|i| i.time);
         }
         self.normalize(ui, env, &geom);
@@ -433,6 +463,18 @@ impl Reader {
                 if at.y < rect.bottom() && at.y + g.size().y > rect.top() {
                     painter.galley(at, g.clone(), p.ink);
                     under_toolbar |= at.y < toolbar_bottom;
+                }
+            }
+            for (i, (r, url)) in l.links.iter().enumerate() {
+                let r = r.translate(origin);
+                if r.bottom() > toolbar_bottom && r.top() < rect.bottom() {
+                    let resp = ui.interact(r, id.with(("link", ch.0, i)), Sense::click()).on_hover_text(*url);
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if resp.clicked() {
+                        crate::app::open_url(url);
+                    }
                 }
             }
             for block in &l.blocks {

@@ -16,7 +16,7 @@ use eframe::epaint::text::FontsView;
 use serde::{Deserialize, Serialize};
 
 use crate::theme::{
-    self, Palette, SERIF, SERIF_DISPLAY, SERIF_HEADING, SERIF_ITALIC, SERIF_SEMIBOLD, Theme, UI_SEMIBOLD,
+    self, Palette, SERIF, SERIF_DISPLAY, SERIF_HEADING, SERIF_ITALIC, SERIF_SEMIBOLD, Theme, UI, UI_SEMIBOLD,
     reading, text,
 };
 
@@ -183,6 +183,8 @@ pub struct ChapterLayout {
     pub anchors: Vec<VerseAnchor>,
     /// Non-interactive labels (book titles, chapter headings, messages).
     pub labels: Vec<(Vec2, Arc<Galley>)>,
+    /// Areas that open a web page when clicked (publishers' notices), relative to the chapter.
+    pub links: Vec<(Rect, &'static str)>,
 }
 
 impl ChapterLayout {
@@ -936,7 +938,7 @@ pub fn layout_chapter(
     b.flush();
     let Builder { blocks, labels, y, .. } = b;
     let anchors = anchors_for(&blocks);
-    ChapterLayout { chapter: c, height: y + cx.s(CHAPTER_END), blocks, anchors, labels }
+    ChapterLayout { chapter: c, height: y + cx.s(CHAPTER_END), blocks, anchors, labels, links: Vec::new() }
 }
 
 fn anchors_for(blocks: &[Block]) -> Vec<VerseAnchor> {
@@ -1092,7 +1094,14 @@ pub fn layout_parallel(
         b.y = row_top + row_h + PARALLEL_ROW_PAD.y;
     }
     let anchors = anchors_for(&b.blocks);
-    ChapterLayout { chapter: c, height: b.y + s(CHAPTER_END), blocks: b.blocks, anchors, labels: b.labels }
+    ChapterLayout {
+        chapter: c,
+        height: b.y + s(CHAPTER_END),
+        blocks: b.blocks,
+        anchors,
+        labels: b.labels,
+        links: Vec::new(),
+    }
 }
 
 /// A short message laid out where a chapter would be (loading, missing text, …).
@@ -1120,5 +1129,54 @@ pub fn layout_message(
         blocks: Vec::new(),
         anchors: Vec::new(),
         labels: b.labels,
+        links: Vec::new(),
     }
+}
+
+/// A publisher's attribution under a chapter of an online translation, and the site it links
+/// to: the ESV, NLT, NET and API.Bible terms all ask for their notice with the text, and some for
+/// a link.
+pub struct Notice {
+    pub abbrev: String,
+    pub text: String,
+    pub url: &'static str,
+}
+
+/// Adds notices under a laid-out chapter (`columns` side by side), each a link.
+pub fn add_notices(
+    fonts: &mut FontsView<'_>,
+    cx: &Ctx<'_>,
+    l: &mut ChapterLayout,
+    notices: &[Notice],
+    columns: usize,
+) {
+    if notices.is_empty() {
+        return;
+    }
+    // Parallel rows start after the verse-number lane and span every column.
+    let (x, width) = if columns > 1 {
+        let n = columns as f32;
+        (PARALLEL_NUMBER_LANE, cx.width * n + cx.gutter * (n - 1.0) - PARALLEL_NUMBER_LANE)
+    } else {
+        (0.0, cx.width)
+    };
+    let p = cx.theme.palette();
+    let format = |family: &str, color| TextFormat {
+        font_id: FontId::new(cx.s(11.0).round(), theme::family(family)),
+        color,
+        line_height: Some(cx.s(16.0).round()),
+        ..Default::default()
+    };
+    let mut y = l.height - cx.s(CHAPTER_END) + cx.s(16.0);
+    for n in notices {
+        let mut job = LayoutJob::default();
+        job.wrap.max_width = width;
+        job.append(&n.abbrev, 0.0, format(UI_SEMIBOLD, p.accent));
+        job.append(&n.text, cx.s(6.0), format(UI, p.ink_3));
+        let g = fonts.layout_job(job);
+        l.links.push((Rect::from_min_size(pos2(x, y), g.size()), n.url));
+        l.labels.push((vec2(x, y), g.clone()));
+        y += g.size().y + cx.s(8.0);
+    }
+    l.height = y + cx.s(CHAPTER_END);
 }

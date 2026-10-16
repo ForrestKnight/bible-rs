@@ -3,7 +3,8 @@
 //! * **Bundled** — public-domain `.bbl` blobs compiled into the binary.
 //! * **Imported** — `.bbl` files the user converted from their own OSIS/USFM/Zefania/SWORD
 //!   files, stored in `<data dir>/translations/`.
-//! * **Online** — fetched chapter by chapter from the ESV API or API.Bible with the user's key.
+//! * **Online** — fetched chapter by chapter from the ESV API or API.Bible with the user's key,
+//!   or from the NLT API or the NET Bible API (no key needed).
 //!
 //! Local translations decode lazily (once, ≈10 ms) and can be warmed on a background thread.
 //! [`Library::chapter`] never blocks on the network.
@@ -339,6 +340,8 @@ impl Library {
                 bible_id,
                 &self.device_id,
             )),
+            ProviderKind::Nlt => Arc::new(online::nlt::Nlt::new(Some(self.data_dir.join("nlt-requests")))),
+            ProviderKind::Net => Arc::new(online::net::Net::default()),
         };
         let name = cfg.provider.secret_name();
         let keys = self.keys.clone();

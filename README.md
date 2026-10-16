@@ -12,8 +12,9 @@ typeset, searchable as you type, with highlights, notes and bookmarks kept on yo
   chapter and section headings, poetry with hanging indents, LORD in small capitals, optional red
   letters, paragraphs or verse-per-line, adjustable size, light / sepia / dark.
 - **Seven public-domain translations built in** (KJV, WEB, BSB, ASV, YLT, Darby, Webster), side by
-  side in parallel columns or one verse across all of them. Bring your own licensed translations
-  (NLT, NASB, LSB, ESV, …) by importing a file you own or fetching with your own API key.
+  side in parallel columns or one verse across all of them. Add the NLT and the NET Bible free in
+  one click, the ESV with a free key, others with an API.Bible key or a file you own
+  ([which translations, and how](TRANSLATIONS.md)).
 - **Keyboard-first.** ⌘K jumps anywhere (`jn 3:16`, `Rom 8`, `1co13`, even `revalation 21`),
   ← → turn chapters, ⌘F searches, ⌘[ ⌘] go back and forward, 1–6 highlight.
 - **Yours.** Highlights, notes and bookmarks live in a local SQLite file and export to JSON or
@@ -120,30 +121,44 @@ The text is converted to bible-rs's format and stored only in your data folder
 (`~/Library/Application Support/bible-rs/translations/` on macOS). Deuterocanonical books are
 skipped. Remove an import from the same settings page or with `bible-rs remove <id>`.
 
-### Online translations with your own API key
+### Online translations
 
-| Service | Translations | Get a key |
+Chapters are fetched from each publisher's own API as you read, and shown with the publisher's
+notice (which links to their site, as their terms ask). [TRANSLATIONS.md](TRANSLATIONS.md) covers
+every major modern translation: how to get it free, or why it has to be bought.
+
+| Service | Translations | Key |
 |---|---|---|
-| **ESV API** (Crossway) | English Standard Version | <https://api.esv.org/> (free for non-commercial use) |
-| **API.Bible** (American Bible Society) | Whatever your plan and the publishers allow — e.g. NASB, LSB, NLT, NKJV, AMP | <https://scripture.api.bible/> |
+| **NLT API** (Tyndale) | New Living Translation | None needed. An optional free key from <https://api.nlt.to/> raises the limits |
+| **NET Bible API** (bible.org) | NET Bible | None needed |
+| **ESV API** (Crossway) | English Standard Version | Free for non-commercial use: <https://api.esv.org/> |
+| **API.Bible** (American Bible Society) | Whatever your plan and the publishers allow, e.g. NASB, NKJV, CSB, AMP | <https://api.bible/> |
 
-1. Settings (⌘,) → Translations → paste the key → **Save**. Keys are stored in the **macOS
-   Keychain** (on Linux, a `secrets.json` readable only by you).
-2. ESV: click **Add ESV**. API.Bible: click **List my Bibles**, filter, and **Add** the ones you want.
-3. Pick the translation like any other. Chapters are fetched as you read and shown with the
-   publisher's copyright notice.
+1. Settings (⌘,) → Translations → **Online translations**.
+2. NLT and NET: click **Add NLT** or **Add NET**. ESV: **Get Free Key…** opens api.esv.org; paste
+   the key and click **Add ESV**. API.Bible: paste your key, click **List My Bibles…**, and **Add**
+   the ones you want. Keys are stored in the **macOS Keychain** (on Linux, a `secrets.json` that
+   only you can read).
+3. Pick the translation like any other, alone or in parallel columns.
 
 What is stored locally follows each API's terms:
 
-- **ESV API** — at most 500 verses and never more than half of any book are kept on disk (oldest
-  chapters are evicted; a one-chapter book is shown but not stored); requests are spaced at least a
-  second apart (the limit is 60 a minute); Crossway's copyright notice accompanies the text.
-- **API.Bible** — fewer than 500 consecutive verses are cached and nothing older than 14 days is
-  used; the copyright notice returned with each chapter is shown; each displayed chapter is
-  reported through API.Bible's Fair Use Management System (FUMS) with an anonymous device id.
+- **NLT API.** 50 verses a request and 500 requests a day without a key (500 and 5,000 with
+  one). Longer chapters are fetched in several ranges, requests are spaced at least a second apart,
+  and the day's count is kept so the limit is never passed. At most 500 verses are kept on disk,
+  and never a complete book.
+- **NET Bible API.** Requests are spaced at least a second apart. The NET's terms set no storage
+  limit, so fetched chapters are kept for 30 days.
+- **ESV API.** At most 500 verses and never more than half of any book are kept on disk. The
+  oldest chapters go first, and a one-chapter book is shown but not stored. Requests are spaced at
+  least a second apart (the limit is 60 a minute).
+- **API.Bible.** Fewer than 500 consecutive verses are cached, and nothing older than 14 days is
+  used. The copyright returned with each chapter is shown with API.Bible's citation, and each
+  displayed chapter is reported through API.Bible's Fair Use Management System (FUMS) with an
+  anonymous device id.
 
-Full-text search covers local translations (bundled and imported); online translations are read
-chapter by chapter and appear in parallel and compare views as their chapters load.
+Full-text search covers local translations (bundled and imported). Online translations are read
+chapter by chapter, and appear in parallel and compare views as their chapters load.
 
 ## Keyboard shortcuts
 

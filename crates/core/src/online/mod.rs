@@ -1,21 +1,28 @@
-//! Optional online translations fetched with the user's own API key.
+//! Optional online translations fetched from publishers' own APIs.
 //!
-//! Licensed translations (ESV, NASB, LSB, NLT, …) are never bundled. Instead the user adds an
-//! ESV API or API.Bible key; chapters are fetched on demand by a background worker, shown with
-//! the publisher's attribution, and cached locally only as far as each API's terms allow:
+//! Licensed translations (ESV, NLT, NASB, LSB, …) are never bundled. Instead chapters are fetched
+//! on demand by a background worker from an API the publisher provides, shown with the
+//! publisher's attribution, and cached locally only as far as each API's terms allow:
 //!
-//! * **ESV API** — at most 500 verses stored and never more than half of any book; at most 60
-//!   requests a minute (we space requests ≥ 1 s apart).
-//! * **API.Bible** — fewer than 500 consecutive verses cached, refreshed within 14 days, and every
-//!   displayed chapter reported through FUMS (Fair Use Management System).
+//! * **ESV API** (user's free key): at most 500 verses stored and never more than half of any
+//!   book; at most 60 requests a minute (we space requests ≥ 1 s apart).
+//! * **NLT API** (no key needed; an optional free key raises the limits): at most 500 verses
+//!   stored and never a complete book; 50 verses a request and 500 requests a day without a key,
+//!   500 and 5,000 with one; requests ≥ 1 s apart.
+//! * **NET Bible API** (bible.org, no key): the NET's terms set no storage limit; requests ≥ 1 s
+//!   apart.
+//! * **API.Bible** (user's key): fewer than 500 consecutive verses cached, refreshed within 14
+//!   days, and every displayed chapter reported through FUMS (Fair Use Management System).
 //!
 //! The memory cache obeys the same verse limits as the disk cache.
 
 pub mod apibible;
 pub mod esv;
+pub mod net;
+pub mod nlt;
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -43,6 +50,8 @@ pub struct OnlineConfig {
 pub enum ProviderKind {
     Esv,
     ApiBible { bible_id: String },
+    Nlt,
+    Net,
 }
 
 impl ProviderKind {
@@ -50,6 +59,8 @@ impl ProviderKind {
         match self {
             ProviderKind::Esv => "esv-api-key",
             ProviderKind::ApiBible { .. } => "api-bible-key",
+            ProviderKind::Nlt => "nlt-api-key",
+            ProviderKind::Net => "net-api-key",
         }
     }
 
@@ -58,6 +69,8 @@ impl ProviderKind {
         match self {
             ProviderKind::Esv => "api.esv.org",
             ProviderKind::ApiBible { .. } => "api.scripture.api.bible",
+            ProviderKind::Nlt => "api.nlt.to",
+            ProviderKind::Net => "labs.bible.org",
         }
     }
 
@@ -65,16 +78,38 @@ impl ProviderKind {
         match self {
             ProviderKind::Esv => "ESV API (Crossway)",
             ProviderKind::ApiBible { .. } => "API.Bible",
+            ProviderKind::Nlt => "NLT API (Tyndale)",
+            ProviderKind::Net => "NET Bible API (bible.org)",
         }
     }
+
+    /// The site the attribution under the text links to, as each provider's terms ask.
+    pub fn website(&self) -> &'static str {
+        match self {
+            ProviderKind::Esv => "https://www.esv.org",
+            ProviderKind::ApiBible { .. } => "https://api.bible",
+            ProviderKind::Nlt => "https://www.newlivingtranslation.com",
+            ProviderKind::Net => "http://netbible.org",
+        }
+    }
+}
+
+/// How much of one book may be kept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BookShare {
+    /// No limit per book.
+    Any,
+    /// Never more than half of any book (ESV).
+    Half,
+    /// Never a complete book (NLT).
+    LessThanWhole,
 }
 
 /// How much fetched text may be kept, per the provider's terms.
 #[derive(Debug, Clone, Copy)]
 pub struct CachePolicy {
     pub max_verses: usize,
-    /// Never keep more than half of any book (ESV).
-    pub half_book_limit: bool,
+    pub book_share: BookShare,
     pub max_age_secs: i64,
     pub min_request_interval: Duration,
 }
@@ -88,7 +123,12 @@ pub struct FetchedChapter {
 
 pub trait Source: Send + Sync {
     fn policy(&self) -> CachePolicy;
+    /// Fetches a chapter; `key` is empty when the user has none and the source doesn't need one.
     fn fetch(&self, key: &str, chapter: ChapterIdx) -> Result<FetchedChapter>;
+    /// Whether [`Source::fetch`] needs an API key.
+    fn needs_key(&self) -> bool {
+        true
+    }
     /// Called when a chapter becomes visible (API.Bible FUMS reporting).
     fn report_view(&self, _fums_token: &str) {}
 }
@@ -143,17 +183,25 @@ impl OnlineTranslation {
             abbrev: config.abbrev.clone(),
             name: config.name.clone(),
             language: "en".into(),
-            license: format!("Licensed text fetched with your own key via {}", config.provider.label()),
+            license: if source.needs_key() {
+                format!("Licensed text fetched with your own key via {}", config.provider.label())
+            } else {
+                format!("Licensed text fetched via {}", config.provider.label())
+            },
             copyright: config.copyright.clone(),
             source: config.provider.label().into(),
             origin: Origin::Online {
                 provider: match &config.provider {
                     ProviderKind::Esv => "esv".into(),
                     ProviderKind::ApiBible { .. } => "api.bible".into(),
+                    ProviderKind::Nlt => "nlt".into(),
+                    ProviderKind::Net => "net".into(),
                 },
                 remote_id: match &config.provider {
                     ProviderKind::Esv => "ESV".into(),
                     ProviderKind::ApiBible { bible_id } => bible_id.clone(),
+                    ProviderKind::Nlt => "NLT".into(),
+                    ProviderKind::Net => "NET".into(),
                 },
             },
             books: Vec::new(),
@@ -190,8 +238,26 @@ impl OnlineTranslation {
         s.copyright.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| self.config.copyright.clone())
     }
 
+    /// The attribution shown under each chapter: the copyright notice, and for API.Bible the
+    /// citation its free plan asks for.
+    pub fn notice(&self) -> String {
+        let copyright = self.copyright();
+        match self.config.provider {
+            ProviderKind::ApiBible { .. } => {
+                format!("{copyright} Provided by API.Bible (api.bible).").trim().to_string()
+            }
+            _ => copyright,
+        }
+    }
+
     pub fn has_key(&self) -> bool {
         (self.key)().is_some_and(|k| !k.is_empty())
+    }
+
+    /// Whether chapters can only be fetched with an API key (the NLT API also serves anonymous
+    /// requests, within lower limits).
+    pub fn needs_key(&self) -> bool {
+        self.source.needs_key()
     }
 
     /// Non-blocking: returns the chapter if cached, otherwise queues a fetch.
@@ -208,7 +274,7 @@ impl OnlineTranslation {
         {
             return ChapterState::Failed(err.clone());
         }
-        if !self.has_key() {
+        if self.source.needs_key() && !self.has_key() {
             return ChapterState::NoKey;
         }
         if s.inflight.insert(c) {
@@ -275,11 +341,12 @@ impl Worker {
                 std::thread::sleep(wait);
             }
             last = Some(Instant::now());
-            let Some(key) = (self.key)().filter(|k| !k.is_empty()) else {
+            let key = (self.key)().filter(|k| !k.is_empty());
+            if key.is_none() && self.source.needs_key() {
                 self.shared.lock().unwrap().inflight.remove(&c);
                 continue;
-            };
-            match self.source.fetch(&key, c) {
+            }
+            match self.source.fetch(key.as_deref().unwrap_or(""), c) {
                 Ok(f) => {
                     if let Some(cache) = &self.cache {
                         let _ = cache.put(&self.id, c, &f.chapter, f.fums_token.as_deref(), policy);
@@ -305,10 +372,10 @@ impl Worker {
         s.failed.remove(&c);
         s.mem.retain(|(ch, _, _)| *ch != c);
         s.mem.push_back((c, t, fums));
-        // Text held for display obeys the provider's total verse cap. (The half-a-book storage
-        // rule applies to the disk cache; applying it here would make two adjacent chapters on
-        // screen evict and refetch each other forever.)
-        let display = CachePolicy { half_book_limit: false, ..policy };
+        // Text held for display obeys the provider's total verse cap. (The per-book storage rule
+        // applies to the disk cache; applying it here would make two adjacent chapters on screen
+        // evict and refetch each other forever.)
+        let display = CachePolicy { book_share: BookShare::Any, ..policy };
         while s.mem.len() > 1 && over_limit(s.mem.iter().map(|(ch, t, _)| (*ch, t.verse_count())), display) {
             s.mem.pop_front();
         }
@@ -328,7 +395,11 @@ fn over_limit(chapters: impl Iterator<Item = (ChapterIdx, usize)>, policy: Cache
     if total > policy.max_verses {
         return true;
     }
-    policy.half_book_limit && per_book.iter().any(|(b, n)| *n * 2 > book_verses(*b))
+    per_book.iter().any(|(b, n)| match policy.book_share {
+        BookShare::Any => false,
+        BookShare::Half => *n * 2 > book_verses(*b),
+        BookShare::LessThanWhole => *n >= book_verses(*b),
+    })
 }
 
 fn book_verses(b: BookId) -> usize {
@@ -387,8 +458,8 @@ impl DiskCache {
         fums: Option<&str>,
         policy: CachePolicy,
     ) -> Result<()> {
-        // A chapter that on its own exceeds the limits (e.g. a one-chapter book under the ESV's
-        // half-a-book rule) may be displayed but is never stored.
+        // A chapter that on its own exceeds the limits (e.g. a one-chapter book, which would be
+        // half or all of a book) may be displayed but is never stored.
         if over_limit(std::iter::once((c, t.verse_count())), policy) {
             return Ok(());
         }
@@ -447,6 +518,56 @@ impl DiskCache {
     }
 }
 
+/// Requests a provider allows per day (UTC), counted across sessions in a small file.
+pub struct DailyBudget {
+    path: Option<PathBuf>,
+    /// (day number, requests made that day)
+    state: Mutex<(i64, u32)>,
+}
+
+impl DailyBudget {
+    pub fn new(path: Option<PathBuf>) -> Self {
+        let saved = path
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| {
+                let (day, n) = s.trim().split_once(' ')?;
+                Some((day.parse().ok()?, n.parse().ok()?))
+            })
+            .unwrap_or((0, 0));
+        Self { path, state: Mutex::new(saved) }
+    }
+
+    fn today() -> i64 {
+        crate::study::now().div_euclid(86_400)
+    }
+
+    /// Requests made today.
+    pub fn used(&self) -> u32 {
+        let s = self.state.lock().unwrap();
+        if s.0 == Self::today() { s.1 } else { 0 }
+    }
+
+    /// Counts one request, or fails without counting if `limit` were exceeded.
+    pub fn spend(&self, limit: u32, what: &str) -> Result<()> {
+        let mut s = self.state.lock().unwrap();
+        let today = Self::today();
+        if s.0 != today {
+            *s = (today, 0);
+        }
+        if s.1 >= limit {
+            anyhow::bail!(
+                "{what}: the daily limit of {limit} requests is used up; it resets at midnight UTC"
+            );
+        }
+        s.1 += 1;
+        if let Some(p) = &self.path {
+            let _ = std::fs::write(p, format!("{} {}", s.0, s.1));
+        }
+        Ok(())
+    }
+}
+
 /// Reads a response body as text, turning HTTP errors into readable messages.
 pub(crate) fn read_body(
     resp: std::result::Result<ureq::http::Response<ureq::Body>, ureq::Error>,
@@ -496,13 +617,8 @@ pub(crate) mod tests {
         b.finish()
     }
 
-    fn policy(max: usize, half: bool) -> CachePolicy {
-        CachePolicy {
-            max_verses: max,
-            half_book_limit: half,
-            max_age_secs: 3600,
-            min_request_interval: Duration::ZERO,
-        }
+    fn policy(max: usize, book_share: BookShare) -> CachePolicy {
+        CachePolicy { max_verses: max, book_share, max_age_secs: 3600, min_request_interval: Duration::ZERO }
     }
 
     #[test]
@@ -510,7 +626,7 @@ pub(crate) mod tests {
         let dir = std::env::temp_dir().join(format!("bible-rs-cache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let cache = DiskCache::open(&dir.join("cache.sqlite")).unwrap();
-        let p = policy(100, true);
+        let p = policy(100, BookShare::Half);
         let genesis = |n| ChapterIdx::new(BookId::GENESIS, n).unwrap();
         for ch in 1..=4 {
             cache.put("esv", genesis(ch), &chapter_with(genesis(ch), 30), None, p).unwrap();
@@ -530,7 +646,7 @@ pub(crate) mod tests {
         assert_eq!(cache.stored_verses("esv"), 90);
         // Ruth 1 (22 of 85 verses) is fine; Ruth 1–2 (45 of 85) would exceed half the book.
         let ruth = |n| ChapterIdx::new(BookId(7), n).unwrap();
-        let q = policy(500, true);
+        let q = policy(500, BookShare::Half);
         cache.clear("x").unwrap();
         cache.put("x", ruth(1), &chapter_with(ruth(1), 22), None, q).unwrap();
         cache.put("x", ruth(2), &chapter_with(ruth(2), 23), None, q).unwrap();
@@ -538,6 +654,44 @@ pub(crate) mod tests {
         // Expired entries disappear.
         let expired = CachePolicy { max_age_secs: -10, ..q };
         assert!(cache.get("x", ruth(2), expired).unwrap().is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn never_a_whole_book() {
+        let p = policy(500, BookShare::LessThanWhole);
+        let ruth = |n| ChapterIdx::new(BookId(7), n).unwrap();
+        // Ruth has 85 verses: three of its four chapters may be kept, all four may not.
+        let three = [(ruth(1), 22), (ruth(2), 23), (ruth(3), 18)];
+        assert!(!over_limit(three.into_iter(), p));
+        assert!(over_limit(three.into_iter().chain([(ruth(4), 22)]), p));
+        // A one-chapter book is a whole book on its own.
+        let jude = ChapterIdx::new(BookId(64), 1).unwrap();
+        assert!(over_limit(std::iter::once((jude, 25)), p));
+        // The verse cap still applies across books.
+        let gen_ = |n| ChapterIdx::new(BookId::GENESIS, n).unwrap();
+        assert!(over_limit((1..=20).map(|n| (gen_(n), 30)), p));
+    }
+
+    #[test]
+    fn daily_budget_counts_across_sessions_and_stops_at_the_limit() {
+        let dir = std::env::temp_dir().join(format!("bible-rs-budget-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("requests");
+        let b = DailyBudget::new(Some(path.clone()));
+        b.spend(3, "X").unwrap();
+        b.spend(3, "X").unwrap();
+        // A new session continues today's count.
+        let b = DailyBudget::new(Some(path.clone()));
+        assert_eq!(b.used(), 2);
+        b.spend(3, "X").unwrap();
+        let err = b.spend(3, "X").unwrap_err().to_string();
+        assert!(err.contains("daily limit of 3"), "{err}");
+        assert_eq!(b.used(), 3);
+        // Yesterday's count doesn't carry over.
+        std::fs::write(&path, format!("{} 999", DailyBudget::today() - 1)).unwrap();
+        assert_eq!(DailyBudget::new(Some(path)).used(), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

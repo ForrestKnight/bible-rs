@@ -11,6 +11,8 @@ use bible_core::books::{BookId, ChapterIdx, VerseRef};
 use bible_core::library::{Chapter, Library};
 use bible_core::online::apibible::{ApiBible, list_bibles};
 use bible_core::online::esv::Esv;
+use bible_core::online::net::Net;
+use bible_core::online::nlt::Nlt;
 use bible_core::online::{OnlineConfig, ProviderKind};
 
 /// Keeps these tests out of the user's own Keychain entries (macOS stores API keys there).
@@ -207,5 +209,149 @@ fn api_bible_fetches_reports_fums_and_lists_bibles() {
         _ => panic!("expected failure"),
     }
     lib.set_api_key("api-bible-key", "").unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An NLT API passage for `Book.ch.start-end`, the way the API answers: ranges past the end of
+/// the chapter are clamped (a start past the end repeats the last verse). `verses` is the
+/// chapter's length in the NLT. Public-domain filler words.
+fn nlt_page(reference: &str, verses: u32) -> String {
+    let range = reference.rsplit('.').next().unwrap_or("");
+    let (start, end) = range.split_once('-').unwrap_or((range, range));
+    let end = end.parse::<u32>().unwrap().min(verses);
+    let start = start.parse::<u32>().unwrap().min(end);
+    let mut html = String::from(
+        r#"<!DOCTYPE html><html lang="en-US"><head><title>NLT API</title></head><body><div id="bibletext"><section><h2 class="bk_ch_vs_header">Passage, NLT</h2>"#,
+    );
+    for v in start..=end {
+        html.push_str(&format!(
+            r#"<verse_export orig="x_{v}" vn="{v}"><p class="body"><span class="vn">{v}</span>And it came to pass, verse {v}.</p></verse_export>"#
+        ));
+    }
+    html.push_str("</section></div></body></html>");
+    html
+}
+
+fn query<'a>(path: &'a str, name: &str) -> Option<&'a str> {
+    path.split_once('?')?.1.split('&').find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))
+}
+
+#[test]
+fn nlt_works_without_a_key_in_ranges_the_terms_allow() {
+    isolate_keychain();
+    let (base, log) = serve(Arc::new(|path: &str| {
+        let Some(r) = query(path, "ref").filter(|_| path.starts_with("/api/passages")) else {
+            return (404, String::new());
+        };
+        let verses = if r.starts_with("Ps.119.") {
+            176
+        } else if r.starts_with("3Jn.1.") {
+            15 // one more than the KJV
+        } else {
+            36
+        };
+        (200, nlt_page(r, verses))
+    }));
+    let dir = temp_dir("nlt");
+    std::fs::create_dir_all(&dir).unwrap();
+    let (notify, rx) = notifier();
+    let mut lib = Library::open(&dir, notify);
+    let cfg = OnlineConfig {
+        id: "nlt".into(),
+        abbrev: "NLT".into(),
+        name: "New Living Translation".into(),
+        provider: ProviderKind::Nlt,
+        copyright: String::new(),
+    };
+    let budget = dir.join("nlt-requests");
+    let nlt = || Nlt::with_base(&base, Some(budget.clone())).with_interval(Duration::ZERO);
+    lib.add_online_with_source(cfg.clone(), Arc::new(nlt()));
+
+    // No key: chapters load anyway, at most 50 verses a request (`key=TEST` is anonymous access).
+    let ps119 = ChapterIdx::new(BookId::PSALMS, 119).unwrap();
+    let Chapter::Ready(t) = wait_ready(&lib, "nlt", ps119, &rx) else { panic!("not ready") };
+    assert_eq!(t.verses_in(ps119).len(), 176);
+    let refs: Vec<String> =
+        log.lock().unwrap().iter().map(|r| query(&r.path, "ref").unwrap().to_string()).collect();
+    assert_eq!(refs, ["Ps.119.1-50", "Ps.119.51-100", "Ps.119.101-150", "Ps.119.151-200"]);
+    assert!(log.lock().unwrap().iter().all(|r| query(&r.path, "key") == Some("TEST")));
+    assert!(lib.get("nlt").unwrap().copyright().contains("Tyndale House Foundation"));
+    // The NLT numbers 15 verses in 3 John, the KJV 14: the last one isn't lost.
+    let jn3 = ChapterIdx::new(BookId(63), 1).unwrap();
+    let Chapter::Ready(t) = wait_ready(&lib, "nlt", jn3, &rx) else { panic!("not ready") };
+    assert_eq!(t.verses_in(jn3).last().unwrap().number, 15);
+    // Every request counted toward the day's 500.
+    assert_eq!(std::fs::read_to_string(&budget).unwrap().split(' ').nth(1), Some("5"));
+
+    // With a free key: 500 verses a request, so one request per chapter.
+    log.lock().unwrap().clear();
+    let (notify, rx) = notifier();
+    let key_dir = temp_dir("nlt-key");
+    let mut lib = Library::open(&key_dir, notify);
+    lib.set_api_key("nlt-api-key", "K 1").unwrap();
+    lib.add_online_with_source(cfg.clone(), Arc::new(nlt()));
+    assert!(matches!(wait_ready(&lib, "nlt", ps119, &rx), Chapter::Ready(_)));
+    let reqs = log.lock().unwrap().clone();
+    assert_eq!(reqs.len(), 1);
+    assert_eq!(query(&reqs[0].path, "ref"), Some("Ps.119.1-500"));
+    assert_eq!(query(&reqs[0].path, "key"), Some("K%201"));
+    lib.set_api_key("nlt-api-key", "").unwrap();
+
+    // Once the day's requests are used up, no more are made and the reason is shown.
+    let today =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() / 86_400;
+    std::fs::write(&budget, format!("{today} 500")).unwrap();
+    log.lock().unwrap().clear();
+    let (notify, rx) = notifier();
+    let spent_dir = temp_dir("nlt-spent");
+    let mut lib = Library::open(&spent_dir, notify);
+    lib.add_online_with_source(cfg, Arc::new(nlt()));
+    let jn3 = ChapterIdx::new(BookId(42), 3).unwrap();
+    match wait_ready(&lib, "nlt", jn3, &rx) {
+        Chapter::Failed(m) => {
+            assert!(m.starts_with("NLT API: the daily limit of 500"), "{m}");
+            assert!(m.ends_with(". A free API key from api.nlt.to raises it to 5,000"), "{m}");
+        }
+        _ => panic!("expected the daily limit"),
+    }
+    assert!(log.lock().unwrap().is_empty());
+    for d in [dir, key_dir, spent_dir] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+const NET_BODY: &str = r#"[{"bookname":"John","chapter":"3","verse":"16","text":"<p class=\"bodytext\">For God so loved the world,<n id=\"1\" \/> that he gave his only begotten Son. "}]"#;
+
+#[test]
+fn net_fetches_without_a_key() {
+    isolate_keychain();
+    let (base, log) = serve(Arc::new(|path: &str| {
+        if path.starts_with("/api/?passage=John+3&") {
+            (200, NET_BODY.to_string())
+        } else {
+            (404, "[]".into())
+        }
+    }));
+    let dir = temp_dir("net");
+    let (notify, rx) = notifier();
+    let mut lib = Library::open(&dir, notify);
+    let cfg = OnlineConfig {
+        id: "net".into(),
+        abbrev: "NET".into(),
+        name: "NET Bible".into(),
+        provider: ProviderKind::Net,
+        copyright: String::new(),
+    };
+    lib.add_online_with_source(cfg, Arc::new(Net::with_base(&format!("{base}/api/"))));
+    let jn3 = ChapterIdx::new(BookId(42), 3).unwrap();
+    let Chapter::Ready(t) = wait_ready(&lib, "net", jn3, &rx) else { panic!("not ready") };
+    assert_eq!(
+        t.find(VerseRef::new(BookId(42), 3, 16)).unwrap().text,
+        "For God so loved the world, that he gave his only begotten Son."
+    );
+    let online = lib.get("net").unwrap().online().unwrap().clone();
+    assert!(online.notice().contains("Biblical Studies Press"));
+    assert!(!online.needs_key());
+    assert!(log.lock().unwrap()[0].path.contains("type=json"));
     let _ = std::fs::remove_dir_all(&dir);
 }

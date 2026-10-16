@@ -8,6 +8,8 @@
 //!
 //! `BIBLE_RS_SHOT_CLICKS` and `BIBLE_RS_SHOT_HOVER` (points, `x,y`) click and point after the
 //! demo steps, for states only the pointer reaches, such as an open menu.
+//! `BIBLE_RS_SHOT_PAUSE_MS` waits that long after each frame, so chapters of an online translation
+//! can arrive before the picture is taken.
 //!
 //! egui's test harness drives the real app with wgpu at 2× scale. On macOS the window's traffic
 //! lights belong to AppKit, so they are drawn onto the image where AppKit puts them.
@@ -15,7 +17,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use bible_rs::app::{BibleApp, Startup, initialize, online_counter};
+use bible_rs::app::{BibleApp, Startup, bump, initialize, online_counter};
 use bible_rs::theme;
 use eframe::egui;
 use egui_kittest::Harness;
@@ -34,13 +36,19 @@ fn main() {
     if std::env::var_os("BIBLE_RS_OFFSCREEN").is_none() {
         eprintln!("set BIBLE_RS_OFFSCREEN=1 (and BIBLE_RS_BACKGROUND=1) so the app lays out as in a window");
     }
-    let init = initialize(bible_rs::data_dir(), Arc::new(|| {})).expect("loading data");
+    // Online text that arrives bumps the counter, so the reader lays its chapters out again.
+    let online = online_counter();
+    let notify = {
+        let online = online.clone();
+        Arc::new(move || bump(&online)) as Arc<dyn Fn() + Send + Sync>
+    };
+    let init = initialize(bible_rs::data_dir(), notify).expect("loading data");
     let startup =
         Startup { t0: Instant::now(), probe: false, init: Duration::ZERO, first_ui: None, frames: 0 };
     let mut harness =
         Harness::builder().with_size(egui::vec2(w, h)).with_pixels_per_point(2.0).wgpu().build_eframe(|cc| {
             cc.egui_ctx.set_fonts(theme::font_definitions());
-            BibleApp::new(cc, init, online_counter(), startup)
+            BibleApp::new(cc, init, online, startup)
         });
     // The harness sets its own (dark) egui theme after the app has applied the reading theme,
     // which would leave egui's widgets (menus, fields) in stock dark style.
@@ -55,8 +63,13 @@ fn main() {
     let demo_steps = std::env::var("BIBLE_RS_DEMO").map(|s| s.split(';').count()).unwrap_or(0);
     let steps =
         std::env::var("BIBLE_RS_SHOT_STEPS").ok().and_then(|s| s.parse().ok()).unwrap_or(30 + 4 * demo_steps);
+    let pause =
+        std::env::var("BIBLE_RS_SHOT_PAUSE_MS").ok().and_then(|s| s.parse().ok()).map(Duration::from_millis);
     for _ in 0..steps {
         harness.step();
+        if let Some(pause) = pause {
+            std::thread::sleep(pause);
+        }
     }
     // `BIBLE_RS_SHOT_CLICKS="x,y;x,y"`: click those points in turn (opening a menu from its
     // button, say), then `BIBLE_RS_SHOT_HOVER="x,y"`: leave the pointer there.

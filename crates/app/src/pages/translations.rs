@@ -7,7 +7,6 @@ use std::sync::Arc;
 use eframe::egui::{self, Color32, FontId, Rect, Sense, Ui, pos2, vec2};
 
 use bible_core::library::{Entry, EntryKind};
-use bible_core::online::ProviderKind;
 use bible_core::{BookId, VerseRef, bundled};
 
 use super::{Page, PageEnv, elide, text};
@@ -66,13 +65,6 @@ fn host(url: &str) -> Option<&str> {
     Some(rest.split(['/', ' ']).next().unwrap_or(rest))
 }
 
-fn online_host(kind: &ProviderKind) -> &'static str {
-    match kind {
-        ProviderKind::Esv => "api.esv.org",
-        ProviderKind::ApiBible { .. } => "api.scripture.api.bible",
-    }
-}
-
 /// The import's format, from the source line the importer writes ("file.zip (SWORD module)").
 fn import_format(source: &str) -> &str {
     source.rsplit_once('(').map(|(_, f)| f.trim_end_matches(')')).unwrap_or("Imported file")
@@ -96,8 +88,12 @@ fn description(e: &Entry) -> String {
             None => import_format(&m.source).to_string(),
         },
         EntryKind::Online(o) => {
-            let key = if o.has_key() { "key in Keychain" } else { "no API key" };
-            format!("{} · {key}", online_host(&o.config.provider))
+            let key = match (o.has_key(), o.needs_key()) {
+                (true, _) => "key in Keychain",
+                (false, true) => "no API key",
+                (false, false) => "no key needed",
+            };
+            format!("{} · {key}", o.config.provider.host())
         }
     }
 }
