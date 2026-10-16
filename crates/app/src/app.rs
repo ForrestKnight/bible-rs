@@ -10,7 +10,7 @@ use anyhow::Result;
 use bible_core::books::{BookId, ChapterIdx, VerseRef};
 use bible_core::library::Library;
 use bible_core::study::StudyStore;
-use eframe::egui::{self, Align2, Frame, Id, Key, Modifiers, Sense, Stroke, Ui, vec2};
+use eframe::egui::{self, Align2, CornerRadius, Frame, Id, Key, Margin, Modifiers, Sense, Stroke, Ui, vec2};
 use serde::{Deserialize, Serialize};
 
 use crate::actions::{Action, ExportKind, SettingsTab, SidebarTab};
@@ -223,6 +223,9 @@ pub struct BibleApp {
     settings_ui: Option<SettingsUi>,
     shortcuts_open: bool,
     shortcuts_overlay: crate::shortcuts_overlay::ShortcutsOverlay,
+    /// The compact toolbar's More menu: open it next frame (demo), and its keyboard item.
+    open_more: bool,
+    more_highlight: Option<usize>,
     toasts: Vec<(String, f64)>,
     /// The reading (online) translation can't load the chapter being read.
     offline: Option<crate::offline::Offline>,
@@ -343,6 +346,8 @@ impl BibleApp {
             settings_ui: None,
             shortcuts_open: false,
             shortcuts_overlay: Default::default(),
+            open_more: false,
+            more_highlight: None,
             toasts: Vec::new(),
             offline: None,
             main_area: egui::Rect::NOTHING,
@@ -469,6 +474,7 @@ impl BibleApp {
             key(cmd, Key::Equals, Action::FontSize(1.0));
             key(cmd, Key::Minus, Action::FontSize(-1.0));
             key(cmd, Key::Num0, Action::FontReset);
+            key(cmd, Key::T, Action::TextFormat);
             key(cmd, Key::D, Action::ToggleBookmark);
             key(cmd, Key::E, Action::Export(ExportKind::Markdown));
             key(cmd, Key::I, Action::ImportTranslation);
@@ -830,6 +836,7 @@ impl BibleApp {
                 }
             }
             Action::RevealDataDir => reveal(&self.data_dir),
+            Action::TextFormat => egui::Popup::open_id(ctx, Id::new(TEXT_POPUP)),
             Action::ToggleFocus => {
                 self.focus = !self.focus;
                 if self.focus {
@@ -911,6 +918,11 @@ impl BibleApp {
                 }
             }
             "scope" => self.sidebar.set_scope(arg),
+            // `more:<item>`: the compact toolbar's More menu, that item highlighted.
+            "more" => {
+                self.open_more = true;
+                self.more_highlight = arg.parse().ok();
+            }
             // `menu:<reference>@x,y`: select the verse and open its menu there.
             "menu" => {
                 let (r, at) = arg.split_once('@').unwrap_or((arg, "600,352"));
@@ -1141,8 +1153,8 @@ impl BibleApp {
     /// the traffic lights' line; once text scrolls beneath, the bar takes the toolbar material.
     fn toolbar(&mut self, ui: &mut Ui, main: egui::Rect, material: f32, actions: &mut Vec<Action>) {
         use theme::metrics::{
-            BUTTON_WIDTH, CAPSULE_HEIGHT, GROUP_GAP, LEADING_INSET, SEARCH_FIELD_WIDTH, SIDEBAR_TOGGLE_WIDTH,
-            TRAILING_INSET,
+            BUTTON_WIDTH, CAPSULE_HEIGHT, GROUP_GAP, LEADING_INSET, SEARCH_FIELD_WIDTH,
+            SEARCH_FIELD_WIDTH_COMPACT, SIDEBAR_TOGGLE_WIDTH, TRAILING_INSET,
         };
         use widgets::CapsuleButton;
         let p = self.settings.theme.palette();
@@ -1230,65 +1242,115 @@ impl BibleApp {
             return;
         }
 
-        // Trailing: view tools, then the search field.
-        let search = egui::Rect::from_min_size(
-            egui::pos2(bar.right() - TRAILING_INSET - SEARCH_FIELD_WIDTH, cy - CAPSULE_HEIGHT / 2.0),
-            vec2(SEARCH_FIELD_WIDTH, CAPSULE_HEIGHT),
-        );
-        let tools = [
-            CapsuleButton {
-                tooltip: "Parallel translations (⌘⇧P)",
-                enabled: true,
-                on: self.settings.parallel_on,
-                icon: crate::icons::columns,
-            },
-            CapsuleButton {
-                tooltip: "Text & theme",
-                enabled: true,
-                on: false,
-                icon: crate::icons::text_size,
-            },
-        ];
-        let tools_left = search.left() - GROUP_GAP - 2.0 * BUTTON_WIDTH;
-        let (tools_rect, resp) = widgets::button_capsule(ui, p, tools_left, cy, BUTTON_WIDTH, false, &tools);
-        if resp[0].clicked() {
-            actions.push(Action::ToggleParallel);
+        // Trailing: view tools, then the search field. A compact window folds both into one
+        // capsule, Search and More (frame 34), and shows the narrower field while searching.
+        let compact = bar.width() < COMPACT_TOOLBAR;
+        let focus_field = self.sidebar.take_focus();
+        let show_field = !compact || focus_field || self.sidebar.searching() || self.sidebar.field_focused;
+        let trailing_left;
+        // What the text popover hangs from, and whether clicking it toggles the popover.
+        let mut text_anchor: Option<(egui::Response, bool)> = None;
+        if show_field {
+            let w = if compact { SEARCH_FIELD_WIDTH_COMPACT } else { SEARCH_FIELD_WIDTH };
+            let search = egui::Rect::from_min_size(
+                egui::pos2(bar.right() - TRAILING_INSET - w, cy - CAPSULE_HEIGHT / 2.0),
+                vec2(w, CAPSULE_HEIGHT),
+            );
+            trailing_left = if compact {
+                search.left()
+            } else {
+                let tools = [
+                    CapsuleButton {
+                        tooltip: "Parallel translations (⌘⇧P)",
+                        enabled: true,
+                        on: self.settings.parallel_on,
+                        icon: crate::icons::columns,
+                    },
+                    CapsuleButton {
+                        tooltip: "Text & layout (⌘T)",
+                        enabled: true,
+                        on: false,
+                        icon: crate::icons::text_size,
+                    },
+                ];
+                let tools_left = search.left() - GROUP_GAP - 2.0 * BUTTON_WIDTH;
+                let (tools_rect, resp) =
+                    widgets::button_capsule(ui, p, tools_left, cy, BUTTON_WIDTH, false, &tools);
+                if resp[0].clicked() {
+                    actions.push(Action::ToggleParallel);
+                }
+                text_anchor = Some((resp[1].clone(), true));
+                items.push(tools_rect);
+                tools_rect.left()
+            };
+            let field_id = Id::new("toolbar-search");
+            let (field, cleared) =
+                widgets::search_field(ui, search, p, &mut self.sidebar.query, "Search", field_id);
+            if focus_field {
+                field.request_focus();
+            }
+            if field.changed() && self.sidebar.searching() {
+                self.settings.sidebar_open = true;
+            }
+            if cleared || (field.has_focus() && ui.input(|i| i.key_pressed(Key::Escape))) {
+                self.sidebar.query.clear();
+                field.surrender_focus();
+            }
+            self.sidebar.field_focused = field.has_focus();
+            items.push(search);
+        } else {
+            let buttons = [
+                CapsuleButton {
+                    tooltip: "Search (⌘F)",
+                    enabled: true,
+                    on: false,
+                    icon: crate::icons::search_thin,
+                },
+                CapsuleButton { tooltip: "More", enabled: true, on: false, icon: crate::icons::ellipsis },
+            ];
+            let left = bar.right() - TRAILING_INSET - 2.0 * BUTTON_WIDTH;
+            let (r, resp) = widgets::button_capsule(ui, p, left, cy, BUTTON_WIDTH, false, &buttons);
+            if resp[0].clicked() {
+                actions.push(Action::OpenSearch(None));
+            }
+            if egui::Popup::is_id_open(ui.ctx(), Id::new(MORE_POPUP)) {
+                // Pressed while its menu is open.
+                let b = resp[1].rect;
+                ui.painter().rect_filled(b, CAPSULE_HEIGHT / 2.0, p.fill);
+                let icon = egui::Rect::from_center_size(b.center(), vec2(20.0, 20.0));
+                crate::icons::ellipsis(ui.painter(), icon, p.ink);
+            }
+            self.more_menu(ui, &resp[1], actions);
+            text_anchor = Some((resp[1].clone(), false));
+            trailing_left = r.left();
+            items.push(r);
         }
-        egui::Popup::menu(&resp[1]).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(
-            |ui| {
-                ui.set_min_width(250.0);
-                crate::settings_ui::quick_text_settings(ui, &mut self.settings, actions);
-            },
-        );
-        items.push(tools_rect);
-        let field_id = Id::new("toolbar-search");
-        let (field, cleared) =
-            widgets::search_field(ui, search, p, &mut self.sidebar.query, "Search", field_id);
-        if self.sidebar.take_focus() {
-            field.request_focus();
+        if let Some((anchor, toggles)) = text_anchor {
+            let open = (toggles && anchor.clicked()).then_some(egui::SetOpenCommand::Toggle);
+            egui::Popup::menu(&anchor)
+                .id(Id::new(TEXT_POPUP))
+                .open_memory(open)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    ui.set_min_width(250.0);
+                    crate::settings_ui::quick_text_settings(ui, &mut self.settings, actions);
+                });
         }
-        if field.changed() && self.sidebar.searching() {
-            self.settings.sidebar_open = true;
-        }
-        if cleared || (field.has_focus() && ui.input(|i| i.key_pressed(Key::Escape))) {
-            self.sidebar.query.clear();
-            field.surrender_focus();
-        }
-        self.sidebar.field_focused = field.has_focus();
-        items.push(search);
 
         // Principal: location and translation in one capsule, centred between the bar's paddings
         // unless that would collide with the groups at either end.
         let (c, _) = self.reader.location;
         let tmeta = self.library.get(&self.settings.translation).map(|e| e.meta.clone());
-        let title = format!(
-            "{} {}",
+        // Compact windows shorten the book: "Rom 8".
+        let book_name = if compact {
+            c.book().info().abbrev.to_string()
+        } else {
             tmeta
                 .as_ref()
                 .map(|m| m.ref_name(c.book()).to_string())
-                .unwrap_or_else(|| c.book().ref_name().into()),
-            c.chapter()
-        );
+                .unwrap_or_else(|| c.book().ref_name().into())
+        };
+        let title = format!("{book_name} {}", c.chapter());
         let abbrev = if self.settings.parallel_on {
             self.columns()
                 .iter()
@@ -1305,7 +1367,13 @@ impl BibleApp {
         let pad_left = if sidebar { GROUP_GAP } else { LEADING_INSET };
         let centre = (bar.left() + pad_left + bar.right() - TRAILING_INSET) / 2.0;
         let lo = nav_rect.right() + GROUP_GAP;
-        let hi = tools_rect.left() - GROUP_GAP - width;
+        let hi = trailing_left - GROUP_GAP - width;
+        if hi < lo {
+            // No room between the groups (a narrow window searching).
+            #[cfg(target_os = "macos")]
+            self.toolbar_items.extend(items);
+            return;
+        }
         let left = (centre - width / 2.0).min(hi).max(lo).round();
         let pickers = egui::Rect::from_min_size(
             egui::pos2(left, cy - CAPSULE_HEIGHT / 2.0),
@@ -1548,6 +1616,102 @@ impl BibleApp {
         self.toolbar_items.push(r);
     }
 
+    /// The compact toolbar's More menu (frame 34): the view tools, the sidebar and focus mode,
+    /// with their shortcuts as currently bound.
+    fn more_menu(&mut self, ui: &mut Ui, more: &egui::Response, actions: &mut Vec<Action>) {
+        let p = self.settings.theme.palette();
+        let chord = |id: &str| {
+            crate::keymap::ALL
+                .iter()
+                .find(|s| s.id == id)
+                .map(|s| crate::keymap::keycaps(s, &self.settings.shortcuts).concat())
+                .unwrap_or_default()
+        };
+        let sidebar = if self.settings.sidebar_open { "Hide Sidebar" } else { "Show Sidebar" };
+        let items: [Option<(widgets::IconFn, &str, String, Action)>; 5] = [
+            Some((crate::icons::columns, "Parallel Translations", chord("parallel"), Action::ToggleParallel)),
+            Some((crate::icons::text_size, "Text & Layout", "⌘T".into(), Action::TextFormat)),
+            None,
+            Some((crate::icons::sidebar, sidebar, chord("sidebar"), Action::ToggleSidebar)),
+            Some((crate::icons::expand, "Focus Mode", chord("focus"), Action::ToggleFocus)),
+        ];
+        let id = Id::new(MORE_POPUP);
+        if std::mem::take(&mut self.open_more) {
+            egui::Popup::open_id(ui.ctx(), id);
+        }
+        if egui::Popup::is_id_open(ui.ctx(), id) {
+            // Arrow keys move the highlight; return chooses.
+            let enabled: Vec<usize> = (0..items.len()).filter(|i| items[*i].is_some()).collect();
+            let (down, up, enter) = ui.input_mut(|i| {
+                (
+                    i.consume_key(Modifiers::NONE, Key::ArrowDown),
+                    i.consume_key(Modifiers::NONE, Key::ArrowUp),
+                    i.consume_key(Modifiers::NONE, Key::Enter),
+                )
+            });
+            let at = self.more_highlight.and_then(|h| enabled.iter().position(|i| *i == h));
+            let n = enabled.len();
+            if down {
+                self.more_highlight = Some(enabled[at.map_or(0, |a| (a + 1) % n)]);
+            }
+            if up {
+                self.more_highlight = Some(enabled[at.map_or(n - 1, |a| (a + n - 1) % n)]);
+            }
+            if enter && let Some(Some((.., a))) = self.more_highlight.and_then(|h| items.get(h)) {
+                actions.push(a.clone());
+                egui::Popup::close_id(ui.ctx(), id);
+            }
+        } else {
+            self.more_highlight = None;
+        }
+        let ring = p.shadows.popover;
+        let frame = Frame::new()
+            .fill(p.surface)
+            .corner_radius(CornerRadius::same(12))
+            .inner_margin(Margin::same(6))
+            .stroke(Stroke::new(ring.ring_width, ring.ring))
+            .shadow(ring.shadow());
+        egui::Popup::menu(more).id(id).align(egui::RectAlign::BOTTOM_END).gap(6.0).frame(frame).show(|ui| {
+            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+            for (i, item) in items.iter().enumerate() {
+                let Some((icon, label, keys, action)) = item else {
+                    let (r, _) = ui.allocate_exact_size(vec2(220.0, 9.0), Sense::hover());
+                    ui.painter().hline(
+                        r.left() + 8.0..=r.right() - 8.0,
+                        r.top() + 4.5,
+                        Stroke::new(1.0, p.separator),
+                    );
+                    continue;
+                };
+                let (r, resp) = ui.allocate_exact_size(vec2(220.0, 28.0), Sense::click());
+                if resp.hovered() && ui.input(|inp| inp.pointer.delta() != egui::Vec2::ZERO) {
+                    self.more_highlight = Some(i);
+                }
+                let lit = self.more_highlight == Some(i);
+                if lit {
+                    ui.painter().rect_filled(r, 6.0, p.accent);
+                }
+                let (ink, ink2, ink3) =
+                    if lit { (p.on_accent, p.on_accent, p.on_accent) } else { (p.ink, p.ink_2, p.ink_3) };
+                let cy = r.center().y;
+                let glyph = egui::Rect::from_center_size(egui::pos2(r.left() + 16.0, cy), vec2(16.0, 16.0));
+                crate::icons::heavy(|| icon(ui.painter(), glyph, ink2));
+                let font = theme::ui_font(13.0);
+                ui.painter().text(
+                    egui::pos2(r.left() + 32.0, cy),
+                    Align2::LEFT_CENTER,
+                    label,
+                    font.clone(),
+                    ink,
+                );
+                ui.painter().text(egui::pos2(r.right() - 10.0, cy), Align2::RIGHT_CENTER, keys, font, ink3);
+                if resp.clicked() {
+                    actions.push(action.clone());
+                }
+            }
+        });
+    }
+
     /// Whether the reading translation is online and can't load the chapter being read: then
     /// `Some(retrying)`, with `self.offline` saying which chapter and why.
     fn check_offline(&mut self, cols: &[String]) -> Option<bool> {
@@ -1690,6 +1854,13 @@ impl BibleApp {
         }
     }
 }
+
+/// Below this toolbar width the view tools and the search field fold into one capsule.
+const COMPACT_TOOLBAR: f32 = 760.0;
+
+/// The text & layout popover and the compact toolbar's More menu.
+const TEXT_POPUP: &str = "text-popover";
+const MORE_POPUP: &str = "more-menu";
 
 /// The toolbar's field on pages (it filters the page).
 const PAGE_SEARCH_WIDTH: f32 = 200.0;

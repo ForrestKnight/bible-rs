@@ -762,8 +762,9 @@ impl Geometry {
             };
             return Self { x0, col_w, gutter, total_w };
         }
-        // At least enough room on the right for the note/bookmark markers.
-        let margin = (rect.width() * 0.06).clamp(56.0, 96.0);
+        // At least 80 pt either side (a compact window's 560 pt measure, frame 34), room for the
+        // note/bookmark markers.
+        let margin = (rect.width() * 0.06).clamp(80.0, 96.0);
         let avail = (rect.width() - margin * 2.0).max(200.0);
         let gutter = if n > 1.0 { typo.size * 1.8 } else { 0.0 };
         let max_col = typo.size * if n > 1.0 { typo.measure * 0.82 } else { typo.measure };

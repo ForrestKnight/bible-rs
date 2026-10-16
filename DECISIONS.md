@@ -198,6 +198,12 @@ The interface follows the high-fidelity designs in the Paper file "Bible" (Scree
   the chapter loads. Parallel columns keep their one-line message.
 - **Toasts are the design's inverse capsules** at the bottom centre of the main area, 4 s for
   messages; errors stay.
+- **Compact windows fold the toolbar, not the sidebar.** Below a 760 pt toolbar the view tools
+  and the search field become one Search + More capsule (frame 34), book names shorten ("Rom 8")
+  and the reader keeps 80 pt margins (a 560 pt measure at 720). The sidebar stays where the user
+  left it; More can show or hide it. While searching, the 136 pt field takes the capsule's place.
+  ⌘T (Text & Layout) is a menu command rather than a row in Settings › Shortcuts, which keeps the
+  designed list.
 - Static Inter 500/600 instances (made with fonttools from the variable font) keep semibold UI
   text and verse numbers off egui's per-run variation path. Literata keeps its default optical
   size: at 20 pt its widths differ from opsz 20 by 0.3 %, so line breaks match the design anyway.

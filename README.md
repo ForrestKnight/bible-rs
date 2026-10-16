@@ -160,7 +160,8 @@ chapter by chapter and appear in parallel and compare views as their chapters lo
 | ⌘1…⌘9 | Switch translation |
 | ⌘⇧P | Parallel translations |
 | ⌘L · ⌘R · ⌘⇧L | Verse-per-line · red letters · theme |
-| ⌘+ ⌘− ⌘0 | Text size |
+| ⌘+ ⌘− ⌘0 · ⌘T | Text size · text & layout |
+| ⌃⌘F | Focus mode |
 | ⌘B · ⌘, · ⌘/ | Sidebar · settings · shortcut help |
 | ⌘E · ⌘⇧E · ⌘I | Export Markdown · export JSON · import translation |
 

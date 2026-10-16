@@ -320,6 +320,7 @@ pub mod metrics {
     pub const BUTTON_WIDTH: f32 = titlebar::BUTTON_WIDTH;
     pub const SIDEBAR_TOGGLE_WIDTH: f32 = titlebar::SIDEBAR_TOGGLE_WIDTH;
     pub const SEARCH_FIELD_WIDTH: f32 = titlebar::SEARCH_FIELD_WIDTH;
+    pub const SEARCH_FIELD_WIDTH_COMPACT: f32 = titlebar::SEARCH_FIELD_WIDTH_COMPACT;
     /// Toolbar icons and row/menu icons, and the stroke that gives both the same weight.
     pub const ICON: f32 = icon::TOOLBAR;
     pub const ICON_SM: f32 = icon::ROW;

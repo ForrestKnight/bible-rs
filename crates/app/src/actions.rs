@@ -59,6 +59,8 @@ pub enum Action {
     RevealDataDir,
     /// Focus mode: full screen with the chrome out of the way.
     ToggleFocus,
+    /// Open the text & layout popover (⌘T).
+    TextFormat,
     /// Forget the reading history from this time (Unix seconds) on.
     ClearReading(i64),
     /// Bookmark a verse, or remove its bookmark.
