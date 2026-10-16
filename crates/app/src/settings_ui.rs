@@ -391,7 +391,7 @@ impl SettingsUi {
                     let value = if settings.backup_weekly { "Weekly" } else { "Daily" };
                     let resp =
                         widgets::select_field(ui, p, field, value, None, ui.id().with("backup-frequency"));
-                    egui::Popup::menu(&resp).show(|ui| {
+                    crate::menu::popup(&resp, p).show(|ui| {
                         ui.set_min_width(160.0);
                         if ui.selectable_label(!settings.backup_weekly, "Daily").clicked() {
                             settings.backup_weekly = false;
@@ -681,7 +681,7 @@ impl SettingsUi {
                 let field = Rect::from_min_size(pos2(right - 260.0, r.center().y - 16.0), vec2(260.0, 32.0));
                 let resp =
                     widgets::select_field(ui, p, field, &current, None, ui.id().with("default-translation"));
-                egui::Popup::menu(&resp).show(|ui| {
+                crate::menu::popup(&resp, p).show(|ui| {
                     ui.set_min_width(260.0);
                     for (id, a, n) in &ids {
                         if ui.selectable_label(*id == settings.translation, format!("{n} ({a})")).clicked() {
@@ -707,8 +707,9 @@ impl SettingsUi {
                     theme::ui_medium(13.0),
                     p.ink_2,
                 );
-                egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(
-                    |ui| {
+                crate::menu::popup(&resp, p)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .show(|ui| {
                         ui.set_min_width(240.0);
                         for (id, a, n) in ids.iter().filter(|(id, _, _)| *id != settings.translation) {
                             let on = settings.parallel.contains(id);
@@ -720,8 +721,7 @@ impl SettingsUi {
                                 }
                             }
                         }
-                    },
-                );
+                    });
             }
         });
         ui.add_space(24.0);
@@ -1345,7 +1345,7 @@ fn reading(ui: &mut Ui, library: &Library, settings: &mut Settings, actions: &mu
                 row_label(ui, p, r, "Font", None);
                 let field = Rect::from_min_size(pos2(right - 220.0, cy - 16.0), vec2(220.0, 32.0));
                 let resp = widgets::select_field(ui, p, field, "Literata", None, ui.id().with("font"));
-                egui::Popup::menu(&resp).show(|ui| {
+                crate::menu::popup(&resp, p).show(|ui| {
                     let _ = ui.selectable_label(true, "Literata");
                 });
             }

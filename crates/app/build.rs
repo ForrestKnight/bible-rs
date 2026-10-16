@@ -119,6 +119,7 @@ fn main() {
         ("radius", &json["radius"]),
         ("size", &json["size"]),
         ("titlebar", &json["titlebar"]),
+        ("menu", &json["menu"]),
         ("icon", &json["icon"]),
         ("motion", &json["motion"]),
         ("reading", &json["type"]["reading"]),

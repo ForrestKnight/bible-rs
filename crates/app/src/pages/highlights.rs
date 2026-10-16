@@ -79,12 +79,12 @@ impl State {
         let select = Rect::from_min_size(pos2(seg.left() - 8.0 - 160.0, cy - 16.0), vec2(160.0, 32.0));
         let value = self.book.map(book_name).unwrap_or_else(|| "All books".into());
         let resp = widgets::select_field(ui, p, select, &value, Some(icons::book), ui.id().with("book"));
-        egui::Popup::menu(&resp).show(|ui| {
+        crate::menu::popup(&resp, p).show(|ui| {
             ui.set_min_width(180.0);
             if ui.selectable_label(self.book.is_none(), "All books").clicked() {
                 self.book = None;
             }
-            ui.separator();
+            crate::menu::separator(ui);
             for b in &books {
                 if ui.selectable_label(self.book == Some(*b), book_name(*b)).clicked() {
                     self.book = Some(*b);

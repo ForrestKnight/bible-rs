@@ -3,19 +3,17 @@
 
 use bible_core::VerseRef;
 use bible_core::study::{HighlightColor, StudyStore};
-use eframe::egui::{
-    self, Align2, Color32, Key, Modifiers, Order, Painter, Pos2, Rect, Sense, Stroke, pos2, vec2,
-};
+use eframe::egui::{self, Color32, Key, Modifiers, Order, Painter, Pos2, Rect, Sense, Stroke, pos2, vec2};
 
 use crate::actions::Action;
 use crate::icons;
-use crate::theme::{Palette, text};
+use crate::menu::{self, ITEM_HEIGHT, PADDING_X, PADDING_Y, SEPARATOR_HEIGHT};
+use crate::theme::{Palette, menu as tokens};
+use crate::widgets::IconFn;
 
 const WIDTH: f32 = 264.0;
-const PAD: f32 = 6.0;
-const ITEM_H: f32 = 28.0;
-
-type IconFn = fn(&Painter, Rect, Color32);
+/// The swatch row under the header: 20 pt swatches, 10 pt apart, 6 pt above and 8 below.
+const SWATCHES_HEIGHT: f32 = 34.0;
 
 enum Line {
     Item { icon: IconFn, label: String, shortcut: &'static str, action: Option<Action> },
@@ -118,12 +116,15 @@ impl VerseMenu {
             return true;
         }
 
-        let height = PAD
-            + 24.0
-            + 34.0
-            + lines.iter().map(|l| if matches!(l, Line::Separator) { 9.0 } else { ITEM_H }).sum::<f32>()
-            + 9.0
-            + PAD;
+        let height = PADDING_Y
+            + tokens::HEADER_HEIGHT
+            + SWATCHES_HEIGHT
+            + SEPARATOR_HEIGHT
+            + lines
+                .iter()
+                .map(|l| if matches!(l, Line::Separator) { SEPARATOR_HEIGHT } else { ITEM_HEIGHT })
+                .sum::<f32>()
+            + PADDING_Y;
         let screen = ctx.content_rect();
         let pos = pos2(
             self.pos.x.min(screen.right() - WIDTH - 8.0).max(screen.left() + 8.0),
@@ -136,23 +137,17 @@ impl VerseMenu {
             ctx,
             |ui| {
                 let rect = Rect::from_min_size(pos, vec2(WIDTH, height));
-                p.shadows.popover.paint(ui.painter(), rect, 12.0);
-                ui.painter().rect_filled(rect, 12.0, p.surface);
+                p.shadows.popover.paint(ui.painter(), rect, tokens::RADIUS);
+                ui.painter().rect_filled(rect, tokens::RADIUS, p.surface);
                 let (_, _) = ui.allocate_exact_size(rect.size(), Sense::hover());
-                let left = rect.left() + PAD;
-                let inner_w = WIDTH - 2.0 * PAD;
-                let mut y = rect.top() + PAD;
+                let (left, right) = (rect.left() + PADDING_X, rect.right() - PADDING_X);
+                let mut y = rect.top() + PADDING_Y;
                 // "Highlight", then the swatches and clear.
-                ui.painter().text(
-                    pos2(left + 10.0, y + 12.0),
-                    Align2::LEFT_CENTER,
-                    "Highlight",
-                    text::CAPTION.font(),
-                    p.ink_3,
-                );
-                y += 24.0;
+                let header = Rect::from_x_y_ranges(left..=right, y..=y + tokens::HEADER_HEIGHT);
+                menu::paint_header(ui.painter(), p, header, "Highlight");
+                y += tokens::HEADER_HEIGHT;
                 let cy = y + 6.0 + 10.0;
-                let mut x = left + 10.0;
+                let mut x = menu::text_left(header);
                 for (k, c) in HighlightColor::ALL.into_iter().enumerate() {
                     let center = pos2(x + 10.0, cy);
                     let resp = ui.interact(
@@ -188,18 +183,18 @@ impl VerseMenu {
                     actions.push(Action::Highlight(None));
                     close = true;
                 }
-                y += 34.0;
-                separator(ui.painter(), p, left, inner_w, y);
-                y += 9.0;
+                y += SWATCHES_HEIGHT;
+                menu::paint_separator(ui.painter(), p, left, right, y);
+                y += SEPARATOR_HEIGHT;
 
                 for (i, line) in lines.iter().enumerate() {
                     match line {
                         Line::Separator => {
-                            separator(ui.painter(), p, left, inner_w, y);
-                            y += 9.0;
+                            menu::paint_separator(ui.painter(), p, left, right, y);
+                            y += SEPARATOR_HEIGHT;
                         }
                         Line::Item { icon, label, shortcut, action } => {
-                            let r = Rect::from_min_size(pos2(left, y), vec2(inner_w, ITEM_H));
+                            let r = Rect::from_x_y_ranges(left..=right, y..=y + ITEM_HEIGHT);
                             let resp = ui.interact(r, ui.id().with(("menu-item", i)), Sense::click());
                             if action.is_some()
                                 && resp.hovered()
@@ -207,47 +202,22 @@ impl VerseMenu {
                             {
                                 self.highlighted = Some(i);
                             }
-                            let lit = action.is_some() && self.highlighted == Some(i);
-                            if lit {
-                                ui.painter().rect_filled(r, 6.0, p.accent);
-                                if resp.is_pointer_button_down_on() {
-                                    ui.painter().rect_filled(r, 6.0, Color32::from_black_alpha(18));
-                                }
-                            }
-                            let (ink, ink2, ink3) = match (action.is_some(), lit) {
-                                (false, _) => (p.ink_3, p.ink_3, p.ink_3),
-                                (true, true) => (p.on_accent, p.on_accent, p.on_accent),
-                                (true, false) => (p.ink, p.ink_2, p.ink_3),
-                            };
-                            let cy = r.center().y;
-                            icons::heavy(|| {
-                                icon(
-                                    ui.painter(),
-                                    Rect::from_center_size(pos2(r.left() + 8.0 + 8.0, cy), vec2(16.0, 16.0)),
-                                    ink2,
-                                )
-                            });
-                            ui.painter().text(
-                                pos2(r.left() + 8.0 + 16.0 + 8.0, cy),
-                                Align2::LEFT_CENTER,
+                            let row = menu::Row {
+                                icon: *icon,
                                 label,
-                                text::UI.font(),
-                                ink,
-                            );
-                            ui.painter().text(
-                                pos2(r.right() - 10.0, cy),
-                                Align2::RIGHT_CENTER,
-                                *shortcut,
-                                text::UI.font(),
-                                ink3,
-                            );
+                                shortcut,
+                                enabled: action.is_some(),
+                                lit: self.highlighted == Some(i),
+                                pressed: resp.is_pointer_button_down_on(),
+                            };
+                            menu::paint_row(ui.painter(), p, r, row);
                             if let Some(a) = action
                                 && resp.clicked()
                             {
                                 actions.push(a.clone());
                                 close = true;
                             }
-                            y += ITEM_H;
+                            y += ITEM_HEIGHT;
                         }
                     }
                 }
@@ -264,8 +234,4 @@ impl VerseMenu {
 
 fn bookmark(p: &Painter, r: Rect, c: Color32) {
     icons::bookmark(p, r, c, false);
-}
-
-fn separator(painter: &Painter, p: &Palette, left: f32, width: f32, y: f32) {
-    painter.hline(left + 8.0..=left + width - 8.0, y + 4.5, Stroke::new(1.0, p.separator));
 }

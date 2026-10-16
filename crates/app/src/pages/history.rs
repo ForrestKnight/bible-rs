@@ -64,7 +64,7 @@ impl State {
         let cy = top + 26.0 + 16.0;
         let (clear, resp) =
             Button::new(Kind::Plain, "Clear…").show_right(ui, p, right, cy, ui.id().with("clear-history"));
-        egui::Popup::menu(&resp).show(|ui| {
+        crate::menu::popup(&resp, p).show(|ui| {
             ui.set_min_width(200.0);
             if ui.button("Clear Today").clicked() {
                 actions.push(Action::ClearReading(today));
@@ -72,7 +72,7 @@ impl State {
             if ui.button("Clear the Last 7 Days").clicked() {
                 actions.push(Action::ClearReading(today - 6 * DAY));
             }
-            ui.separator();
+            crate::menu::separator(ui);
             if ui.button("Clear All History").clicked() {
                 actions.push(Action::ClearReading(0));
             }

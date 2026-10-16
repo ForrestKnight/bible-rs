@@ -198,6 +198,14 @@ The interface follows the high-fidelity designs in the Paper file "Bible" (Scree
   the chapter loads. Parallel columns keep their one-line message.
 - **Toasts are the design's inverse capsules** at the bottom centre of the main area, 4 s for
   messages; errors stay.
+- **Menus share one frame and one text column** (`menu.rs`, the `menu` group added to the token
+  file). The design system's menu sheet (ds-12) gives the radius 12, 28 pt rows with radius 6
+  highlights, 24 pt section headers and 9 pt separators; its 6 pt padding felt cramped, so row
+  highlights sit 8 pt from a menu's sides and 10 pt from its top and bottom. Text, icons,
+  checkboxes, section headers and separators all start 10 pt inside the highlight. egui's menus
+  (the translation switcher, select fields, page menus) and the hand-painted verse and More
+  menus use the same tokens; popovers with fields or controls (text settings, the book picker,
+  New Note) keep egui's popup frame.
 - **Compact windows fold the toolbar, not the sidebar.** Below a 760 pt toolbar the view tools
   and the search field become one Search + More capsule (frame 34), book names shorten ("Rom 8")
   and the reader keeps 80 pt margins (a 560 pt measure at 720). The sidebar stays where the user

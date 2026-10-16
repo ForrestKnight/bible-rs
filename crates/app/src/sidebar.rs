@@ -790,7 +790,7 @@ impl Sidebar {
                     _ => "All books".into(),
                 };
                 let resp = select_field(ui, p, select, &label, "scope-book");
-                egui::Popup::menu(&resp).show(|ui| {
+                crate::menu::popup(&resp, p).show(|ui| {
                     ui.set_min_width(200.0);
                     let testament = match self.scope {
                         Scope::OldTestament => Some(false),
@@ -815,7 +815,7 @@ impl Sidebar {
                         self.scope = Scope::Book(book);
                         ui.close();
                     }
-                    ui.separator();
+                    crate::menu::separator(ui);
                     ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
                         for b in
                             BookId::all().filter(|b| testament.is_none_or(|nt| (*b >= FIRST_NT_BOOK) == nt))
@@ -901,7 +901,7 @@ impl Sidebar {
                 let resp = ui.interact(order_rect, ui.id().with("order"), Sense::click());
                 ui.painter().text(pos2(chevron.left() - 2.0, cy), Align2::RIGHT_CENTER, order, font, p.ink_2);
                 crate::icons::chevron_down(ui.painter(), chevron, p.ink_3);
-                egui::Popup::menu(&resp).show(|ui| {
+                crate::menu::popup(&resp, p).show(|ui| {
                     if ui.selectable_label(!self.current_first, "Canonical").clicked() {
                         self.current_first = false;
                         ui.close();

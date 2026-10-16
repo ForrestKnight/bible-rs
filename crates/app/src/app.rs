@@ -10,7 +10,7 @@ use anyhow::Result;
 use bible_core::books::{BookId, ChapterIdx, VerseRef};
 use bible_core::library::Library;
 use bible_core::study::StudyStore;
-use eframe::egui::{self, Align2, CornerRadius, Frame, Id, Key, Margin, Modifiers, Sense, Stroke, Ui, vec2};
+use eframe::egui::{self, Align2, Frame, Id, Key, Modifiers, Sense, Stroke, Ui, vec2};
 use serde::{Deserialize, Serialize};
 
 use crate::actions::{Action, ExportKind, SettingsTab, SidebarTab};
@@ -1390,7 +1390,7 @@ impl BibleApp {
         if show_translation {
             widgets::capsule_divider(ui.painter(), book_rect.right(), cy, p);
             let tr = translation.show(ui, tr_rect, p, "translation", "Translation (⌘1…⌘9)");
-            egui::Popup::menu(&tr).show(|ui| {
+            crate::menu::popup(&tr, p).show(|ui| {
                 ui.set_min_width(300.0);
                 translation_menu(ui, &self.library, &self.settings, actions);
             });
@@ -1544,7 +1544,7 @@ impl BibleApp {
                 theme::ui_medium(11.0),
                 p.ink_3,
             );
-            egui::Popup::menu(&resp).show(|ui| {
+            crate::menu::popup(&resp, p).show(|ui| {
                 ui.set_min_width(240.0);
                 for e in self.library.entries() {
                     let m = &e.meta;
@@ -1558,7 +1558,7 @@ impl BibleApp {
                     }
                 }
                 if i > 0 {
-                    ui.separator();
+                    crate::menu::separator(ui);
                     if ui.button("Remove column").clicked() {
                         actions.push(Action::RemoveParallel(id.clone()));
                         ui.close();
@@ -1664,47 +1664,28 @@ impl BibleApp {
         } else {
             self.more_highlight = None;
         }
-        let ring = p.shadows.popover;
-        let frame = Frame::new()
-            .fill(p.surface)
-            .corner_radius(CornerRadius::same(12))
-            .inner_margin(Margin::same(6))
-            .stroke(Stroke::new(ring.ring_width, ring.ring))
-            .shadow(ring.shadow());
-        egui::Popup::menu(more).id(id).align(egui::RectAlign::BOTTOM_END).gap(6.0).frame(frame).show(|ui| {
-            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+        let popup = crate::menu::popup(more, p).id(id).align(egui::RectAlign::BOTTOM_END).gap(6.0);
+        popup.show(|ui| {
             for (i, item) in items.iter().enumerate() {
                 let Some((icon, label, keys, action)) = item else {
-                    let (r, _) = ui.allocate_exact_size(vec2(220.0, 9.0), Sense::hover());
-                    ui.painter().hline(
-                        r.left() + 8.0..=r.right() - 8.0,
-                        r.top() + 4.5,
-                        Stroke::new(1.0, p.separator),
-                    );
+                    let (r, _) =
+                        ui.allocate_exact_size(vec2(220.0, crate::menu::SEPARATOR_HEIGHT), Sense::hover());
+                    crate::menu::paint_separator(ui.painter(), p, r.left(), r.right(), r.top());
                     continue;
                 };
-                let (r, resp) = ui.allocate_exact_size(vec2(220.0, 28.0), Sense::click());
+                let (r, resp) = ui.allocate_exact_size(vec2(220.0, crate::menu::ITEM_HEIGHT), Sense::click());
                 if resp.hovered() && ui.input(|inp| inp.pointer.delta() != egui::Vec2::ZERO) {
                     self.more_highlight = Some(i);
                 }
-                let lit = self.more_highlight == Some(i);
-                if lit {
-                    ui.painter().rect_filled(r, 6.0, p.accent);
-                }
-                let (ink, ink2, ink3) =
-                    if lit { (p.on_accent, p.on_accent, p.on_accent) } else { (p.ink, p.ink_2, p.ink_3) };
-                let cy = r.center().y;
-                let glyph = egui::Rect::from_center_size(egui::pos2(r.left() + 16.0, cy), vec2(16.0, 16.0));
-                crate::icons::heavy(|| icon(ui.painter(), glyph, ink2));
-                let font = theme::ui_font(13.0);
-                ui.painter().text(
-                    egui::pos2(r.left() + 32.0, cy),
-                    Align2::LEFT_CENTER,
+                let row = crate::menu::Row {
+                    icon: *icon,
                     label,
-                    font.clone(),
-                    ink,
-                );
-                ui.painter().text(egui::pos2(r.right() - 10.0, cy), Align2::RIGHT_CENTER, keys, font, ink3);
+                    shortcut: keys,
+                    enabled: true,
+                    lit: self.more_highlight == Some(i),
+                    pressed: resp.is_pointer_button_down_on(),
+                };
+                crate::menu::paint_row(ui.painter(), p, r, row);
                 if resp.clicked() {
                     actions.push(action.clone());
                 }
@@ -1894,16 +1875,15 @@ fn translation_menu(ui: &mut Ui, library: &Library, settings: &Settings, actions
         let shortcut = if i < 9 { format!("⌘{}", i + 1) } else { String::new() };
         let resp = ui.add(
             egui::Button::selectable(current, egui::RichText::new(format!("{}  {}", m.abbrev, m.name)))
-                .shortcut_text(shortcut)
-                .min_size(vec2(290.0, 26.0)),
+                .shortcut_text(shortcut),
         );
         if resp.clicked() {
             actions.push(Action::SetTranslation(m.id.clone()));
             ui.close();
         }
     }
-    ui.separator();
-    ui.label(egui::RichText::new("Parallel view").color(p.ink_2).font(theme::ui_font(11.5)));
+    crate::menu::separator(ui);
+    crate::menu::header(ui, p, "Parallel view");
     for e in library.entries() {
         let m = &e.meta;
         if m.id == settings.translation {
@@ -1911,7 +1891,7 @@ fn translation_menu(ui: &mut Ui, library: &Library, settings: &Settings, actions
         }
         let on = settings.parallel_on && settings.parallel.contains(&m.id);
         let mut checked = on;
-        if ui.checkbox(&mut checked, format!("{} — side by side", m.abbrev)).changed() {
+        if crate::menu::checkbox(ui, &mut checked, format!("{} — side by side", m.abbrev)).changed() {
             actions.push(if checked {
                 Action::AddParallel(m.id.clone())
             } else {
@@ -1919,7 +1899,7 @@ fn translation_menu(ui: &mut Ui, library: &Library, settings: &Settings, actions
             });
         }
     }
-    ui.separator();
+    crate::menu::separator(ui);
     if ui.button("Manage translations…").clicked() {
         actions.push(Action::OpenSettings(SettingsTab::Translations));
         ui.close();

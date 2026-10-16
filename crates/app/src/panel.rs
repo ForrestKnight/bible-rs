@@ -156,7 +156,7 @@ impl VersePanel {
             if direct && resp.clicked() {
                 actions.push(Action::AddParallel(picked));
             } else if enabled {
-                egui::Popup::menu(&resp).show(|ui| {
+                crate::menu::popup(&resp, p).show(|ui| {
                     for (id, label) in &others {
                         if ui.button(label).clicked() {
                             actions.push(Action::AddParallel(id.clone()));

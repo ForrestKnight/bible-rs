@@ -233,7 +233,7 @@ impl State {
             p.ink_3,
         );
         text(&painter, sort.left() - 8.0, sort.top(), 16.0, "Sorted by", theme::ui_font(12.0), p.ink_3, true);
-        egui::Popup::menu(&resp).show(|ui| {
+        crate::menu::popup(&resp, p).show(|ui| {
             for (s, label) in [(Sort::Kind, "Kind"), (Sort::Name, "Name")] {
                 if ui.selectable_label(self.sort == s, label).clicked() {
                     self.sort = s;
@@ -355,7 +355,7 @@ impl State {
         icons::heavy(|| {
             icons::ellipsis(&painter, Rect::from_center_size(more.center(), vec2(16.0, 16.0)), p.ink_2)
         });
-        egui::Popup::menu(&more_resp).show(|ui| {
+        crate::menu::popup(&more_resp, p).show(|ui| {
             ui.set_min_width(180.0);
             if ui.button("Read").clicked() {
                 actions.push(Action::SetTranslation(m.id.clone()));
@@ -369,7 +369,7 @@ impl State {
                 actions.push(Action::OpenPage(Page::Reader));
             }
             if !matches!(e.kind, EntryKind::Bundled(_)) {
-                ui.separator();
+                crate::menu::separator(ui);
                 if ui.button("Remove…").clicked() {
                     actions.push(Action::RemoveTranslation(m.id.clone()));
                 }

@@ -385,7 +385,7 @@ impl State {
                     }
                     "delete" if resp.clicked() => remove = true,
                     "more" => {
-                        egui::Popup::menu(&resp).show(|ui| {
+                        crate::menu::popup(&resp, p).show(|ui| {
                             ui.set_min_width(180.0);
                             if ui.button("Open in Reader").clicked() {
                                 actions.push(Action::Jump {
@@ -397,7 +397,7 @@ impl State {
                             if ui.button("Copy as Markdown").clicked() {
                                 ui.ctx().copy_text(to_markdown(&e.text));
                             }
-                            ui.separator();
+                            crate::menu::separator(ui);
                             if ui.button("Delete Note").clicked() {
                                 remove = true;
                             }
