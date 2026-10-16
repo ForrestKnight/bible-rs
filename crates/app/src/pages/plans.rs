@@ -147,8 +147,10 @@ const MONTHS: [&str; 12] = [
 ];
 
 impl State {
-    /// Selects the `active`, `browse` or `completed` tab (demo captures).
+    /// Shows the list on the `active`, `browse` or `completed` tab (demo captures), closing any
+    /// plan's day view, which hides the tabs.
     pub fn set_tab(&mut self, name: &str) {
+        self.open = None;
         self.tab = match name {
             "browse" => Tab::Browse,
             "completed" => Tab::Completed,
