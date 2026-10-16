@@ -3,6 +3,7 @@ name = "xtask"
 description = "Developer tasks: fetch public-domain sources and build the bundled translations"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish = false
 

@@ -6,6 +6,8 @@ default-members = ["crates/core", "crates/app"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# egui 0.36's minimum (the core crate's file locking needs 1.89).
+rust-version = "1.95"
 license = "MIT"
 repository = "https://github.com/michaelshimeles/bible-rs"
 

@@ -287,7 +287,7 @@ bible-rs search "love one another" # prints the query time
 
 ## Building
 
-Requires Rust 1.85+ (edition 2024).
+Requires Rust 1.95+, the minimum egui 0.36 supports.
 
 ```sh
 # Linux needs: libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
