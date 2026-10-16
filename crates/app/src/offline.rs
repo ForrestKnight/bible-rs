@@ -3,13 +3,14 @@
 //! The app adds an error toast with Retry that stays until dismissed or the chapter loads.
 
 use eframe::egui::text::LayoutJob;
-use eframe::egui::{Align, Align2, Color32, FontId, Rect, TextFormat, Ui, pos2, vec2};
+use eframe::egui::{Align, Rect, TextFormat, Ui, pos2, vec2};
 
 use bible_core::ChapterIdx;
 use bible_core::library::Library;
 
 use crate::actions::Action;
 use crate::icons;
+use crate::pages::{self, Empty, Tone};
 use crate::theme::{self, Palette};
 use crate::widgets::{self, Button, Kind};
 
@@ -79,24 +80,7 @@ pub fn show(
     let painter = ui.painter().clone();
     let abbrev = library.get(&state.id).map_or_else(|| state.id.clone(), |e| e.meta.abbrev.clone());
     let cx = area.center().x;
-    let mut y = area.top() + 96.0;
-
-    // Glyph in a danger-tinted circle.
-    let c = pos2(cx, y + 28.0);
-    let [r, g, b, _] = p.danger.to_array();
-    painter.circle_filled(c, 28.0, Color32::from_rgba_unmultiplied(r, g, b, 31));
-    icons::cloud_slash(&painter, Rect::from_center_size(c, vec2(28.0, 28.0)), p.danger);
-    y += 56.0 + 12.0;
-
     let title = format!("{abbrev} can’t load {} right now", state.chapter.display());
-    painter.text(
-        pos2(cx, y + 14.0),
-        Align2::CENTER_CENTER,
-        title,
-        FontId::new(20.0, theme::family(theme::SERIF)),
-        p.ink,
-    );
-    y += 28.0 + 4.0;
     let body = if state.unreachable() {
         format!(
             "Chapters from {} need a connection. Your highlights and notes on this chapter are safe \
@@ -111,44 +95,47 @@ pub fn show(
             chars.next().map(|f| f.to_uppercase().chain(chars).collect()).unwrap_or_default();
         format!("{}. Your highlights and notes on this chapter are safe.", reason.trim_end_matches('.'))
     };
-    let format = TextFormat {
-        font_id: theme::ui_font(13.0),
-        color: p.ink_2,
-        line_height: Some(20.0),
-        ..Default::default()
-    };
-    let shift = css_shift(ui, &format);
-    let mut job = LayoutJob::single_section(body, format);
-    job.wrap.max_width = 520.0;
-    job.halign = Align::Center;
-    let galley = painter.layout_job(job);
-    let body_h = galley.size().y;
-    painter.galley(pos2(cx, y + shift), galley, p.ink_2);
-    y += body_h + 12.0 + 4.0;
 
     // Retry, or read a local translation instead.
-    let retry = Button::new(Kind::Secondary, if retrying { "Retrying…" } else { "Retry" }).enabled(!retrying);
     let instead = fallback(library).map(|(id, abbrev)| (id, format!("Read in {abbrev} instead")));
-    let other = instead.as_ref().map(|(_, label)| Button::new(Kind::Ghost, label));
-    let wa = retry.width(&painter);
-    let wb = other.as_ref().map_or(0.0, |b| 8.0 + b.width(&painter));
-    let left = cx - (wa + wb) / 2.0;
-    if retry.show_left(ui, p, left, y + 16.0, ui.id().with("offline-retry")).1.clicked() {
+    let mut buttons =
+        vec![Button::new(Kind::Secondary, if retrying { "Retrying…" } else { "Retry" }).enabled(!retrying)];
+    if let Some((_, label)) = &instead {
+        buttons.push(Button::new(Kind::Ghost, label));
+    }
+    let empty = Empty {
+        glyph: icons::cloud_slash,
+        tone: Tone::Danger,
+        title: &title,
+        body: &body,
+        buttons: &buttons,
+        hints: &[],
+        width: 520.0,
+    };
+
+    // The state and the card of chapters kept offline, optically centred in the reader's place.
+    let room = area.width() - 2.0 * pages::SIDE;
+    let cached = library.cached_chapters(&state.id);
+    let state_h = empty.height(&painter, room);
+    let h = state_h + if cached.is_empty() { 0.0 } else { 24.0 + 84.0 };
+    let top = pages::optical_top(area.y_range(), h, area.top() + pages::TOP);
+    let responses = empty.show(ui, p, cx, top, room);
+    if responses.first().is_some_and(|r| r.clicked()) {
         state.retry(library);
     }
-    if let (Some(b), Some((id, _))) = (&other, &instead)
-        && b.show_left(ui, p, left + wa + 8.0, y + 16.0, ui.id().with("offline-instead")).1.clicked()
+    if let (Some(r), Some((id, _))) = (responses.get(1), &instead)
+        && r.clicked()
     {
         actions.push(Action::SetTranslation(id.clone()));
     }
-    y += 32.0 + 24.0;
+    let y = top + state_h + 24.0;
 
     // The chapters kept for reading offline, as many as fit on a line.
-    let cached = library.cached_chapters(&state.id);
     if cached.is_empty() {
         return;
     }
-    let card = Rect::from_min_size(pos2(cx - 260.0, y), vec2(520.0, 84.0));
+    let card_w = room.min(520.0);
+    let card = Rect::from_min_size(pos2(cx - card_w / 2.0, y), vec2(card_w, 84.0));
     painter.rect_filled(card, 14.0, p.fill);
     let font = theme::ui_semibold(11.0);
     let format = TextFormat {

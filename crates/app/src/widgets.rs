@@ -672,6 +672,12 @@ impl<'a> Button<'a> {
         }
     }
 
+    /// How far in from its rectangle the button shows at rest. A ghost button shows only its
+    /// label until hovered.
+    pub fn rest_inset(&self) -> f32 {
+        if self.kind == Kind::Ghost { self.padding() } else { 0.0 }
+    }
+
     pub fn width(&self, painter: &Painter) -> f32 {
         let w = painter.layout_no_wrap(self.label.into(), self.font(), Color32::PLACEHOLDER).size().x;
         let icon =

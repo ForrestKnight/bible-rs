@@ -615,9 +615,8 @@ impl Sidebar {
     }
 
     /// A search that found nothing (frame 32): why, ways to widen it, and a spelling that finds
-    /// something.
+    /// something, optically centred in the panel under the count line.
     fn no_results(&mut self, ui: &mut Ui, p: &Palette, t: &bible_core::Translation, whole_words: &mut bool) {
-        let width = ui.available_width();
         let cx = ui.max_rect().center().x;
         let filtered = self.scope != Scope::All || *whole_words;
         let several = self.query.split_whitespace().count() > 1;
@@ -626,54 +625,40 @@ impl Sidebar {
         } else {
             "Check the spelling, or try another word\nor the whole Bible."
         };
-        let (area, _) = ui.allocate_exact_size(vec2(width, 72.0 + 340.0), Sense::hover());
-        let painter = ui.painter().clone();
-        // The empty container starts 8 under the count line (6 here) and is padded 72 at the top.
-        let mut y = area.top() + 2.0 + 72.0;
-        let c = pos2(cx, y + 28.0);
-        painter.circle_filled(c, 28.0, p.fill);
-        crate::icons::search_thin(&painter, Rect::from_center_size(c, vec2(28.0, 28.0)), p.ink_3);
-        y += 56.0 + 12.0;
         let title = format!("No results for “{}”", self.query.trim());
-        let title =
-            crate::pages::elide(&painter, &title, &FontId::new(20.0, theme::family(theme::SERIF)), 300.0);
-        painter.text(
-            pos2(cx, y + 14.0),
-            Align2::CENTER_CENTER,
-            title,
-            FontId::new(20.0, theme::family(theme::SERIF)),
-            p.ink,
-        );
-        y += 28.0 + 4.0;
-        for (k, line) in body.lines().enumerate() {
-            painter.text(
-                pos2(cx, y + 10.0 + 20.0 * k as f32),
-                Align2::CENTER_CENTER,
-                line,
-                text::UI.font(),
-                p.ink_2,
-            );
+        let scoped = self.scope != Scope::All;
+        let mut buttons = Vec::new();
+        if scoped {
+            buttons.push(widgets::Button::new(widgets::Kind::Secondary, "Search Whole Bible"));
         }
-        y += 40.0 + 12.0 + 4.0;
-        if self.scope != Scope::All || filtered {
-            let a = widgets::Button::new(widgets::Kind::Secondary, "Search Whole Bible");
-            let b = widgets::Button::new(widgets::Kind::Ghost, "Clear filters");
-            let (wa, wb) = (a.width(&painter), if filtered { b.width(&painter) } else { 0.0 });
-            let gap = if filtered { 8.0 } else { 0.0 };
-            let x = cx - (wa + gap + wb) / 2.0;
-            if self.scope != Scope::All
-                && a.show_left(ui, p, x, y + 16.0, ui.id().with("whole-bible")).1.clicked()
-            {
-                self.scope = Scope::All;
-            }
-            if filtered
-                && b.show_left(ui, p, x + wa + gap, y + 16.0, ui.id().with("clear-filters")).1.clicked()
-            {
-                self.scope = Scope::All;
-                *whole_words = false;
-            }
-            y += 32.0;
+        if filtered {
+            buttons.push(widgets::Button::new(widgets::Kind::Ghost, "Clear filters"));
         }
+        let empty = crate::pages::Empty {
+            glyph: crate::icons::search_thin,
+            tone: crate::pages::Tone::Quiet,
+            title: &title,
+            body,
+            buttons: &buttons,
+            hints: &[],
+            width: 320.0,
+        };
+        let painter = ui.painter().clone();
+        let (area, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
+        let room = area.width();
+        let state_h = empty.height(&painter, room);
+        let h = state_h + if self.suggestion.is_some() { 20.0 + 60.0 } else { 0.0 };
+        let top = crate::pages::optical_top(area.y_range(), h, area.top() + 24.0);
+        let responses = empty.show(ui, p, cx, top, room);
+        let mut responses = responses.iter();
+        if scoped && responses.next().is_some_and(|r| r.clicked()) {
+            self.scope = Scope::All;
+        }
+        if filtered && responses.next().is_some_and(|r| r.clicked()) {
+            self.scope = Scope::All;
+            *whole_words = false;
+        }
+        let mut y = top + state_h;
         // A spelling that finds verses.
         if let Some((q, n, first)) = self.suggestion.clone() {
             y += 20.0;

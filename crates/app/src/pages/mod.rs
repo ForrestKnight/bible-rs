@@ -205,103 +205,167 @@ pub fn group_label(painter: &Painter, p: &Palette, x: f32, top: f32, s: &str) {
     paint_on_baseline(painter, x, css_baseline(top, 16.0, 11.0, false), g, p.ink_3);
 }
 
+/// How an empty state's circle and glyph are tinted.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tone {
+    /// The study pages: a 12 % accent circle and an accent glyph, drawn heavier.
+    Accent,
+    /// Errors: a 12 % danger circle and a danger glyph.
+    Danger,
+    /// A search that found nothing: a `fill` circle and a tertiary glyph.
+    Quiet,
+}
+
 /// An empty state (`ds-16`): a 56 pt tinted circle with a 28 pt glyph, a Literata 20/28 title,
-/// 13/20 body text, then up to two buttons and keycap hints, centred on `cx` from `top`.
+/// 13/20 body text, then up to two buttons and keycap hints. Everything is centred on one axis:
+/// each line of the body, the buttons by what shows of them, and the hints, which wrap into
+/// rows when the space is narrower than they are. A ghost button shows only its label, so its
+/// padding doesn't count.
 pub struct Empty<'a> {
     pub glyph: crate::widgets::IconFn,
+    pub tone: Tone,
     pub title: &'a str,
     pub body: &'a str,
-    pub primary: Option<&'a str>,
-    pub ghost: Option<&'a str>,
+    /// Up to two buttons, side by side; `show` returns their responses in this order.
+    pub buttons: &'a [crate::widgets::Button<'a>],
     /// Keycaps and what they do.
     pub hints: &'a [(&'a [&'a str], &'a str)],
+    /// The body's measure, narrowed to the space there is.
     pub width: f32,
 }
 
+/// An [`Empty`] laid out for the width it has.
+struct EmptyLayout {
+    title: String,
+    body: std::sync::Arc<egui::Galley>,
+    /// Each hint's width, and the hints on each row with the row's width.
+    hint_widths: Vec<f32>,
+    hint_rows: Vec<(std::ops::Range<usize>, f32)>,
+    height: f32,
+}
+
+const HINT_GAP: f32 = 24.0;
+const HINT_ROW: f32 = 20.0;
+const HINT_ROW_GAP: f32 = 8.0;
+const BUTTON_GAP: f32 = 8.0;
+
 impl Empty<'_> {
-    pub fn height(&self, painter: &Painter) -> f32 {
-        let body = self.body_galley(painter, Color32::PLACEHOLDER).size().y;
-        let buttons = if self.primary.is_some() || self.ghost.is_some() { 12.0 + 4.0 + 32.0 } else { 0.0 };
-        let hints = if self.hints.is_empty() { 0.0 } else { 24.0 + 20.0 };
-        56.0 + 12.0 + 28.0 + 4.0 + body + buttons + hints
+    /// Its height when centred in `room` points of width.
+    pub fn height(&self, painter: &Painter, room: f32) -> f32 {
+        self.layout(painter, room).height
     }
 
-    fn body_galley(&self, painter: &Painter, color: Color32) -> std::sync::Arc<egui::Galley> {
-        let mut job =
-            egui::text::LayoutJob::simple(self.body.into(), theme::ui_font(13.0), color, self.width);
+    fn layout(&self, painter: &Painter, room: f32) -> EmptyLayout {
+        let title_font = FontId::new(20.0, theme::family(theme::SERIF));
+        let title = elide(painter, self.title, &title_font, room);
+        let mut job = egui::text::LayoutJob::simple(
+            self.body.into(),
+            theme::ui_font(13.0),
+            Color32::PLACEHOLDER,
+            self.width.min(room).max(1.0),
+        );
         job.halign = egui::Align::Center;
         job.sections[0].format.line_height = Some(20.0);
-        painter.layout_job(job)
+        let body = painter.layout_job(job);
+        let hint_widths: Vec<f32> = self
+            .hints
+            .iter()
+            .map(|(keys, what)| {
+                let caps: f32 = keys.iter().map(|k| crate::widgets::keycap_width(painter, k) + 4.0).sum();
+                let t = painter
+                    .layout_no_wrap((*what).into(), theme::ui_font(12.0), Color32::PLACEHOLDER)
+                    .size()
+                    .x;
+                caps + 4.0 + t
+            })
+            .collect();
+        // As many hints on a row as fit in the room, each row centred.
+        let mut hint_rows: Vec<(std::ops::Range<usize>, f32)> = Vec::new();
+        for (i, &w) in hint_widths.iter().enumerate() {
+            match hint_rows.last_mut() {
+                Some((r, rw)) if *rw + HINT_GAP + w <= room => {
+                    r.end = i + 1;
+                    *rw += HINT_GAP + w;
+                }
+                _ => hint_rows.push((i..i + 1, w)),
+            }
+        }
+        let buttons = if self.buttons.is_empty() { 0.0 } else { 12.0 + 4.0 + 32.0 };
+        let hints = if hint_rows.is_empty() {
+            0.0
+        } else {
+            24.0 + hint_rows.len() as f32 * (HINT_ROW + HINT_ROW_GAP) - HINT_ROW_GAP
+        };
+        let height = 56.0 + 12.0 + 28.0 + 4.0 + body.size().y + buttons + hints;
+        EmptyLayout { title, body, hint_widths, hint_rows, height }
     }
 
-    /// Draws it; returns the primary and ghost buttons' responses.
-    pub fn show(
-        &self,
-        ui: &mut Ui,
-        p: &Palette,
-        cx: f32,
-        top: f32,
-    ) -> (Option<egui::Response>, Option<egui::Response>) {
+    /// Draws it centred on `cx` from `top`, in `room` points of width; returns the buttons'
+    /// responses.
+    pub fn show(&self, ui: &mut Ui, p: &Palette, cx: f32, top: f32, room: f32) -> Vec<egui::Response> {
         let painter = ui.painter().clone();
+        let l = self.layout(&painter, room);
         let c = pos2(cx, top + 28.0);
-        painter.circle_filled(c, 28.0, p.accent.gamma_multiply(0.12));
-        crate::icons::heavy(|| (self.glyph)(&painter, Rect::from_center_size(c, vec2(28.0, 28.0)), p.accent));
+        let (circle, ink) = match self.tone {
+            Tone::Accent => (p.accent.gamma_multiply(0.12), p.accent),
+            Tone::Danger => (p.danger.gamma_multiply(0.12), p.danger),
+            Tone::Quiet => (p.fill, p.ink_3),
+        };
+        painter.circle_filled(c, 28.0, circle);
+        let glyph = Rect::from_center_size(c, vec2(28.0, 28.0));
+        if self.tone == Tone::Accent {
+            crate::icons::heavy(|| (self.glyph)(&painter, glyph, ink));
+        } else {
+            (self.glyph)(&painter, glyph, ink);
+        }
         let mut y = top + 56.0 + 12.0;
-        let g = line(&painter, self.title, FontId::new(20.0, theme::family(theme::SERIF)), p.ink, 0.0);
+        let g = line(&painter, &l.title, FontId::new(20.0, theme::family(theme::SERIF)), p.ink, 0.0);
         let gx = cx - g.size().x / 2.0;
         paint_on_baseline(&painter, gx, css_baseline(y, 28.0, 20.0, true), g, p.ink);
         y += 28.0 + 4.0;
-        let body = self.body_galley(&painter, p.ink_2);
-        let h = body.size().y;
-        painter.galley(pos2(cx - self.width / 2.0, y), body, p.ink_2);
+        // A centred galley's lines are centred on its own x = 0, not on the middle of its measure.
+        let h = l.body.size().y;
+        painter.galley(pos2(cx - l.body.rect.center().x, y), l.body, p.ink_2);
         y += h;
-        let (mut primary, mut ghost) = (None, None);
-        if self.primary.is_some() || self.ghost.is_some() {
+        let mut responses = Vec::new();
+        if !self.buttons.is_empty() {
             y += 12.0 + 4.0;
-            let a = self.primary.map(|l| crate::widgets::Button::new(crate::widgets::Kind::Primary, l));
-            let b = self.ghost.map(|l| crate::widgets::Button::new(crate::widgets::Kind::Ghost, l));
-            let wa = a.map_or(0.0, |b| b.width(&painter));
-            let wb = b.map_or(0.0, |b| b.width(&painter));
-            let gap = if a.is_some() && b.is_some() { 8.0 } else { 0.0 };
-            let mut x = cx - (wa + gap + wb) / 2.0;
-            if let Some(a) = a {
-                primary = Some(a.show_left(ui, p, x, y + 16.0, ui.id().with("empty-primary")).1);
-                x += wa + gap;
-            }
-            if let Some(b) = b {
-                ghost = Some(b.show_left(ui, p, x, y + 16.0, ui.id().with("empty-ghost")).1);
+            let widths: Vec<f32> = self.buttons.iter().map(|b| b.width(&painter)).collect();
+            let total = widths.iter().sum::<f32>() + BUTTON_GAP * (widths.len() as f32 - 1.0);
+            // Centre what shows. A ghost button at either end is only its label until hovered.
+            let lead = self.buttons.first().map_or(0.0, |b| b.rest_inset());
+            let trail = self.buttons.last().map_or(0.0, |b| b.rest_inset());
+            let mut x = cx - (total - lead - trail) / 2.0 - lead;
+            for (i, (b, w)) in self.buttons.iter().zip(widths).enumerate() {
+                responses.push(b.show_left(ui, p, x, y + 16.0, ui.id().with(("empty-button", i))).1);
+                x += w + BUTTON_GAP;
             }
             y += 32.0;
         }
-        if !self.hints.is_empty() {
+        if !l.hint_rows.is_empty() {
             y += 24.0;
-            let cy = y + 10.0;
-            let gap = 24.0;
-            let widths: Vec<f32> = self
-                .hints
-                .iter()
-                .map(|(keys, what)| {
-                    let caps: f32 =
-                        keys.iter().map(|k| crate::widgets::keycap_width(&painter, k) + 4.0).sum();
-                    let t = painter
-                        .layout_no_wrap((*what).into(), theme::ui_font(12.0), Color32::PLACEHOLDER)
-                        .size()
-                        .x;
-                    caps + 4.0 + t
-                })
-                .collect();
-            let total: f32 = widths.iter().sum::<f32>() + gap * (widths.len() as f32 - 1.0);
-            let mut x = cx - total / 2.0;
-            for ((keys, what), w) in self.hints.iter().zip(widths) {
-                let start = x;
-                for k in *keys {
-                    x = crate::widgets::keycap(&painter, p, x, cy, k).right() + 4.0;
+            for (row, row_w) in &l.hint_rows {
+                let cy = y + HINT_ROW / 2.0;
+                let mut x = cx - row_w / 2.0;
+                for i in row.clone() {
+                    let (keys, what) = self.hints[i];
+                    let start = x;
+                    for k in keys {
+                        x = crate::widgets::keycap(&painter, p, x, cy, k).right() + 4.0;
+                    }
+                    x += 4.0;
+                    painter.text(pos2(x, cy), egui::Align2::LEFT_CENTER, what, theme::ui_font(12.0), p.ink_3);
+                    x = start + l.hint_widths[i] + HINT_GAP;
                 }
-                x += 4.0;
-                painter.text(pos2(x, cy), egui::Align2::LEFT_CENTER, *what, theme::ui_font(12.0), p.ink_3);
-                x = start + w + gap;
+                y += HINT_ROW + HINT_ROW_GAP;
             }
         }
-        (primary, ghost)
+        responses
     }
+}
+
+/// The top of a block `h` tall, optically centred in `area`. It sits a little above the middle,
+/// with 45 % of the leftover height above it, and never above `min_top`.
+pub fn optical_top(area: egui::Rangef, h: f32, min_top: f32) -> f32 {
+    (area.min + (area.span() - h).max(0.0) * 0.45).max(min_top)
 }

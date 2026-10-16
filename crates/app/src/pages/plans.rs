@@ -147,6 +147,15 @@ const MONTHS: [&str; 12] = [
 ];
 
 impl State {
+    /// Selects the `active`, `browse` or `completed` tab (demo captures).
+    pub fn set_tab(&mut self, name: &str) {
+        self.tab = match name {
+            "browse" => Tab::Browse,
+            "completed" => Tab::Completed,
+            _ => Tab::Active,
+        };
+    }
+
     pub fn show(&mut self, ui: &mut Ui, content: Rect, env: &PageEnv<'_>, actions: &mut Vec<Action>) -> f32 {
         let started = env.study.plans();
         if let Some((id, day)) = self.open.clone()
@@ -260,17 +269,29 @@ impl State {
                 let done: Vec<&'static Plan> =
                     completed.iter().filter_map(|s| plans::get(&s.id)).filter(|plan| matches(plan)).collect();
                 if done.is_empty() {
-                    text(
-                        &painter,
-                        left,
-                        y,
-                        20.0,
-                        "Plans you finish will be listed here.",
-                        theme::ui_font(13.0),
-                        p.ink_2,
-                        false,
-                    );
-                    y += 40.0;
+                    // None finished, or none of them matching the toolbar's field.
+                    let (title, body) = if completed.is_empty() {
+                        ("No finished plans yet", "Plans you finish show up here, ready to read again.")
+                    } else {
+                        ("No finished plans match", "Try other words in the search field.")
+                    };
+                    let empty = super::Empty {
+                        glyph: icons::checklist,
+                        tone: super::Tone::Accent,
+                        title,
+                        body,
+                        buttons: &[Button::new(Kind::Secondary, "Browse plans")],
+                        hints: &[],
+                        width: 360.0,
+                    };
+                    let room = right - left;
+                    let h = empty.height(&painter, room);
+                    let area = egui::Rangef::new(top - super::TOP, ui.clip_rect().bottom());
+                    let at = super::optical_top(area, h, y);
+                    if empty.show(ui, p, content.center().x, at, room).first().is_some_and(|r| r.clicked()) {
+                        self.tab = Tab::Browse;
+                    }
+                    y = at + h;
                 } else {
                     y = self.grid(ui, p, left, right, y, &done, "Restart", actions);
                 }

@@ -206,6 +206,12 @@ The interface follows the high-fidelity designs in the Paper file "Bible" (Scree
   (the translation switcher, select fields, page menus) and the hand-painted verse and More
   menus use the same tokens; popovers with fields or controls (text settings, the book picker,
   New Note) keep egui's popup frame.
+- **Empty and error states share one widget and one axis.** Notes, Bookmarks, Highlights,
+  History, finished plans, the offline error and a search that found nothing all draw
+  `pages::Empty`. Each sits optically centred in the space it fills, with 45 % of the leftover
+  height above it, where frames 32 and 33 anchor theirs near the top. Buttons centre on what
+  shows: a ghost button's padding is invisible at rest, and centring its box would pull the row
+  7 pt left, as the design does. Hints that don't fit the width wrap into centred rows.
 - **Compact windows fold the toolbar, not the sidebar.** Below a 760 pt toolbar the view tools
   and the search field become one Search + More capsule (frame 34), book names shorten ("Rom 8")
   and the reader keeps 80 pt margins (a 560 pt measure at 720). The sidebar stays where the user

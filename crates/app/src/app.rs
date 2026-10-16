@@ -882,7 +882,7 @@ impl BibleApp {
 
     /// One `BIBLE_RS_DEMO` step: `jump:<reference>`, `select:<reference>`, `palette:<query>`,
     /// `search:<query>`, `scope:<ot|nt>`, `step:<n>` (search results), `offline:<reference>`, `note:<reference>`, `compare:<reference>`, `study:<bookmarks|highlights|notes>`,
-    /// `settings:<reading|translations|data>`.
+    /// `settings:<reading|translations|data>`, `plans-tab:<active|browse|completed>`.
     fn demo_step(&mut self, step: &str, actions: &mut Vec<Action>) {
         let (cmd, arg) = step.split_once(':').unwrap_or((step, ""));
         let verse = || bible_core::reference::parse(arg).map(|r| r.verse_ref());
@@ -941,6 +941,7 @@ impl BibleApp {
                 }
             }
             "pick" => self.pages.translations.selected = Some(arg.to_string()),
+            "plans-tab" => self.pages.plans.set_tab(arg),
             // `plan-day:<plan>@<day>`: a plan's day view.
             "plan-day" => {
                 let (id, day) = arg.split_once('@').unwrap_or((arg, "1"));

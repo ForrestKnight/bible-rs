@@ -11,12 +11,12 @@ use eframe::egui::{self, Align, Color32, FontId, Rect, Sense, Stroke, Ui, pos2, 
 
 use bible_core::VerseRef;
 
-use super::{Empty, Page, PageEnv, text};
+use super::{Empty, Page, PageEnv, Tone, text};
 use crate::actions::Action;
 use crate::icons;
 use crate::sidebar::{ListItem, list_item};
 use crate::theme::{self, Palette};
-use crate::widgets::{self, css_baseline, flow_indented, paint_runs};
+use crate::widgets::{self, Button, Kind, css_baseline, flow_indented, paint_runs};
 
 const LIST_W: f32 = 336.0;
 /// The note text's measure (the design's paragraphs are 560 wide).
@@ -131,11 +131,14 @@ impl State {
             super::title(ui.painter(), p, content.left(), content.top(), "Notes", "Nothing written yet");
             let empty = Empty {
                 glyph: icons::note,
+                tone: Tone::Accent,
                 title: "Your notes will live here",
                 body: "Select a verse and press N, or right-click it and choose Add Note. Notes stay on this \
                        Mac and export to Markdown.",
-                primary: Some("Open John 1"),
-                ghost: Some("Import a backup"),
+                buttons: &[
+                    Button::new(Kind::Primary, "Open John 1"),
+                    Button::new(Kind::Ghost, "Import a backup"),
+                ],
                 hints: &[(&["N"], "New note on the selected verse"), (&["⌘", "E"], "Export as Markdown")],
                 width: 344.0,
             };

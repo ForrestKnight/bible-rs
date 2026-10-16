@@ -5,7 +5,7 @@ use eframe::egui::{self, Color32, FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
 
 use bible_core::study::ReadingSession;
 
-use super::{Empty, PageEnv, group_label, text};
+use super::{Empty, PageEnv, Tone, group_label, text};
 use crate::actions::Action;
 use crate::icons;
 use crate::theme::{self, Palette};
@@ -49,11 +49,11 @@ impl State {
         if env.study.reading_since(0).is_empty() {
             let empty = Empty {
                 glyph: icons::history,
+                tone: Tone::Accent,
                 title: "Your reading will show up here",
                 body: "Each chapter you read is kept here — when, for how long and how far you got. It stays \
                        on this Mac.",
-                primary: Some("Open John 1"),
-                ghost: None,
+                buttons: &[Button::new(Kind::Primary, "Open John 1")],
                 hints: &[],
                 width: 360.0,
             };

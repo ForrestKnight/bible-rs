@@ -1,11 +1,11 @@
 //! Study › Bookmarks (frame 17): every bookmarked verse in full, grouped by book (or newest
 //! first), with go-to and remove on hover.
 
-use eframe::egui::{FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
+use eframe::egui::{self, FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
 
 use bible_core::VerseRef;
 
-use super::{Empty, Page, PageEnv, group_label, text};
+use super::{Empty, Page, PageEnv, Tone, group_label, text};
 use crate::actions::{Action, ExportKind};
 use crate::icons;
 use crate::theme;
@@ -44,11 +44,11 @@ impl State {
         if all.is_empty() {
             let empty = Empty {
                 glyph: |p, r, c| icons::bookmark(p, r, c, false),
+                tone: Tone::Accent,
                 title: "Your bookmarks will live here",
                 body: "Select a verse and press B, or right-click it and choose Bookmark. Bookmarks stay on \
                        this Mac and export with your notes.",
-                primary: Some("Open John 1"),
-                ghost: None,
+                buttons: &[Button::new(Kind::Primary, "Open John 1")],
                 hints: &[(&["B"], "Bookmark the selected verse")],
                 width: 360.0,
             };
@@ -155,7 +155,8 @@ fn open(v: VerseRef, actions: &mut Vec<Action>) {
     actions.push(Action::Jump { chapter: v.chapter_idx(), verse: Some(v.verse), flash: true });
 }
 
-/// An empty page: the state centred in what's left below the header. Its button opens John 1.
+/// An empty page: the state optically centred in the page under the toolbar, below the header.
+/// Its first button opens John 1, its second imports a backup.
 pub(super) fn empty_page(
     ui: &mut Ui,
     p: &theme::Palette,
@@ -163,18 +164,17 @@ pub(super) fn empty_page(
     empty: &Empty<'_>,
     actions: &mut Vec<Action>,
 ) -> f32 {
-    let h = empty.height(ui.painter());
-    // Centred in the space under the header, less 80 pt at the bottom.
-    let area_top = content.top() + 58.0 + 20.0;
-    let area_bottom = ui.clip_rect().bottom() - 80.0;
-    let top = (area_top + ((area_bottom - area_top) - h) / 2.0).max(area_top);
-    let (primary, ghost) = empty.show(ui, p, content.center().x, top);
-    if primary.is_some_and(|r| r.clicked()) {
+    let room = content.width();
+    let h = empty.height(ui.painter(), room);
+    let area = egui::Rangef::new(content.top() - super::TOP, ui.clip_rect().bottom());
+    let top = super::optical_top(area, h, content.top() + 58.0 + 20.0);
+    let buttons = empty.show(ui, p, content.center().x, top, room);
+    if buttons.first().is_some_and(|r| r.clicked()) {
         let john = bible_core::ChapterIdx::new(bible_core::BookId(42), 1).expect("John 1");
         actions.push(Action::Jump { chapter: john, verse: None, flash: false });
         actions.push(Action::OpenPage(Page::Reader));
     }
-    if ghost.is_some_and(|r| r.clicked()) {
+    if buttons.get(1).is_some_and(|r| r.clicked()) {
         actions.push(Action::ImportStudy);
     }
     top + h

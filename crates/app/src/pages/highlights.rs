@@ -6,11 +6,11 @@ use eframe::egui::{self, Color32, FontId, Rect, Sense, Stroke, StrokeKind, Ui, p
 use bible_core::study::HighlightColor;
 use bible_core::{BookId, VerseRef};
 
-use super::{Empty, PageEnv, text};
+use super::{Empty, PageEnv, Tone, text};
 use crate::actions::Action;
 use crate::icons;
 use crate::theme;
-use crate::widgets::{self, css_baseline, flow, paint_runs};
+use crate::widgets::{self, Button, Kind, css_baseline, flow, paint_runs};
 
 const CARD: f32 = 446.0;
 const GAP_X: f32 = 20.0;
@@ -51,11 +51,11 @@ impl State {
         if all.is_empty() {
             let empty = Empty {
                 glyph: icons::highlighter,
+                tone: Tone::Accent,
                 title: "Your highlights will live here",
                 body: "Select a verse and press 1–6 to mark it in a colour, or right-click it and pick one. \
                        0 clears it.",
-                primary: Some("Open John 1"),
-                ghost: None,
+                buttons: &[Button::new(Kind::Primary, "Open John 1")],
                 hints: &[(&["1–6"], "Highlight the selected verse")],
                 width: 360.0,
             };
