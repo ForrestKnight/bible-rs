@@ -185,6 +185,12 @@ The interface follows the high-fidelity designs in the Paper file "Bible" (Scree
   200 pt field that filters the page. Rows show the real data: sizes are each text's decoded
   size from its file header, descriptions and years of the bundled texts are a small table in
   `bundled.rs`.
+- **The reader's top stays at the reader screens' 40 pt.** Frames 01–03 pad the page 40 pt above
+  the chapter heading; the later Flows frames (22, 23, 32, 34) draw the same reader with 24. The
+  reader keeps 40 so the reader screens match, and those frames sit 16 pt lower than drawn.
+- **A search that finds nothing suggests a spelling that does.** Each query word is compared
+  with the translation's vocabulary (edit distance up to 1–3 by length); one word is swapped at
+  a time and the nearest relative to the word's length that finds verses wins.
 - Static Inter 500/600 instances (made with fonttools from the variable font) keep semibold UI
   text and verse numbers off egui's per-run variation path. Literata keeps its default optical
   size: at 20 pt its widths differ from opsz 20 by 0.3 %, so line breaks match the design anyway.

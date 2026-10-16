@@ -868,7 +868,7 @@ impl BibleApp {
     }
 
     /// One `BIBLE_RS_DEMO` step: `jump:<reference>`, `select:<reference>`, `palette:<query>`,
-    /// `search:<query>`, `step:<n>` (search results), `note:<reference>`, `compare:<reference>`, `study:<bookmarks|highlights|notes>`,
+    /// `search:<query>`, `scope:<ot|nt>`, `step:<n>` (search results), `note:<reference>`, `compare:<reference>`, `study:<bookmarks|highlights|notes>`,
     /// `settings:<reading|translations|data>`.
     fn demo_step(&mut self, step: &str, actions: &mut Vec<Action>) {
         let (cmd, arg) = step.split_once(':').unwrap_or((step, ""));
@@ -893,6 +893,7 @@ impl BibleApp {
                 actions.push(Action::Compare);
             }
             "study" => self.sidebar.open_study(arg),
+            "scope" => self.sidebar.set_scope(arg),
             // `menu:<reference>@x,y`: select the verse and open its menu there.
             "menu" => {
                 let (r, at) = arg.split_once('@').unwrap_or((arg, "600,352"));

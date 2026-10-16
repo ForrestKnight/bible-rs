@@ -329,6 +329,88 @@ fn fold_char(c: char, out: &mut String) {
     out.push_str(folded);
 }
 
+/// A spelling suggestion for a search that found nothing: the query with one word replaced by a
+/// near word of the translation's own text, the one that then finds verses (fewest edits first,
+/// then the commonest word). Returns the suggested query, how many verses it finds, and the first.
+pub fn suggest(
+    t: &Translation,
+    input: &str,
+    scope: Scope,
+    whole_words: bool,
+) -> Option<(String, usize, u32)> {
+    let words: Vec<&str> = input.split_whitespace().collect();
+    if words.is_empty()
+        || input.contains('"')
+        || input.contains('“')
+        || words.iter().any(|w| w.starts_with('-'))
+    {
+        return None;
+    }
+    let index = t.search_index();
+    // The vocabulary with counts.
+    let mut vocab: std::collections::HashMap<&[u8], u32> = std::collections::HashMap::new();
+    for w in index.corpus.split(|b| *b == b' ').filter(|w| !w.is_empty()) {
+        *vocab.entry(w).or_default() += 1;
+    }
+    // Ranked by distance relative to the word's length (three letters off in "bethsaida" is a
+    // nearer slip than two in "pool"), then by how common the word is.
+    let mut best: Option<(usize, u32, String, usize, u32)> = None;
+    for (i, w) in words.iter().enumerate() {
+        let mut norm = Vec::new();
+        normalize_into(w, &mut norm);
+        let norm: Vec<u8> = norm.into_iter().filter(|b| *b != b' ').collect();
+        let max = match norm.len() {
+            0..=3 => 1,
+            4..=6 => 2,
+            _ => 3,
+        };
+        let mut near: Vec<(usize, u32, &[u8])> = vocab
+            .iter()
+            .filter(|(v, _)| v.len().abs_diff(norm.len()) <= max && **v != norm.as_slice())
+            .filter_map(|(v, n)| {
+                let d = edit_distance(&norm, v, max)?;
+                Some((d * 1000 / norm.len().max(1), *n, *v))
+            })
+            .collect();
+        near.sort_by_key(|(d, n, _)| (*d, std::cmp::Reverse(*n)));
+        for (d, n, v) in near.into_iter().take(24) {
+            let replacement = String::from_utf8_lossy(v).into_owned();
+            let mut q: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+            q[i] = replacement;
+            let q = q.join(" ");
+            let hits = index.search(t, &Query::parse(&q, whole_words), scope);
+            if let Some(first) = hits.first()
+                && best
+                    .as_ref()
+                    .is_none_or(|(bd, bn, ..)| (d, std::cmp::Reverse(n)) < (*bd, std::cmp::Reverse(*bn)))
+            {
+                best = Some((d, n, q, hits.len(), *first));
+            }
+        }
+    }
+    best.map(|(_, _, q, n, first)| (q, n, first))
+}
+
+/// Levenshtein distance, or `None` when it exceeds `max`.
+fn edit_distance(a: &[u8], b: &[u8], max: usize) -> Option<usize> {
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0; b.len() + 1];
+    for i in 1..=a.len() {
+        cur[0] = i;
+        let mut row_min = cur[0];
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+            row_min = row_min.min(cur[j]);
+        }
+        if row_min > max {
+            return None;
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    (prev[b.len()] <= max).then_some(prev[b.len()])
+}
+
 /// Convenience wrapper that times a search.
 pub struct SearchOutcome {
     pub verses: Vec<u32>,
@@ -345,6 +427,24 @@ pub fn run(t: &Translation, input: &str, scope: Scope, whole_words: bool) -> Sea
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn suggests_a_near_word_that_finds_verses() {
+        let mut b = TranslationBuilder::new(TranslationMeta::default());
+        b.begin_book(crate::books::BookId(42));
+        b.begin_chapter(5);
+        b.begin_verse(2, 2);
+        b.text("Now there is at Jerusalem by the sheep market a pool, which is called Bethesda.");
+        b.begin_chapter(9);
+        b.begin_verse(1, 1);
+        b.text("And they took him to Bethsaida.");
+        let t = b.finish();
+        assert!(run(&t, "bethsaida pool", Scope::All, true).verses.is_empty());
+        let (q, n, _) = suggest(&t, "bethsaida pool", Scope::All, true).unwrap();
+        assert_eq!((q.as_str(), n), ("bethesda pool", 1));
+        assert_eq!(edit_distance(b"kitten", b"sitting", 3), Some(3));
+        assert_eq!(edit_distance(b"kitten", b"sitting", 2), None);
+    }
 
     #[test]
     fn phrases_end_in_a_prefix_unless_whole_words() {

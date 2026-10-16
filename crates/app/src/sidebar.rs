@@ -101,6 +101,8 @@ pub struct Sidebar {
     revealed: Option<BookId>,
     /// Chapters with highlights or notes, keyed by the study store's generation.
     activity: (u64, HashSet<ChapterIdx>),
+    /// For a search that found nothing: a spelling that finds verses (query, count, first verse).
+    suggestion: Option<(String, usize, u32)>,
 }
 
 impl Sidebar {
@@ -132,6 +134,7 @@ impl Sidebar {
             scroll_to_selected: false,
             revealed: None,
             activity: (0, HashSet::new()),
+            suggestion: None,
         }
     }
 
@@ -149,6 +152,15 @@ impl Sidebar {
 
     /// Expands a study collection by name (`bookmarks`, `highlights`, `notes`), or starts
     /// filtering books (`filter`).
+    /// Narrows the search to a testament (`ot`, `nt`) or the whole Bible.
+    pub fn set_scope(&mut self, name: &str) {
+        self.scope = match name {
+            "ot" => Scope::OldTestament,
+            "nt" => Scope::NewTestament,
+            _ => Scope::All,
+        };
+    }
+
     pub fn open_study(&mut self, name: &str) {
         let kind = match name {
             "bookmarks" => StudyKind::Bookmarks,
@@ -602,6 +614,114 @@ impl Sidebar {
         }
     }
 
+    /// A search that found nothing (frame 32): why, ways to widen it, and a spelling that finds
+    /// something.
+    fn no_results(&mut self, ui: &mut Ui, p: &Palette, t: &bible_core::Translation, whole_words: &mut bool) {
+        let width = ui.available_width();
+        let cx = ui.max_rect().center().x;
+        let filtered = self.scope != Scope::All || *whole_words;
+        let several = self.query.split_whitespace().count() > 1;
+        let body = if several {
+            "Every word has to appear in the same verse.\nTry fewer words or search the whole Bible."
+        } else {
+            "Check the spelling, or try another word\nor the whole Bible."
+        };
+        let (area, _) = ui.allocate_exact_size(vec2(width, 72.0 + 340.0), Sense::hover());
+        let painter = ui.painter().clone();
+        // The empty container starts 8 under the count line (6 here) and is padded 72 at the top.
+        let mut y = area.top() + 2.0 + 72.0;
+        let c = pos2(cx, y + 28.0);
+        painter.circle_filled(c, 28.0, p.fill);
+        crate::icons::search(&painter, Rect::from_center_size(c, vec2(28.0, 28.0)), p.ink_3);
+        y += 56.0 + 12.0;
+        let title = format!("No results for “{}”", self.query.trim());
+        let title =
+            crate::pages::elide(&painter, &title, &FontId::new(20.0, theme::family(theme::SERIF)), 300.0);
+        painter.text(
+            pos2(cx, y + 14.0),
+            Align2::CENTER_CENTER,
+            title,
+            FontId::new(20.0, theme::family(theme::SERIF)),
+            p.ink,
+        );
+        y += 28.0 + 4.0;
+        for (k, line) in body.lines().enumerate() {
+            painter.text(
+                pos2(cx, y + 10.0 + 20.0 * k as f32),
+                Align2::CENTER_CENTER,
+                line,
+                text::UI.font(),
+                p.ink_2,
+            );
+        }
+        y += 40.0 + 12.0 + 4.0;
+        if self.scope != Scope::All || filtered {
+            let a = widgets::Button::new(widgets::Kind::Secondary, "Search Whole Bible");
+            let b = widgets::Button::new(widgets::Kind::Ghost, "Clear filters");
+            let (wa, wb) = (a.width(&painter), if filtered { b.width(&painter) } else { 0.0 });
+            let gap = if filtered { 8.0 } else { 0.0 };
+            let x = cx - (wa + gap + wb) / 2.0;
+            if self.scope != Scope::All
+                && a.show_left(ui, p, x, y + 16.0, ui.id().with("whole-bible")).1.clicked()
+            {
+                self.scope = Scope::All;
+            }
+            if filtered
+                && b.show_left(ui, p, x + wa + gap, y + 16.0, ui.id().with("clear-filters")).1.clicked()
+            {
+                self.scope = Scope::All;
+                *whole_words = false;
+            }
+            y += 32.0;
+        }
+        // A spelling that finds verses.
+        if let Some((q, n, first)) = self.suggestion.clone() {
+            y += 20.0;
+            let suggestion = format!("“{q}”");
+            let reference = t.verse_view(first).map(|v| v.reference().to_string()).unwrap_or_default();
+            let detail = if n == 1 {
+                format!("1 verse · {reference}")
+            } else {
+                format!("{} verses · first {reference}", group(n))
+            };
+            let sw = painter
+                .layout_no_wrap(suggestion.clone(), theme::ui_semibold(13.0), Color32::PLACEHOLDER)
+                .size()
+                .x;
+            let dw =
+                painter.layout_no_wrap(detail.clone(), text::SMALL.font(), Color32::PLACEHOLDER).size().x;
+            let inner = (sw + 8.0 + dw).max(80.0);
+            let card = Rect::from_min_size(pos2(cx - inner / 2.0 - 16.0, y), vec2(inner + 32.0, 60.0));
+            let resp = ui.interact(card, ui.id().with("did-you-mean"), Sense::click());
+            painter.rect_filled(card, 12.0, if resp.hovered() { p.fill_strong } else { p.fill });
+            painter.text(
+                pos2(cx, y + 12.0 + 8.0),
+                Align2::CENTER_CENTER,
+                "Did you mean",
+                theme::ui_medium(12.0),
+                p.ink_3,
+            );
+            let x = cx - inner / 2.0;
+            painter.text(
+                pos2(x, y + 32.0 + 8.0),
+                Align2::LEFT_CENTER,
+                &suggestion,
+                theme::ui_semibold(13.0),
+                p.accent,
+            );
+            painter.text(
+                pos2(x + sw + 8.0, y + 32.0 + 8.0),
+                Align2::LEFT_CENTER,
+                detail,
+                text::SMALL.font(),
+                p.ink_3,
+            );
+            if resp.clicked() {
+                self.query = q;
+            }
+        }
+    }
+
     /// Search results (frame 06 in the design): scope, book and whole-word filters, a count, then
     /// the hits grouped by book with the matched phrase marked.
     #[allow(clippy::too_many_arguments)]
@@ -647,7 +767,8 @@ impl Sidebar {
         }
 
         let book = location.0.book();
-        egui::Frame::NONE.inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 8 }).show(
+        // The results panel's 4 pt top padding plus the controls' own 4.
+        egui::Frame::NONE.inner_margin(egui::Margin { left: 8, right: 8, top: 8, bottom: 4 }).show(
             ui,
             |ui| {
                 ui.spacing_mut().item_spacing.y = 12.0;
@@ -728,6 +849,22 @@ impl Sidebar {
                     self.selected = 0;
                     let query = Query::parse(&self.query, *whole_words);
                     self.entries = Arc::new(result_entries(ui, &t, &self.results, &query));
+                    self.suggestion = if self.results.is_empty() {
+                        bible_core::search::suggest(&t, &self.query, self.scope, *whole_words)
+                    } else {
+                        None
+                    };
+                }
+                if self.results.is_empty() {
+                    let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+                    ui.painter().text(
+                        pos2(row.left() + 4.0, row.top() + 4.0 + 8.0),
+                        Align2::LEFT_CENTER,
+                        "No verses match",
+                        theme::ui_medium(text::SMALL.size),
+                        p.ink_2,
+                    );
+                    return;
                 }
 
                 let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
@@ -777,6 +914,10 @@ impl Sidebar {
             },
         );
 
+        if self.results.is_empty() {
+            self.no_results(ui, p, &t, whole_words);
+            return;
+        }
         let query = Query::parse(&self.query, *whole_words);
         let entries = self.entries.clone();
         let total = entries.last().map_or(0.0, |e| e.y + e.height);
