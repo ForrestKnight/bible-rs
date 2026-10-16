@@ -22,6 +22,7 @@ pub mod onboarding;
 pub mod pages;
 pub mod palette;
 pub mod panel;
+pub mod probe;
 pub mod reader;
 pub mod reading;
 pub mod settings_ui;
@@ -50,11 +51,12 @@ pub fn offscreen() -> bool {
     std::env::var_os("BIBLE_RS_OFFSCREEN").is_some()
 }
 
-/// The startup and scroll probes (`scripts/bench-startup.sh`) measure the reader, so they skip
-/// the first-launch screens.
+/// The startup, scroll and sidebar probes (`scripts/bench-startup.sh`, `scripts/bench-sidebar.sh`)
+/// measure the reader, so they skip the first-launch screens.
 pub fn probing() -> bool {
     std::env::var_os("BIBLE_RS_STARTUP_PROBE").is_some()
         || std::env::var_os("BIBLE_RS_SCROLL_PROBE").is_some()
+        || std::env::var_os("BIBLE_RS_SIDEBAR_PROBE").is_some()
 }
 
 /// `BIBLE_RS_TRACE_STARTUP=1` prints the time of each startup phase to stderr.

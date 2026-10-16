@@ -240,6 +240,7 @@ pub struct BibleApp {
     saved: (String, f64),
     warmed: bool,
     scroll_probe: Option<ScrollProbe>,
+    sidebar_probe: Option<crate::probe::SidebarProbe>,
     reading: crate::reading::Tracker,
     verse_menu: Option<crate::verse_menu::VerseMenu>,
     note_popover: Option<NotePopover>,
@@ -365,6 +366,7 @@ impl BibleApp {
                 start_chapter: chapter,
                 started: None,
             }),
+            sidebar_probe: crate::probe::SidebarProbe::from_env(),
             reading: Default::default(),
             verse_menu: None,
             note_popover: None,
@@ -888,8 +890,9 @@ impl BibleApp {
 
     /// One `BIBLE_RS_DEMO` step: `jump:<reference>`, `select:<reference>`, `palette:<query>`,
     /// `search:<query>`, `scope:<ot|nt>`, `step:<n>` (search results), `offline:<reference>`, `note:<reference>`, `compare:<reference>`, `study:<bookmarks|highlights|notes>`,
-    /// `settings:<reading|translations|data>`, `plans-tab:<active|browse|completed>`.
-    fn demo_step(&mut self, step: &str, actions: &mut Vec<Action>) {
+    /// `settings:<reading|translations|data>`, `plans-tab:<active|browse|completed>`,
+    /// `size:<width>x<height>` (the window's inner size).
+    fn demo_step(&mut self, ctx: &egui::Context, step: &str, actions: &mut Vec<Action>) {
         let (cmd, arg) = step.split_once(':').unwrap_or((step, ""));
         let verse = || bible_core::reference::parse(arg).map(|r| r.verse_ref());
         match cmd {
@@ -938,6 +941,13 @@ impl BibleApp {
                 self.verse_menu = Some(crate::verse_menu::VerseMenu::new(pos).with_first_highlighted());
             }
             "share" => actions.push(Action::ShareImage),
+            "size" => {
+                if let Some((w, h)) = arg.split_once('x')
+                    && let (Ok(w), Ok(h)) = (w.parse::<f32>(), h.parse::<f32>())
+                {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(w, h)));
+                }
+            }
             "focus" => actions.push(Action::ToggleFocus),
             "reveal" => self.focus_reveal = true,
             "shortcuts" => self.shortcuts_open = true,
@@ -2013,6 +2023,13 @@ impl BibleApp {
                 self.scroll_probe = None;
             }
         }
+        if let Some(probe) = &mut self.sidebar_probe
+            && let Some(report) = probe.end(frame_start, self.reader.layouts)
+        {
+            println!("{report}");
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            self.sidebar_probe = None;
+        }
     }
 }
 
@@ -2037,6 +2054,11 @@ impl eframe::App for BibleApp {
         }
         self.poll_tasks(&ctx);
         let mut actions = Vec::new();
+        if let Some(probe) = &mut self.sidebar_probe
+            && probe.begin(&ctx, frame_start)
+        {
+            actions.push(Action::ToggleSidebar);
+        }
         if self.onboarding.is_none() {
             self.shortcuts(&ctx, &mut actions);
         }
@@ -2053,7 +2075,7 @@ impl eframe::App for BibleApp {
             && focused
             && let Some(step) = self.demo.pop_front()
         {
-            self.demo_step(&step, &mut actions);
+            self.demo_step(&ctx, &step, &mut actions);
             ctx.request_repaint();
         }
         if self.settings.theme_system {

@@ -85,6 +85,8 @@ pub struct Reader {
     /// Where the selection is on screen this frame (its line bands, together), for popovers.
     pub selection_rect: Option<Rect>,
     frames: u64,
+    /// Chapters typeset so far (`BIBLE_RS_SIDEBAR_PROBE` counts them per transition).
+    pub layouts: u64,
 }
 
 impl Reader {
@@ -112,6 +114,7 @@ impl Reader {
             marker_rect: None,
             selection_rect: None,
             frames: 0,
+            layouts: 0,
         };
         if verse > 1 {
             r.pending_jump = Some((chapter, verse, false));
@@ -276,6 +279,7 @@ impl Reader {
             })
             .collect();
         let t_layout = std::time::Instant::now();
+        self.layouts += 1;
         let layout = ui.ctx().fonts_mut(|fonts| {
             let mut layout = if chapters.len() == 1 {
                 match &chapters[0].1 {
