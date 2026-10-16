@@ -523,7 +523,8 @@ impl DiskCache {
     }
 }
 
-/// Requests a provider allows per day (UTC), counted across sessions in a small file.
+/// Requests a provider allows per day (UTC), counted across sessions in a small file that every
+/// app instance using the same data folder shares.
 pub struct DailyBudget {
     path: Option<PathBuf>,
     /// (day number, requests made that day)
@@ -532,14 +533,7 @@ pub struct DailyBudget {
 
 impl DailyBudget {
     pub fn new(path: Option<PathBuf>) -> Self {
-        let saved = path
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| {
-                let (day, n) = s.trim().split_once(' ')?;
-                Some((day.parse().ok()?, n.parse().ok()?))
-            })
-            .unwrap_or((0, 0));
+        let saved = path.as_deref().and_then(read_count).unwrap_or((0, 0));
         Self { path, state: Mutex::new(saved) }
     }
 
@@ -558,6 +552,24 @@ impl DailyBudget {
     pub fn spend(&self, limit: u32, what: &str) -> Result<()> {
         let mut s = self.state.lock().unwrap();
         let today = Self::today();
+        let saving = |e: std::io::Error, p: &Path| {
+            anyhow::Error::new(e)
+                .context(format!("{what}: couldn't save today's request count to {}", p.display()))
+        };
+        // Another instance may be counting too: hold the file's lock while reading and updating
+        // it, and start from its count, which includes theirs.
+        let _lock = match &self.path {
+            Some(p) => {
+                let lock = std::fs::File::create(p.with_extension("lock"))
+                    .and_then(|f| f.lock().map(|()| f))
+                    .map_err(|e| saving(e, p))?;
+                if let Some(saved) = read_count(p).filter(|(day, _)| *day == today) {
+                    *s = saved;
+                }
+                Some(lock)
+            }
+            None => None,
+        };
         if s.0 != today {
             *s = (today, 0);
         }
@@ -568,14 +580,21 @@ impl DailyBudget {
         }
         if let Some(p) = &self.path {
             // Written whole, then moved into place, so a crash never leaves half a count.
-            let tmp = p.with_extension("tmp");
+            let tmp = p.with_extension(format!("tmp-{}", std::process::id()));
             std::fs::write(&tmp, format!("{} {}", s.0, s.1 + 1))
                 .and_then(|()| std::fs::rename(&tmp, p))
-                .with_context(|| format!("{what}: couldn't save today's request count to {}", p.display()))?;
+                .map_err(|e| saving(e, p))?;
         }
         s.1 += 1;
         Ok(())
     }
+}
+
+/// A saved count: "<day> <requests>".
+fn read_count(p: &Path) -> Option<(i64, u32)> {
+    let s = std::fs::read_to_string(p).ok()?;
+    let (day, n) = s.trim().split_once(' ')?;
+    Some((day.parse().ok()?, n.parse().ok()?))
 }
 
 /// Reads a response body as text, turning HTTP errors into readable messages.
@@ -710,6 +729,22 @@ pub(crate) mod tests {
         // Yesterday's count doesn't carry over.
         std::fs::write(&path, format!("{} 999", DailyBudget::today() - 1)).unwrap();
         assert_eq!(DailyBudget::new(Some(path)).used(), 0);
+        // Instances sharing the file count each other's requests, even all at once.
+        let shared = dir.join("shared");
+        let (a, b) = (DailyBudget::new(Some(shared.clone())), DailyBudget::new(Some(shared.clone())));
+        a.spend(3, "X").unwrap();
+        b.spend(3, "X").unwrap();
+        a.spend(3, "X").unwrap();
+        assert!(b.spend(3, "X").is_err(), "b sees a's two requests");
+        std::fs::remove_file(&shared).unwrap();
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let shared = shared.clone();
+                std::thread::spawn(move || DailyBudget::new(Some(shared)).spend(100, "X"))
+            })
+            .collect();
+        assert!(threads.into_iter().all(|t| t.join().unwrap().is_ok()));
+        assert_eq!(DailyBudget::new(Some(shared)).used(), 8);
         // A count that can't be saved allows no request (here the file's place is a folder).
         let blocked = dir.join("blocked");
         std::fs::create_dir_all(&blocked).unwrap();
