@@ -158,3 +158,62 @@ fn optical_top_sits_a_little_above_the_middle() {
     // Never above the floor (the page header).
     assert_eq!(optical_top(area, 700.0, 154.0), 154.0);
 }
+
+/// In a 620 × 420 window with the sidebar open the empty Notes page is taller than the window;
+/// it scrolls like the other pages, so its last hint row can be brought into view.
+#[test]
+fn the_empty_notes_page_scrolls_to_its_last_row_in_a_short_window() {
+    use bible_rs::pages::{Page, PageEnv, Pages};
+    let dir = std::env::temp_dir().join(format!("bible-rs-empty-notes-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let library = bible_core::library::Library::open(&dir, std::sync::Arc::new(|| {}));
+    let study = bible_core::study::StudyStore::open_in_memory().unwrap();
+    let settings = bible_rs::app::Settings::default();
+    let env = PageEnv { library: &library, study: &study, settings: &settings, query: "", toolbar: 52.0 };
+    let mut pages = Pages::default();
+    pages.open(Page::Notes);
+    let window = Rect::from_min_size(Pos2::ZERO, vec2(620.0, 420.0));
+    let main = Rect::from_min_max(egui::pos2(264.0, 0.0), window.max);
+
+    let ctx = egui::Context::default();
+    ctx.set_fonts(theme::font_definitions());
+    ctx.all_styles_mut(|s| s.scroll_animation = egui::style::ScrollAnimation::none());
+    let mut time = 0.0;
+    // Runs a frame; returns the bottom of the last hint's text.
+    let mut frame = |events: Vec<egui::Event>| {
+        time += 0.1;
+        let input =
+            egui::RawInput { screen_rect: Some(window), time: Some(time), events, ..Default::default() };
+        let mut out = ctx.run_ui(input, |ui| pages.show(ui, main, &env, &mut Vec::new()));
+        out.textures_delta.clear();
+        out.shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                Shape::Text(t) if t.galley.job.text == "Export as Markdown" => {
+                    Some(t.galley.rect.translate(t.pos.to_vec2()).bottom())
+                }
+                _ => None,
+            })
+            .expect("the hint is painted")
+    };
+    frame(Vec::new());
+    let before = frame(Vec::new());
+    assert!(before > window.bottom(), "expected the last hint below the window, at {before}");
+    let wheel = |dy: f32| {
+        vec![
+            egui::Event::PointerMoved(main.center()),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, dy),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ]
+    };
+    for _ in 0..5 {
+        frame(wheel(-200.0));
+    }
+    let after = frame(Vec::new());
+    assert!(after <= window.bottom(), "the last hint should scroll into view, still at {after}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

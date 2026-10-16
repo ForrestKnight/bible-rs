@@ -118,33 +118,43 @@ pub fn mentioned(text: &str) -> Vec<VerseRef> {
 }
 
 impl State {
+    /// No notes and none being written: the page is its empty state, which scrolls like the
+    /// other pages rather than splitting into panes.
+    pub fn is_empty(&self, env: &PageEnv<'_>) -> bool {
+        self.editor.is_none() && env.study.notes().is_empty()
+    }
+
+    /// The empty page under the header; returns its bottom.
+    pub fn show_empty(
+        &mut self,
+        ui: &mut Ui,
+        content: Rect,
+        env: &PageEnv<'_>,
+        actions: &mut Vec<Action>,
+    ) -> f32 {
+        let p = env.settings.theme.palette();
+        super::title(ui.painter(), p, content.left(), content.top(), "Notes", "Nothing written yet");
+        let empty = Empty {
+            glyph: icons::note,
+            tone: Tone::Accent,
+            title: "Your notes will live here",
+            body: "Select a verse and press N, or right-click it and choose Add Note. Notes stay on this \
+                       Mac and export to Markdown.",
+            buttons: &[
+                Button::new(Kind::Primary, "Open John 1"),
+                Button::new(Kind::Ghost, "Import a backup"),
+            ],
+            hints: &[(&["N"], "New note on the selected verse"), (&["⌘", "E"], "Export as Markdown")],
+            width: 344.0,
+        };
+        super::bookmarks::empty_page(ui, p, content, &empty, actions)
+    }
+
     /// Draws the page over the main area `area` (list and editor side by side, each scrolling).
     pub fn show(&mut self, ui: &mut Ui, area: Rect, env: &PageEnv<'_>, actions: &mut Vec<Action>) {
         let p = env.settings.theme.palette();
         let t = super::reading_text(env);
         let notes = env.study.notes();
-        if notes.is_empty() && self.editor.is_none() {
-            let content = Rect::from_min_max(
-                pos2(area.left() + super::SIDE, area.top() + env.toolbar + super::TOP),
-                pos2(area.right() - super::SIDE, area.bottom()),
-            );
-            super::title(ui.painter(), p, content.left(), content.top(), "Notes", "Nothing written yet");
-            let empty = Empty {
-                glyph: icons::note,
-                tone: Tone::Accent,
-                title: "Your notes will live here",
-                body: "Select a verse and press N, or right-click it and choose Add Note. Notes stay on this \
-                       Mac and export to Markdown.",
-                buttons: &[
-                    Button::new(Kind::Primary, "Open John 1"),
-                    Button::new(Kind::Ghost, "Import a backup"),
-                ],
-                hints: &[(&["N"], "New note on the selected verse"), (&["⌘", "E"], "Export as Markdown")],
-                width: 344.0,
-            };
-            super::bookmarks::empty_page(ui, p, content, &empty, actions);
-            return;
-        }
 
         // Keep the editor on the selected note (the newest when none is).
         let selected = self.selected.or_else(|| {

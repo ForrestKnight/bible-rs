@@ -17,7 +17,7 @@ use bible_core::study::StudyStore;
 use crate::actions::Action;
 use crate::app::Settings;
 use crate::theme::{self, Palette};
-use crate::widgets::{css_baseline, line, paint_on_baseline};
+use crate::widgets::{css_baseline, galley_baseline, line, paint_on_baseline};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Page {
@@ -104,7 +104,7 @@ impl Pages {
         ui.painter().rect_filled(rect, 0.0, p.paper);
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
         child.set_clip_rect(rect);
-        if self.page.has_panes() {
+        if self.page.has_panes() && !self.notes.is_empty(env) {
             self.notes.show(&mut child, rect, env, actions);
             self.scrolled = false;
             return;
@@ -122,7 +122,8 @@ impl Pages {
                     Page::Highlights => self.highlights.show(ui, content, env, actions),
                     Page::History => self.history.show(ui, content, env, actions),
                     Page::Plans => self.plans.show(ui, content, env, actions),
-                    _ => content.top(),
+                    Page::Notes => self.notes.show_empty(ui, content, env, actions),
+                    Page::Reader => content.top(),
                 };
                 ui.allocate_rect(
                     Rect::from_min_max(ui.max_rect().min, pos2(ui.max_rect().right(), bottom + 40.0)),
@@ -236,7 +237,7 @@ pub struct Empty<'a> {
 
 /// An [`Empty`] laid out for the width it has.
 struct EmptyLayout {
-    title: String,
+    title: std::sync::Arc<egui::Galley>,
     body: std::sync::Arc<egui::Galley>,
     /// Each hint's width, and the hints on each row with the row's width.
     hint_widths: Vec<f32>,
@@ -256,17 +257,17 @@ impl Empty<'_> {
     }
 
     fn layout(&self, painter: &Painter, room: f32) -> EmptyLayout {
-        let title_font = FontId::new(20.0, theme::family(theme::SERIF));
-        let title = elide(painter, self.title, &title_font, room);
-        let mut job = egui::text::LayoutJob::simple(
-            self.body.into(),
-            theme::ui_font(13.0),
-            Color32::PLACEHOLDER,
-            self.width.min(room).max(1.0),
-        );
-        job.halign = egui::Align::Center;
-        job.sections[0].format.line_height = Some(20.0);
-        let body = painter.layout_job(job);
+        // Lines centred on the galley's x = 0; the title wraps to two lines at most.
+        let centred = |text: &str, font: FontId, line_height: f32, width: f32, max_rows: usize| {
+            let mut job =
+                egui::text::LayoutJob::simple(text.into(), font, Color32::PLACEHOLDER, width.max(1.0));
+            job.halign = egui::Align::Center;
+            job.sections[0].format.line_height = Some(line_height);
+            job.wrap.max_rows = max_rows;
+            painter.layout_job(job)
+        };
+        let title = centred(self.title, FontId::new(20.0, theme::family(theme::SERIF)), 28.0, room, 2);
+        let body = centred(self.body, theme::ui_font(13.0), 20.0, self.width.min(room), usize::MAX);
         let hint_widths: Vec<f32> = self
             .hints
             .iter()
@@ -296,7 +297,7 @@ impl Empty<'_> {
         } else {
             24.0 + hint_rows.len() as f32 * (HINT_ROW + HINT_ROW_GAP) - HINT_ROW_GAP
         };
-        let height = 56.0 + 12.0 + 28.0 + 4.0 + body.size().y + buttons + hints;
+        let height = 56.0 + 12.0 + title.size().y + 4.0 + body.size().y + buttons + hints;
         EmptyLayout { title, body, hint_widths, hint_rows, height }
     }
 
@@ -318,12 +319,11 @@ impl Empty<'_> {
         } else {
             (self.glyph)(&painter, glyph, ink);
         }
-        let mut y = top + 56.0 + 12.0;
-        let g = line(&painter, &l.title, FontId::new(20.0, theme::family(theme::SERIF)), p.ink, 0.0);
-        let gx = cx - g.size().x / 2.0;
-        paint_on_baseline(&painter, gx, css_baseline(y, 28.0, 20.0, true), g, p.ink);
-        y += 28.0 + 4.0;
         // A centred galley's lines are centred on its own x = 0, not on the middle of its measure.
+        let mut y = top + 56.0 + 12.0;
+        let first_baseline = css_baseline(y, 28.0, 20.0, true) - galley_baseline(&l.title);
+        y += l.title.size().y + 4.0;
+        painter.galley(pos2(cx - l.title.rect.center().x, first_baseline), l.title, p.ink);
         let h = l.body.size().y;
         painter.galley(pos2(cx - l.body.rect.center().x, y), l.body, p.ink_2);
         y += h;
@@ -362,6 +362,12 @@ impl Empty<'_> {
         }
         responses
     }
+}
+
+/// A page's visible height under the toolbar, in the page's scrolling coordinates (so a block
+/// placed in it scrolls with the page). `content` is the page's content rectangle.
+pub fn under_toolbar(ui: &Ui, content: Rect) -> egui::Rangef {
+    egui::Rangef::new(content.top() - TOP, ui.max_rect().bottom())
 }
 
 /// The top of a block `h` tall, optically centred in `area`. It sits a little above the middle,

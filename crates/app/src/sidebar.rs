@@ -617,7 +617,6 @@ impl Sidebar {
     /// A search that found nothing (frame 32): why, ways to widen it, and a spelling that finds
     /// something, optically centred in the panel under the count line.
     fn no_results(&mut self, ui: &mut Ui, p: &Palette, t: &bible_core::Translation, whole_words: &mut bool) {
-        let cx = ui.max_rect().center().x;
         let filtered = self.scope != Scope::All || *whole_words;
         let several = self.query.split_whitespace().count() > 1;
         let body = if several {
@@ -643,68 +642,77 @@ impl Sidebar {
             hints: &[],
             width: 320.0,
         };
-        let painter = ui.painter().clone();
-        let (area, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
-        let room = area.width();
-        let state_h = empty.height(&painter, room);
-        let h = state_h + if self.suggestion.is_some() { 20.0 + 60.0 } else { 0.0 };
-        let top = crate::pages::optical_top(area.y_range(), h, area.top() + 24.0);
-        let responses = empty.show(ui, p, cx, top, room);
-        let mut responses = responses.iter();
-        if scoped && responses.next().is_some_and(|r| r.clicked()) {
-            self.scope = Scope::All;
-        }
-        if filtered && responses.next().is_some_and(|r| r.clicked()) {
-            self.scope = Scope::All;
-            *whole_words = false;
-        }
-        let mut y = top + state_h;
-        // A spelling that finds verses.
-        if let Some((q, n, first)) = self.suggestion.clone() {
-            y += 20.0;
-            let suggestion = format!("“{q}”");
-            let reference = t.verse_view(first).map(|v| v.reference().to_string()).unwrap_or_default();
-            let detail = if n == 1 {
-                format!("1 verse · {reference}")
-            } else {
-                format!("{} verses · first {reference}", group(n))
-            };
-            let sw = painter
-                .layout_no_wrap(suggestion.clone(), theme::ui_semibold(13.0), Color32::PLACEHOLDER)
-                .size()
-                .x;
-            let dw =
-                painter.layout_no_wrap(detail.clone(), text::SMALL.font(), Color32::PLACEHOLDER).size().x;
-            let inner = (sw + 8.0 + dw).max(80.0);
-            let card = Rect::from_min_size(pos2(cx - inner / 2.0 - 16.0, y), vec2(inner + 32.0, 60.0));
-            let resp = ui.interact(card, ui.id().with("did-you-mean"), Sense::click());
-            painter.rect_filled(card, 12.0, if resp.hovered() { p.fill_strong } else { p.fill });
-            painter.text(
-                pos2(cx, y + 12.0 + 8.0),
-                Align2::CENTER_CENTER,
-                "Did you mean",
-                theme::ui_medium(12.0),
-                p.ink_3,
-            );
-            let x = cx - inner / 2.0;
-            painter.text(
-                pos2(x, y + 32.0 + 8.0),
-                Align2::LEFT_CENTER,
-                &suggestion,
-                theme::ui_semibold(13.0),
-                p.accent,
-            );
-            painter.text(
-                pos2(x + sw + 8.0, y + 32.0 + 8.0),
-                Align2::LEFT_CENTER,
-                detail,
-                text::SMALL.font(),
-                p.ink_3,
-            );
-            if resp.clicked() {
-                self.query = q;
+        // It scrolls when the panel is too short for it.
+        ScrollArea::vertical().id_salt("no-results").auto_shrink(false).show(ui, |ui| {
+            // The viewport, in the panel's scrolling coordinates.
+            let area = ui.max_rect();
+            let cx = area.center().x;
+            let painter = ui.painter().clone();
+            let room = area.width();
+            let state_h = empty.height(&painter, room);
+            let h = state_h + if self.suggestion.is_some() { 20.0 + 60.0 } else { 0.0 };
+            let top = crate::pages::optical_top(area.y_range(), h, area.top() + 24.0);
+            let responses = empty.show(ui, p, cx, top, room);
+            let mut responses = responses.iter();
+            if scoped && responses.next().is_some_and(|r| r.clicked()) {
+                self.scope = Scope::All;
             }
-        }
+            if filtered && responses.next().is_some_and(|r| r.clicked()) {
+                self.scope = Scope::All;
+                *whole_words = false;
+            }
+            let mut y = top + state_h;
+            // A spelling that finds verses.
+            if let Some((q, n, first)) = self.suggestion.clone() {
+                y += 20.0;
+                let suggestion = format!("“{q}”");
+                let reference = t.verse_view(first).map(|v| v.reference().to_string()).unwrap_or_default();
+                let detail = if n == 1 {
+                    format!("1 verse · {reference}")
+                } else {
+                    format!("{} verses · first {reference}", group(n))
+                };
+                let sw = painter
+                    .layout_no_wrap(suggestion.clone(), theme::ui_semibold(13.0), Color32::PLACEHOLDER)
+                    .size()
+                    .x;
+                let dw =
+                    painter.layout_no_wrap(detail.clone(), text::SMALL.font(), Color32::PLACEHOLDER).size().x;
+                let inner = (sw + 8.0 + dw).max(80.0);
+                let card = Rect::from_min_size(pos2(cx - inner / 2.0 - 16.0, y), vec2(inner + 32.0, 60.0));
+                let resp = ui.interact(card, ui.id().with("did-you-mean"), Sense::click());
+                painter.rect_filled(card, 12.0, if resp.hovered() { p.fill_strong } else { p.fill });
+                painter.text(
+                    pos2(cx, y + 12.0 + 8.0),
+                    Align2::CENTER_CENTER,
+                    "Did you mean",
+                    theme::ui_medium(12.0),
+                    p.ink_3,
+                );
+                let x = cx - inner / 2.0;
+                painter.text(
+                    pos2(x, y + 32.0 + 8.0),
+                    Align2::LEFT_CENTER,
+                    &suggestion,
+                    theme::ui_semibold(13.0),
+                    p.accent,
+                );
+                painter.text(
+                    pos2(x + sw + 8.0, y + 32.0 + 8.0),
+                    Align2::LEFT_CENTER,
+                    detail,
+                    text::SMALL.font(),
+                    p.ink_3,
+                );
+                if resp.clicked() {
+                    self.query = q;
+                }
+            }
+            ui.allocate_rect(
+                Rect::from_min_max(area.min, pos2(area.right(), top + h + 16.0)),
+                Sense::hover(),
+            );
+        });
     }
 
     /// Search results (frame 06 in the design): scope, book and whole-word filters, a count, then

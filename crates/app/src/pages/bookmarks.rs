@@ -1,7 +1,7 @@
 //! Study › Bookmarks (frame 17): every bookmarked verse in full, grouped by book (or newest
 //! first), with go-to and remove on hover.
 
-use eframe::egui::{self, FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
+use eframe::egui::{FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
 
 use bible_core::VerseRef;
 
@@ -166,8 +166,7 @@ pub(super) fn empty_page(
 ) -> f32 {
     let room = content.width();
     let h = empty.height(ui.painter(), room);
-    let area = egui::Rangef::new(content.top() - super::TOP, ui.clip_rect().bottom());
-    let top = super::optical_top(area, h, content.top() + 58.0 + 20.0);
+    let top = super::optical_top(super::under_toolbar(ui, content), h, content.top() + 58.0 + 20.0);
     let buttons = empty.show(ui, p, content.center().x, top, room);
     if buttons.first().is_some_and(|r| r.clicked()) {
         let john = bible_core::ChapterIdx::new(bible_core::BookId(42), 1).expect("John 1");

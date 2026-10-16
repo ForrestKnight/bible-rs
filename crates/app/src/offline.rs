@@ -3,7 +3,7 @@
 //! The app adds an error toast with Retry that stays until dismissed or the chapter loads.
 
 use eframe::egui::text::LayoutJob;
-use eframe::egui::{Align, Rect, TextFormat, Ui, pos2, vec2};
+use eframe::egui::{self, Align, Rect, ScrollArea, Sense, TextFormat, Ui, pos2, vec2};
 
 use bible_core::ChapterIdx;
 use bible_core::library::Library;
@@ -67,7 +67,7 @@ fn fallback(library: &Library) -> Option<(String, String)> {
 }
 
 /// Draws the page in `area` (the reader's place under the toolbar). `retrying` while the
-/// chapter is being fetched again.
+/// chapter is being fetched again. It scrolls when the window is too short for it.
 pub fn show(
     ui: &mut Ui,
     p: &Palette,
@@ -77,6 +77,28 @@ pub fn show(
     retrying: bool,
     actions: &mut Vec<Action>,
 ) {
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
+    ScrollArea::vertical().id_salt("offline").auto_shrink(false).show(&mut child, |ui| {
+        // The viewport, in the page's scrolling coordinates.
+        let area = ui.max_rect();
+        let bottom = page(ui, p, area, library, state, retrying, actions);
+        // Room to scroll the card clear of the error toast: a 40 pt capsule 24 pt above the
+        // window's edge, and a 24 pt gap.
+        let clear = 24.0 + 40.0 + 24.0;
+        ui.allocate_rect(Rect::from_min_max(area.min, pos2(area.right(), bottom + clear)), Sense::hover());
+    });
+}
+
+/// The page's content in `area`; returns its bottom.
+fn page(
+    ui: &mut Ui,
+    p: &Palette,
+    area: Rect,
+    library: &Library,
+    state: &Offline,
+    retrying: bool,
+    actions: &mut Vec<Action>,
+) -> f32 {
     let painter = ui.painter().clone();
     let abbrev = library.get(&state.id).map_or_else(|| state.id.clone(), |e| e.meta.abbrev.clone());
     let cx = area.center().x;
@@ -132,7 +154,7 @@ pub fn show(
 
     // The chapters kept for reading offline, as many as fit on a line.
     if cached.is_empty() {
-        return;
+        return top + state_h;
     }
     let card_w = room.min(520.0);
     let card = Rect::from_min_size(pos2(cx - card_w / 2.0, y), vec2(card_w, 84.0));
@@ -173,4 +195,5 @@ pub fn show(
         }
         x += w + 4.0;
     }
+    card.bottom()
 }

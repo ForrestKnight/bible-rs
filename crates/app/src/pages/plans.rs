@@ -286,8 +286,7 @@ impl State {
                     };
                     let room = right - left;
                     let h = empty.height(&painter, room);
-                    let area = egui::Rangef::new(top - super::TOP, ui.clip_rect().bottom());
-                    let at = super::optical_top(area, h, y);
+                    let at = super::optical_top(super::under_toolbar(ui, content), h, y);
                     if empty.show(ui, p, content.center().x, at, room).first().is_some_and(|r| r.clicked()) {
                         self.tab = Tab::Browse;
                     }
