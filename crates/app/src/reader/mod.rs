@@ -59,6 +59,10 @@ pub struct Reader {
     pub anchor: Anchor,
     cache: HashMap<ChapterIdx, Cached>,
     key: u64,
+    /// The column width the cached chapters were typeset at.
+    col_w: f32,
+    /// Frames in a row that the width has been changing (`Env::resizing`).
+    resize_frames: u32,
     em: f32,
     /// Inclusive verse range.
     pub selection: Option<(VerseRef, VerseRef)>,
@@ -99,6 +103,8 @@ impl Reader {
             anchor: Anchor { chapter, offset: 0.0 },
             cache: HashMap::new(),
             key: 0,
+            col_w: 0.0,
+            resize_frames: 0,
             em: 19.0,
             selection: None,
             flash: None,
@@ -338,7 +344,21 @@ impl Reader {
         // Text runs under the toolbar, but clicks there belong to the toolbar (and the window).
         let below_toolbar = Rect::from_min_max(pos2(rect.left(), rect.top() + env.toolbar), rect.max);
         let resp = ui.interact(below_toolbar, id, Sense::click_and_drag());
-        let geom = Geometry::new(rect, env.typo, env.columns.len(), ui.pixels_per_point());
+        let layouts_before = self.layouts;
+        let mut geom = Geometry::new(rect, env.typo, env.columns.len(), ui.pixels_per_point());
+        // The first frame of a resize places the chapters as they were typeset. A slide's first
+        // frame moves the column a few points, and it gives a CPU that was idle a frame to wake
+        // up before chapters are typeset frame by frame.
+        let first_resize_frame = env.resizing && self.resize_frames == 0;
+        self.resize_frames = if env.resizing { self.resize_frames + 1 } else { 0 };
+        if first_resize_frame
+            && self.key != 0
+            && (geom.col_w - self.col_w).abs() < 2.0 * env.typo.size
+            && Self::layout_key(env, self.col_w) == self.key
+        {
+            geom =
+                Geometry::with_column(rect, env.typo, env.columns.len(), ui.pixels_per_point(), self.col_w);
+        }
         self.columns_x = (0..env.columns.len())
             .map(|i| (geom.x0 + i as f32 * (geom.col_w + geom.gutter), geom.col_w))
             .collect();
@@ -360,6 +380,7 @@ impl Reader {
             }
             self.cache.clear();
             self.key = key;
+            self.col_w = geom.col_w;
         }
         if let Some((c, verse, frac)) = self.reanchor.take() {
             let l = self.chapter_layout(ui, env, &geom, c);
@@ -638,8 +659,13 @@ impl Reader {
         // turning the page into them never has to lay out text first.
         self.frames += 1;
         // Not during the first frames: nothing should delay the first paint.
-        let idle =
-            self.frames > 2 && dy == 0.0 && self.scroll_remaining == 0.0 && !resp.dragged() && !env.resizing;
+        // Never on top of a chapter typeset this frame.
+        let idle = self.frames > 2
+            && dy == 0.0
+            && self.scroll_remaining == 0.0
+            && !resp.dragged()
+            && !env.resizing
+            && self.layouts == layouts_before;
         if idle {
             let wanted = [
                 last_visible.next(),
@@ -800,6 +826,27 @@ pub struct Geometry {
 
 impl Geometry {
     pub fn new(rect: Rect, typo: &Typography, columns: usize, pixels_per_point: f32) -> Self {
+        Self::place(rect, typo, columns, pixels_per_point, None)
+    }
+
+    /// Columns `col_w` wide, placed as they would be in `rect`.
+    pub fn with_column(
+        rect: Rect,
+        typo: &Typography,
+        columns: usize,
+        pixels_per_point: f32,
+        col_w: f32,
+    ) -> Self {
+        Self::place(rect, typo, columns, pixels_per_point, Some(col_w))
+    }
+
+    fn place(
+        rect: Rect,
+        typo: &Typography,
+        columns: usize,
+        pixels_per_point: f32,
+        col_w: Option<f32>,
+    ) -> Self {
         let px = |x: f32| x.round_to_pixels(pixels_per_point);
         let n = columns.max(1) as f32;
         if n > 1.0 {
@@ -809,7 +856,8 @@ impl Geometry {
             let (left, right, pad) = (24.0 * s, 16.0 * s, layout::PARALLEL_ROW_PAD.x);
             let gutter = (32.0 * s).round();
             let avail = (rect.width() - left - right - 2.0 * pad).max(200.0);
-            let col_w = ((avail - gutter * (n - 1.0)) / n).min(typo.size * 20.0).floor();
+            let col_w =
+                col_w.unwrap_or_else(|| ((avail - gutter * (n - 1.0)) / n).min(typo.size * 20.0).floor());
             let total_w = col_w * n + gutter * (n - 1.0);
             // Centred, but never into the left margin: continuous in the width, so the columns
             // glide rather than jump as the sidebar slides.
@@ -822,7 +870,7 @@ impl Geometry {
         let avail = (rect.width() - margin * 2.0).max(200.0);
         let gutter = if n > 1.0 { typo.size * 1.8 } else { 0.0 };
         let max_col = typo.size * if n > 1.0 { typo.measure * 0.82 } else { typo.measure };
-        let col_w = ((avail - gutter * (n - 1.0)) / n).min(max_col).floor();
+        let col_w = col_w.unwrap_or_else(|| ((avail - gutter * (n - 1.0)) / n).min(max_col).floor());
         let total_w = col_w * n + gutter * (n - 1.0);
         let x0 = px(rect.center().x - total_w / 2.0);
         Self { x0, col_w, gutter, total_w }
