@@ -18,13 +18,16 @@ on:
 permissions:
   contents: write # create the draft release
 
+# This job holds the signing certificate and the notary key, so every action is pinned to a
+# commit and no build cache is restored into it.
+
 jobs:
   macos:
     name: Universal app, DMG and zip (signed, notarized)
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Tag matches the workspace version
         run: |
@@ -51,11 +54,11 @@ jobs:
           done
           exit "$missing"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
         with:
+          toolchain: stable
           targets: aarch64-apple-darwin,x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
-      - uses: astral-sh/setup-uv@v10 # installs dmgbuild for the DMG layout
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0, for dmgbuild
 
       - name: Signing keychain
         env:
@@ -94,7 +97,7 @@ jobs:
       - name: Build, sign, notarize, staple
         run: NOTARY_KEYCHAIN="$KEYCHAIN" scripts/release-macos.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: bible-rs-${{ github.ref_name }}-macos
           path: |

@@ -63,10 +63,11 @@ SUMS="dist/bible-rs-${VERSION}-SHA256SUMS.txt"
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application: Fabrika LLC (5S3KCRYBD2)}"
 TEAM_ID="$(sed -n 's/.*(\([A-Z0-9]\{10\}\))$/\1/p' <<<"$SIGN_IDENTITY")"
 NOTARY_PROFILE="${NOTARY_PROFILE:-bible-notary}"
-TMP="$(mktemp -d)"
+TMP="$(cd "$(mktemp -d)" && pwd -P)" # /private/var/…, the path `mount` reports
 MOUNT="$TMP/dmg"
 cleanup() {
-  if mount | grep -qF " on $MOUNT "; then hdiutil detach "$MOUNT" -quiet || true; fi
+  # A failure while the DMG is attached must not leave it mounted (nor rm a read-only volume).
+  if [[ -d "$MOUNT" ]]; then hdiutil detach "$MOUNT" -quiet 2>/dev/null || true; fi
   rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -86,7 +87,9 @@ command -v xcrun >/dev/null || die "the Xcode command line tools are missing (xc
 command -v rustup >/dev/null || die "rustup is missing (https://rustup.rs)"
 
 if [[ "$ADHOC" == "0" ]]; then
-  security find-identity -v -p codesigning | grep -qF "\"$SIGN_IDENTITY\"" ||
+  # Captured first: under pipefail, `grep -q` exiting early could fail the pipeline with SIGPIPE.
+  identities="$(security find-identity -v -p codesigning)"
+  grep -qF "\"$SIGN_IDENTITY\"" <<<"$identities" ||
     die "the signing identity is not in your keychains: $SIGN_IDENTITY
        Import the Developer ID Application certificate with its private key, or set SIGN_IDENTITY."
   echo "Signing identity: $SIGN_IDENTITY"
@@ -165,7 +168,7 @@ rm -rf "$APP" "$DMG" "$LATEST_DMG" "$ZIP" "$SUMS" "dist/bible-rs-${VERSION}.dmg"
 
 step "Building the universal app"
 if [[ "$ADHOC" == "1" ]]; then
-  UNIVERSAL=1 scripts/bundle-macos.sh
+  UNIVERSAL=1 SIGN_IDENTITY='' scripts/bundle-macos.sh # ignore an exported identity
 else
   UNIVERSAL=1 SIGN_IDENTITY="$SIGN_IDENTITY" scripts/bundle-macos.sh
 fi

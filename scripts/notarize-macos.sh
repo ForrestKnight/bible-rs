@@ -19,7 +19,8 @@ if [[ -n "${NOTARY_KEYCHAIN:-}" ]]; then AUTH+=(--keychain "$NOTARY_KEYCHAIN"); 
 
 echo "Submitting $(basename "$1") to Apple's notary service (usually a few minutes)…"
 OUT="$(xcrun notarytool submit "$1" "${AUTH[@]}" --wait --timeout 45m --output-format json)" || true
-JSON="$(grep '^{' <<<"$OUT" | tail -1 || true)"
+# The JSON reply, single-line or pretty-printed: everything from its first line on.
+JSON="$(sed -n '/^{/,$p' <<<"$OUT")"
 field() { plutil -extract "$1" raw -o - - <<<"$JSON" 2>/dev/null || true; }
 STATUS="$(field status)"
 ID="$(field id)"

@@ -44,7 +44,8 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - uses: astral-sh/setup-uv@v10 # installs dmgbuild for the DMG layout
+      # setup-uv publishes exact version tags only; installs dmgbuild for the DMG layout.
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - name: Tests
         run: cargo test --workspace
       - name: Universal app, DMG and zip (ad-hoc signed; release.yml signs and notarizes)
