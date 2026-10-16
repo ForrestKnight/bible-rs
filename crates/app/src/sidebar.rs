@@ -632,7 +632,7 @@ impl Sidebar {
         let mut y = area.top() + 2.0 + 72.0;
         let c = pos2(cx, y + 28.0);
         painter.circle_filled(c, 28.0, p.fill);
-        crate::icons::search(&painter, Rect::from_center_size(c, vec2(28.0, 28.0)), p.ink_3);
+        crate::icons::search_thin(&painter, Rect::from_center_size(c, vec2(28.0, 28.0)), p.ink_3);
         y += 56.0 + 12.0;
         let title = format!("No results for “{}”", self.query.trim());
         let title =

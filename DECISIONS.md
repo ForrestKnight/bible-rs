@@ -191,6 +191,13 @@ The interface follows the high-fidelity designs in the Paper file "Bible" (Scree
 - **A search that finds nothing suggests a spelling that does.** Each query word is compared
   with the translation's vocabulary (edit distance up to 1–3 by length); one word is swapped at
   a time and the nearest relative to the word's length that finds verses wins.
+- **An online chapter that can't load gets a page, not a line.** When the reading translation is
+  online and the chapter fails, the reader's place shows why (no connection, or the provider's
+  own reason), Retry, a local translation instead (the KJV when installed) and the chapters the
+  disk cache still holds, as the design's frame 33. Its error toast stays until clicked away or
+  the chapter loads. Parallel columns keep their one-line message.
+- **Toasts are the design's inverse capsules** at the bottom centre of the main area, 4 s for
+  messages; errors stay.
 - Static Inter 500/600 instances (made with fonttools from the variable font) keep semibold UI
   text and verse numbers off egui's per-run variation path. Literata keeps its default optical
   size: at 20 pt its widths differ from opsz 20 by 0.3 %, so line breaks match the design anyway.

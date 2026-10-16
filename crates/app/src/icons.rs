@@ -117,6 +117,28 @@ impl<'a> Grid<'a> {
             .collect()
     }
 
+    /// Points along SVG's endpoint arc `A r r 0 0 sweep x y` (a circle, the small arc) from
+    /// `from` to `to`, `from` excluded.
+    fn arc_to(from: (f32, f32), to: (f32, f32), r: f32, sweep: bool) -> Vec<(f32, f32)> {
+        let (dx, dy) = ((to.0 - from.0) / 2.0, (to.1 - from.1) / 2.0);
+        let d = (dx * dx + dy * dy).sqrt();
+        let r = r.max(d);
+        let h = (r * r - d * d).max(0.0).sqrt();
+        // The centre lies on the perpendicular through the midpoint, on the side that makes the
+        // small arc turn the way `sweep` says (clockwise on screen when set).
+        let (nx, ny) = (-dy / d, dx / d);
+        let sign = if sweep { 1.0 } else { -1.0 };
+        let (cx, cy) = (from.0 + dx + sign * h * nx, from.1 + dy + sign * h * ny);
+        let a0 = (from.1 - cy).atan2(from.0 - cx);
+        let mut a1 = (to.1 - cy).atan2(to.0 - cx);
+        if sweep && a1 < a0 {
+            a1 += 2.0 * PI;
+        } else if !sweep && a1 > a0 {
+            a1 -= 2.0 * PI;
+        }
+        Self::arc(cx, cy, r, a0, a1).skip(1).collect()
+    }
+
     fn arc(cx: f32, cy: f32, r: f32, a0: f32, a1: f32) -> impl Iterator<Item = (f32, f32)> {
         let n = ((a1 - a0).abs() / 0.2).ceil().max(4.0) as usize;
         (0..=n).map(move |i| {
@@ -179,6 +201,34 @@ pub fn text_size(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(4.4, 11.5), (9.6, 11.5)]);
     g.line(&[(12.5, 15.5), (15.0, 9.25), (17.5, 15.5)]);
     g.line(&[(13.4, 13.4), (16.6, 13.4)]);
+}
+
+/// A cloud struck through: an online text that can't be reached.
+pub fn cloud_slash(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    let mut pts = vec![(6.0, 15.25), (14.25, 15.25)];
+    pts.extend(Grid::arc_to((14.25, 15.25), (14.75, 8.79), 3.25, false));
+    pts.extend(Grid::arc_to((14.75, 8.79), (5.6, 8.1), 4.75, false));
+    pts.extend(Grid::arc_to((5.6, 8.1), (6.0, 15.25), 3.6, false));
+    pts.pop();
+    g.closed(&pts);
+    g.line(&[(3.25, 3.25), (16.75, 16.75)]);
+}
+
+/// Four corner brackets pointing out (focus mode).
+pub fn expand(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.line(&[(3.25, 7.25), (3.25, 3.25), (7.25, 3.25)]);
+    g.line(&[(16.75, 7.25), (16.75, 3.25), (12.75, 3.25)]);
+    g.line(&[(3.25, 12.75), (3.25, 16.75), (7.25, 16.75)]);
+    g.line(&[(16.75, 12.75), (16.75, 16.75), (12.75, 16.75)]);
+}
+
+/// The magnifying glass in the usual 1.5-unit stroke (empty states, icon buttons).
+pub fn search_thin(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.circle(8.75, 8.75, 5.25);
+    g.line(&[(12.75, 12.75), (16.75, 16.75)]);
 }
 
 /// The magnifying glass. Drawn a little heavier (1.75 units), as the design does in fields.

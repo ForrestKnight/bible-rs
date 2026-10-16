@@ -243,7 +243,8 @@ pub const INTER_BASELINE: f32 = (1984.0 - 494.0) / 2048.0 / 2.0;
 /// egui places a baseline at the font's ascent from the top of its row, whatever the line height,
 /// and nudges it to centre the font in its family's tallest fallback. This is how far to move a
 /// galley in `format` (with an explicit line height) so its baseline matches CSS.
-fn css_shift(fonts: &mut FontsView<'_>, format: &TextFormat) -> f32 {
+/// How far down egui's text sits from where CSS would put it in a line of `format`'s height.
+pub(crate) fn css_shift(fonts: &mut FontsView<'_>, format: &TextFormat) -> f32 {
     let lh = format.line_height.unwrap_or_else(|| fonts.row_height(&format.font_id));
     let reading =
         matches!(&format.font_id.family, eframe::egui::FontFamily::Name(n) if n.starts_with("serif"));

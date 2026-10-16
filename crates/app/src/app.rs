@@ -10,7 +10,7 @@ use anyhow::Result;
 use bible_core::books::{BookId, ChapterIdx, VerseRef};
 use bible_core::library::Library;
 use bible_core::study::StudyStore;
-use eframe::egui::{self, Align2, CornerRadius, Frame, Id, Key, Margin, Modifiers, Sense, Stroke, Ui, vec2};
+use eframe::egui::{self, Align2, Frame, Id, Key, Modifiers, Sense, Stroke, Ui, vec2};
 use serde::{Deserialize, Serialize};
 
 use crate::actions::{Action, ExportKind, SettingsTab, SidebarTab};
@@ -224,6 +224,10 @@ pub struct BibleApp {
     shortcuts_open: bool,
     shortcuts_overlay: crate::shortcuts_overlay::ShortcutsOverlay,
     toasts: Vec<(String, f64)>,
+    /// The reading (online) translation can't load the chapter being read.
+    offline: Option<crate::offline::Offline>,
+    /// The main area (right of the sidebar), where toasts centre.
+    main_area: egui::Rect,
     online_gen: Arc<AtomicU64>,
     pub task_tx: Sender<TaskResult>,
     task_rx: Receiver<TaskResult>,
@@ -340,6 +344,8 @@ impl BibleApp {
             shortcuts_open: false,
             shortcuts_overlay: Default::default(),
             toasts: Vec::new(),
+            offline: None,
+            main_area: egui::Rect::NOTHING,
             online_gen,
             task_tx,
             task_rx,
@@ -868,7 +874,7 @@ impl BibleApp {
     }
 
     /// One `BIBLE_RS_DEMO` step: `jump:<reference>`, `select:<reference>`, `palette:<query>`,
-    /// `search:<query>`, `scope:<ot|nt>`, `step:<n>` (search results), `note:<reference>`, `compare:<reference>`, `study:<bookmarks|highlights|notes>`,
+    /// `search:<query>`, `scope:<ot|nt>`, `step:<n>` (search results), `offline:<reference>`, `note:<reference>`, `compare:<reference>`, `study:<bookmarks|highlights|notes>`,
     /// `settings:<reading|translations|data>`.
     fn demo_step(&mut self, step: &str, actions: &mut Vec<Action>) {
         let (cmd, arg) = step.split_once(':').unwrap_or((step, ""));
@@ -893,6 +899,17 @@ impl BibleApp {
                 actions.push(Action::Compare);
             }
             "study" => self.sidebar.open_study(arg),
+            // `offline:<reference>`: that chapter of the reading (online) translation fails to
+            // load as it would without a connection.
+            "offline" => {
+                if let (Some(r), Some(o)) = (
+                    bible_core::reference::parse(arg),
+                    self.library.get(&self.settings.translation).and_then(|e| e.online()),
+                ) {
+                    let message = format!("{}: network error: io: failed to lookup address", o.meta.abbrev);
+                    o.mark_failed(r.chapter_idx(), &message);
+                }
+            }
             "scope" => self.sidebar.set_scope(arg),
             // `menu:<reference>@x,y`: select the verse and open its menu there.
             "menu" => {
@@ -1531,35 +1548,132 @@ impl BibleApp {
         self.toolbar_items.push(r);
     }
 
+    /// Whether the reading translation is online and can't load the chapter being read: then
+    /// `Some(retrying)`, with `self.offline` saying which chapter and why.
+    fn check_offline(&mut self, cols: &[String]) -> Option<bool> {
+        let online = cols.len() == 1
+            && !self.focus
+            && self.library.get(&cols[0]).is_some_and(|e| e.online().is_some());
+        if !online {
+            self.offline = None;
+            return None;
+        }
+        let (id, c) = (&cols[0], self.reader.location.0);
+        let same = self.offline.as_ref().is_some_and(|o| o.chapter == c && o.id == *id);
+        match self.library.chapter(id, c) {
+            bible_core::library::Chapter::Failed(message) => {
+                match &mut self.offline {
+                    Some(o) if same => o.message = message,
+                    _ => {
+                        self.offline = Some(crate::offline::Offline {
+                            id: id.clone(),
+                            chapter: c,
+                            message,
+                            dismissed: false,
+                        })
+                    }
+                }
+                Some(false)
+            }
+            bible_core::library::Chapter::Pending if same => Some(true),
+            _ => {
+                self.offline = None;
+                None
+            }
+        }
+    }
+
+    /// Toasts at the bottom centre of the main area, 24 pt above the window edge: inverse
+    /// capsules 40 high (design notes §7). Messages go after 4 s; the error toast of a chapter
+    /// that can't load offers Retry and stays until clicked away or the chapter loads.
     fn toasts(&mut self, ctx: &egui::Context) {
         let now = ctx.input(|i| i.time);
-        self.toasts.retain(|(_, t)| now - t < 3.0);
+        self.toasts.retain(|(_, t)| now - t < 4.0);
         let p = self.settings.theme.palette();
-        let screen = ctx.content_rect();
-        let mut y = screen.bottom() - 18.0;
-        let mut msgs: Vec<String> = self.toasts.iter().map(|(m, _)| m.clone()).collect();
-        if let Some(b) = &self.busy {
-            msgs.push(b.clone());
+        let area = if self.main_area.is_positive() { self.main_area } else { ctx.content_rect() };
+        // Ink on paper; in the dark a warm near-white, with the light theme's danger.
+        let dark = self.settings.theme == Theme::Dark;
+        let [r, g, b, _] = if dark { [0xF2, 0xF0, 0xEB, 0xFF] } else { p.ink.to_array() };
+        let fill = egui::Color32::from_rgba_unmultiplied(r, g, b, 0xF2);
+        let ink = p.paper;
+        let [r, g, b, _] = p.paper.to_array();
+        let divider = egui::Color32::from_rgba_unmultiplied(r, g, b, 0x8C);
+        let danger = if dark { Theme::Light.palette().danger } else { Theme::Dark.palette().danger };
+
+        let mut msgs: Vec<(String, bool)> = Vec::new();
+        if let Some(o) = self.offline.as_ref().filter(|o| !o.dismissed) {
+            msgs.push((o.toast(&self.library), true));
         }
-        for (i, m) in msgs.iter().enumerate().rev() {
-            let resp = egui::Area::new(Id::new(("toast", i)))
+        msgs.extend(self.toasts.iter().map(|(m, _)| (m.clone(), false)));
+        if let Some(b) = &self.busy {
+            msgs.push((b.clone(), false));
+        }
+        let (mut retry, mut dismiss) = (false, false);
+        let mut y = area.bottom() - 24.0;
+        for (i, (m, error)) in msgs.iter().enumerate() {
+            let id = Id::new(("toast", i));
+            let resp = egui::Area::new(id)
                 .order(egui::Order::Tooltip)
-                .fixed_pos(egui::pos2(screen.right() - 18.0, y))
-                .pivot(Align2::RIGHT_BOTTOM)
-                .interactable(false)
+                .fixed_pos(egui::pos2(area.center().x, y))
+                .pivot(Align2::CENTER_BOTTOM)
+                .interactable(*error)
                 .show(ctx, |ui| {
-                    Frame::new()
-                        .fill(p.surface)
-                        .stroke(Stroke::new(1.0, p.separator))
-                        .corner_radius(CornerRadius::same(8))
-                        .inner_margin(Margin::symmetric(12, 8))
-                        .shadow(ui.visuals().popup_shadow)
-                        .show(ui, |ui| {
-                            ui.set_max_width(420.0);
-                            ui.label(egui::RichText::new(m).color(p.ink));
-                        });
+                    let painter = ui.painter().clone();
+                    let font = theme::ui_medium(13.0);
+                    let m = crate::pages::elide(&painter, m, &font, 480.0);
+                    let msg = painter.layout_no_wrap(m, font, ink);
+                    let action =
+                        error.then(|| painter.layout_no_wrap("Retry".into(), theme::ui_semibold(13.0), ink));
+                    let lead = if *error { 14.0 + 16.0 + 10.0 } else { 16.0 };
+                    let tail = action.as_ref().map_or(0.0, |a| 10.0 + 1.0 + 10.0 + a.size().x);
+                    let (rect, bg) =
+                        ui.allocate_exact_size(vec2(lead + msg.size().x + tail + 16.0, 40.0), Sense::click());
+                    painter.add(
+                        egui::epaint::RectShape::filled(
+                            rect.translate(vec2(0.0, 8.0)),
+                            20.0,
+                            egui::Color32::from_black_alpha(0x2E),
+                        )
+                        .with_blur_width(48.0),
+                    );
+                    painter.rect_filled(rect, 20.0, fill);
+                    let cy = rect.center().y;
+                    let mut x = rect.left() + lead;
+                    if *error {
+                        let icon = egui::Rect::from_center_size(
+                            egui::pos2(rect.left() + 22.0, cy),
+                            vec2(16.0, 16.0),
+                        );
+                        crate::icons::heavy(|| crate::icons::warning(&painter, icon, danger));
+                    }
+                    let w = msg.size().x;
+                    painter.galley(egui::pos2(x, cy - msg.size().y / 2.0), msg, ink);
+                    x += w;
+                    if let Some(a) = action {
+                        x += 10.0;
+                        painter.vline(x + 0.5, (cy - 8.0)..=(cy + 8.0), Stroke::new(1.0, divider));
+                        x += 1.0 + 10.0;
+                        let hit = egui::Rect::from_min_size(
+                            egui::pos2(x - 6.0, rect.top()),
+                            vec2(a.size().x + 12.0, rect.height()),
+                        );
+                        let act = ui.interact(hit, id.with("action"), Sense::click());
+                        painter.galley(egui::pos2(x, cy - a.size().y / 2.0), a, ink);
+                        if act.clicked() {
+                            retry = true;
+                        } else if bg.clicked() {
+                            dismiss = true;
+                        }
+                    }
                 });
             y -= resp.response.rect.height() + 8.0;
+        }
+        if let Some(o) = &mut self.offline {
+            if retry {
+                o.retry(&self.library);
+                ctx.request_repaint();
+            }
+            o.dismissed |= dismiss;
         }
         if !self.toasts.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(250));
@@ -1880,6 +1994,7 @@ impl eframe::App for BibleApp {
         let first = self.startup.frames == 0;
         egui::CentralPanel::default().frame(Frame::NONE.fill(p.paper)).show(ui, |ui| {
             let full = ui.max_rect();
+            self.main_area = full;
             // A page in the reader's place, under the same toolbar.
             if !self.pages.reader() {
                 let query = self.pages.query.clone();
@@ -1905,6 +2020,7 @@ impl eframe::App for BibleApp {
             let reader_rect =
                 egui::Rect::from_min_max(full.min, egui::pos2(full.right() - inspector, full.bottom()));
             let cols = self.columns();
+            let offline = self.check_offline(&cols);
             let searching = self.sidebar.result_position().is_some();
             // Bands under the toolbar: the parallel columns' heads, a search's result navigator.
             let heads = if cols.len() > 1 { COLUMN_HEADS } else { 0.0 };
@@ -1936,13 +2052,22 @@ impl eframe::App for BibleApp {
                 toolbar: top,
             };
             let mut reader_ui = ui.new_child(egui::UiBuilder::new().max_rect(reader_rect));
-            self.reader.marker_for = self.note_popover.as_ref().map(|n| n.verse);
-            self.reader.show(&mut reader_ui, &env, &mut actions);
+            if let (Some(state), Some(retrying)) = (&self.offline, offline) {
+                // The chapter can't be fetched: the error page in the reader's place.
+                let area = egui::Rect::from_min_max(
+                    egui::pos2(reader_rect.left(), reader_rect.top() + self.chrome.height),
+                    reader_rect.max,
+                );
+                crate::offline::show(&mut reader_ui, p, area, &self.library, state, retrying, &mut actions);
+            } else {
+                self.reader.marker_for = self.note_popover.as_ref().map(|n| n.verse);
+                self.reader.show(&mut reader_ui, &env, &mut actions);
+            }
             if first {
                 crate::trace(self.startup.t0, "reader laid out and painted");
             }
-            // Not while the first frames are being raced to the screen.
-            if self.startup.frames > 2 {
+            // Not while the first frames are being raced to the screen, nor while nothing is read.
+            if self.startup.frames > 2 && offline.is_none() {
                 self.reading.tick(
                     ctx.input(|i| i.time),
                     ctx.input(|i| i.focused),

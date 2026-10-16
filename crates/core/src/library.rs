@@ -218,6 +218,15 @@ impl Library {
         }
     }
 
+    /// An online translation's chapters that can be read without a connection, the most recently
+    /// fetched first.
+    pub fn cached_chapters(&self, id: &str) -> Vec<ChapterIdx> {
+        match (self.get(id).and_then(|e| e.online()), &self.cache) {
+            (Some(o), Some(cache)) => cache.chapters(id, o.policy()),
+            _ => Vec::new(),
+        }
+    }
+
     /// Saves an imported translation into the data directory and registers it.
     pub fn install(&mut self, imported: Imported) -> Result<String> {
         let mut t = imported.translation;

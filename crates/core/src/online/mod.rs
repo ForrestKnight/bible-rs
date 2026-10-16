@@ -53,6 +53,14 @@ impl ProviderKind {
         }
     }
 
+    /// The server chapters come from, as shown to the reader.
+    pub fn host(&self) -> &'static str {
+        match self {
+            ProviderKind::Esv => "api.esv.org",
+            ProviderKind::ApiBible { .. } => "api.scripture.api.bible",
+        }
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
             ProviderKind::Esv => "ESV API (Crossway)",
@@ -227,6 +235,20 @@ impl OnlineTranslation {
     pub fn retry(&self, c: ChapterIdx) {
         self.shared.lock().unwrap().failed.remove(&c);
     }
+
+    /// Records a failed fetch as the worker would (demo captures of the offline state).
+    pub fn mark_failed(&self, c: ChapterIdx, message: &str) {
+        self.shared.lock().unwrap().failed.insert(c, (message.to_string(), Instant::now()));
+    }
+
+    pub fn policy(&self) -> CachePolicy {
+        self.source.policy()
+    }
+}
+
+/// Did a fetch fail for want of a connection (rather than, say, a rejected key)?
+pub fn is_offline(message: &str) -> bool {
+    message.contains("network error")
 }
 
 struct Worker {
@@ -397,6 +419,20 @@ impl DiskCache {
         Ok(())
     }
 
+    /// The chapters kept for a translation and still fresh, the most recently fetched first.
+    pub fn chapters(&self, id: &str, policy: CachePolicy) -> Vec<ChapterIdx> {
+        let conn = self.conn.lock().unwrap();
+        let cutoff = crate::study::now() - policy.max_age_secs;
+        let Ok(mut st) = conn.prepare(
+            "SELECT chapter FROM chapters WHERE translation = ?1 AND fetched >= ?2 ORDER BY fetched DESC, rowid DESC",
+        ) else {
+            return Vec::new();
+        };
+        st.query_map(params![id, cutoff], |r| r.get::<_, u16>(0))
+            .map(|rows| rows.flatten().map(ChapterIdx).collect())
+            .unwrap_or_default()
+    }
+
     pub fn stored_verses(&self, id: &str) -> usize {
         let conn = self.conn.lock().unwrap();
         conn.query_row("SELECT COALESCE(SUM(verses), 0) FROM chapters WHERE translation = ?1", [id], |r| {
@@ -481,6 +517,9 @@ pub(crate) mod tests {
         }
         // 4 × 30 > 100: the oldest chapter was evicted.
         assert_eq!(cache.stored_verses("esv"), 90);
+        // What can be read offline, newest first.
+        assert_eq!(cache.chapters("esv", p), [genesis(4), genesis(3), genesis(2)]);
+        assert!(cache.chapters("esv", CachePolicy { max_age_secs: -10, ..p }).is_empty());
         assert!(cache.get("esv", genesis(1), p).unwrap().is_none());
         assert!(cache.get("esv", genesis(4), p).unwrap().is_some());
         // Jude is one chapter (25 verses): storing it would keep the whole book, so it isn't
