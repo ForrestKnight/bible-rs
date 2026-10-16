@@ -163,8 +163,11 @@ disk. Export to JSON (round-trips via import) and Markdown.
   bend its path, and a second ⌘B mid-slide keeps the current speed and turns back instead of
   jumping. A late frame advances that clock by at most one and a half refresh periods: when a
   ProMotion panel wakes from its idle refresh rate the first frames come late, and the slide
-  then starts a frame later instead of jumping ahead. The sidebar moves at its full
-  width rather than narrowing, so nothing in it is laid out again.
+  then starts a frame later instead of jumping ahead. The sidebar moves at its full width
+  rather than narrowing, so nothing in it is laid out again.
+- Pacing the slide with a display link that asks for 120 Hz was tried and measured against
+  this: under load macOS still ran some slides at 60 Hz, and over four alternating rounds the
+  display link had more late frames, not fewer. It was left out.
 - The reading column only moves while the sidebar slides as long as its measure doesn't change,
   which is the case from a ~1,064 pt window up (640 pt of text plus 80 pt margins beside the
   264 pt sidebar). Narrower windows reflow the chapter on screen every frame: one chapter layout

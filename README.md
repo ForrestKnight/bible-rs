@@ -276,12 +276,24 @@ in 4.3 ms); everything before that is the machine creating a window. OpenGL's 15
 scrolling is why macOS renders with Metal. Final numbers on real Mac hardware are still to be
 taken; `scripts/bench-startup.sh` measures them, including the empty-window floor.
 
+**Sidebar.** Opening and closing the sidebar slides it on a spring that comes to rest in 265 ms.
+At the default width the text column keeps its measure and only moves; narrower windows reflow the
+chapter on screen once per frame. On a MacBook Pro (M4 Pro, 120 Hz built-in display), 8 slides per
+scenario with `scripts/bench-sidebar.sh`:
+
+| Window | Chapters typeset per slide | UI time per frame, p95 | Frame interval, median |
+|---|---|---|---|
+| 1280 × 800, one column or parallel | 0 | 0.5 ms | 8.4 ms |
+| 720 × 800 (compact) | 26 | 3.9 ms | 8.4 ms |
+| 720 × 800, Psalm 119 (the longest chapter) | 27 | 5.4 ms | 8.3 ms |
+
 Reproduce with:
 
 ```sh
 cargo bench -p bible-core          # search, decoding, references, SQLite
 cargo bench -p bible-rs            # chapter typesetting
 scripts/bench-startup.sh           # launch → first frame (vs. an empty window), 900-frame scroll run
+scripts/bench-sidebar.sh           # sidebar open/close: frame pacing, UI time, chapters typeset per slide
 bible-rs search "love one another" # prints the query time
 ```
 
