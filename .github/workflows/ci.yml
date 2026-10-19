@@ -51,15 +51,15 @@ jobs:
       - name: Universal app, DMG and zip (ad-hoc signed; release.yml signs and notarizes)
         run: scripts/release-macos.sh --ad-hoc
       - name: Startup and scrolling (glow)
-        run: BIN=dist/bible-rs.app/Contents/MacOS/bible-rs BIBLE_RS_RENDERER=glow RUNS=10 scripts/bench-startup.sh || true
+        run: BIN=dist/Bible.app/Contents/MacOS/Bible BIBLE_RS_RENDERER=glow RUNS=10 scripts/bench-startup.sh || true
       - name: Startup and scrolling (wgpu / Metal)
-        run: BIN=dist/bible-rs.app/Contents/MacOS/bible-rs BIBLE_RS_RENDERER=wgpu RUNS=10 scripts/bench-startup.sh || true
+        run: BIN=dist/Bible.app/Contents/MacOS/Bible BIBLE_RS_RENDERER=wgpu RUNS=10 scripts/bench-startup.sh || true
       - name: Startup phases
         run: |
           for r in glow wgpu; do
             echo "== $r"
             BIBLE_RS_HOME="$(mktemp -d)" BIBLE_RS_RENDERER=$r BIBLE_RS_TRACE_STARTUP=1 BIBLE_RS_STARTUP_PROBE=1 \
-              dist/bible-rs.app/Contents/MacOS/bible-rs 2>&1 | tail -20 || true
+              dist/Bible.app/Contents/MacOS/Bible 2>&1 | tail -20 || true
           done
       - uses: actions/upload-artifact@v4
         with:

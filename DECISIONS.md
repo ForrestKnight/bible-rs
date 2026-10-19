@@ -180,7 +180,7 @@ disk. Export to JSON (round-trips via import) and Markdown.
   display's 120 Hz frames: half again as many frames, unevenly spaced.
 - Reduce Motion, the app's setting or the system's (read when the sidebar is toggled, never at
   launch), shows and hides the sidebar at once.
-- `scripts/bundle-macos.sh` builds `bible-rs.app` (icon, Info.plist, ad-hoc or Developer ID
+- `scripts/bundle-macos.sh` builds `Bible.app` (icon, Info.plist, Sparkle, ad-hoc or Developer ID
   signature, hardened runtime). `scripts/release-macos.sh` wraps it for releases (RELEASING.md):
   universal binary, notarization, DMG, zip, checksums. CI runs it ad-hoc signed on `macos-latest`
   and uploads the DMG.
@@ -193,8 +193,29 @@ disk. Export to JSON (round-trips via import) and Markdown.
   scripting and runs headless in CI. lzma compression (ULMO) makes the DMG 16 % smaller than zlib.
 - Releases carry the DMG twice: `bible-rs-<version>-universal.dmg`, and `bible-rs-universal.dmg`
   for the website, whose Download button points at `releases/latest/download/` with a fixed name.
-- No in-app update check. The app makes no network requests of its own; About's "Check for
-  Updates…" opens the latest release page in the browser.
+- The app is called Bible: the bundle (`Bible.app`), its executable, the menu bar, the window and
+  the disk image's volume. The bundle ID (`dev.bible-rs.app`), the data folder and the keychain
+  service keep bible-rs, so an installed copy's notes, settings and API keys carry over, as do
+  the repository, the Cargo package, the command-line binary and the release file names (the
+  website links to `bible-rs-universal.dmg`).
+- Installed copies update with Sparkle 2, the updater most Mac apps outside the App Store use. A
+  self-written updater would have to redo what it already does: signature checks, replacing a
+  bundle the user may not own, relaunching. `scripts/fetch-sparkle.sh` downloads a pinned release
+  (checked by SHA-256); `scripts/bundle-macos.sh` embeds the framework without its XPC services
+  (only sandboxed apps need them). The app loads it with `NSBundle` after the first frame rather
+  than linking it, so it adds nothing to launch, and builds without it fall back to the releases
+  page.
+- The feed is `appcast.xml` on the latest GitHub release, so publishing a release is what ships it
+  to installed copies, as it already did for the website. Each feed lists one version, the newest;
+  Sparkle needs no more to update. Both the zip and the feed are signed with an EdDSA key
+  (`SURequireSignedFeed`), and the zip's signature is checked before it is unpacked
+  (`SUVerifyUpdateBeforeExtraction`, without which Sparkle refuses to start when the feed must be
+  signed). The cost: the key can't be replaced by leaning on the Developer ID signature, so losing
+  it means installed copies stop updating.
+- Sparkle asks on the second launch whether to check automatically, once a day. Until the user
+  agrees, the app makes no update requests of its own.
+- 0.1.0 had no updater. Its users drag `Bible.app` from the new DMG into Applications, so the new
+  app moves a `bible-rs.app` with the same bundle ID in the same Applications folder to the Trash.
 
 ## Visual design: the Paper designs
 

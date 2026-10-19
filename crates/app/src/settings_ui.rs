@@ -1810,9 +1810,6 @@ fn icon_segmented(
     out
 }
 
-/// The project's releases, opened when asked (the app makes no network requests of its own).
-const RELEASES: &str = "https://github.com/michaelshimeles/bible-rs/releases";
-
 /// About (frame 28): the app, its version, the translations' and fonts' licences.
 fn about(ui: &mut Ui, p: &Palette) {
     let width = ui.available_width();
@@ -1859,10 +1856,10 @@ fn about(ui: &mut Ui, p: &Palette) {
     let x = cx - (wa + 8.0 + wb) / 2.0;
     let cy = r.top() + 200.0 + 16.0;
     if check.show_left(ui, p, x, cy, ui.id().with("check-updates")).1.clicked() {
-        crate::app::open_url(&format!("{RELEASES}/latest"));
+        crate::updater::check_for_updates();
     }
     if notes.show_left(ui, p, x + wa + 8.0, cy, ui.id().with("release-notes")).1.clicked() {
-        crate::app::open_url(RELEASES);
+        crate::app::open_url(crate::updater::RELEASES);
     }
     ui.add_space(24.0);
 

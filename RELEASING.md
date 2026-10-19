@@ -1,4 +1,4 @@
-# Releasing bible-rs for macOS
+# Releasing Bible for macOS
 
 `scripts/release-macos.sh` builds everything on a Mac in one command. It writes to `dist/`:
 
@@ -6,13 +6,15 @@
 |---|---|
 | `bible-rs-<version>-universal.dmg` | Disk image: the app, an Applications link and the install background |
 | `bible-rs-universal.dmg` | The same disk image under the name the website links to |
-| `bible-rs-<version>-universal.zip` | The app alone |
+| `bible-rs-<version>-universal.zip` | The app alone; installed copies update from it |
 | `bible-rs-<version>-SHA256SUMS.txt` | SHA-256 of the three files above |
-| `bible-rs.app` | The app itself (universal, signed, stapled) |
+| `appcast.xml` | The update feed: this version, its zip and the zip's signature, signed itself |
+| `Bible.app` | The app itself (universal, signed, stapled) |
 
 The app runs on macOS 11 or later, on Apple silicon and Intel. The script signs it with the
 certificate "Developer ID Application: Fabrika LLC (5S3KCRYBD2)" and turns on the hardened runtime.
-The app needs no entitlements; `packaging/macos/entitlements.plist` says why.
+The app needs no entitlements; `packaging/macos/entitlements.plist` says why. The repository, the
+Cargo package, the command-line binary and the release file names keep the name bible-rs.
 
 ## One-time setup
 
@@ -41,6 +43,21 @@ The app needs no entitlements; `packaging/macos/entitlements.plist` says why.
    ```
 
    Without the profile, `scripts/release-macos.sh` stops before building and prints these commands.
+4. **Update signing key.** Installed copies update themselves with
+   [Sparkle](https://sparkle-project.org) and install only zips signed with the private half of
+   the `SUPublicEDKey` in `scripts/bundle-macos.sh`. That key lives in the login keychain under the
+   account `bible-rs` (item "Private key for signing Sparkle updates"); the release script reads
+   it there and stops if it is missing or different. Keep a copy somewhere safe, and move it to a
+   new Mac the same way:
+
+   ```sh
+   S="$(scripts/fetch-sparkle.sh)"
+   "$S/bin/generate_keys" --account bible-rs -x bible-rs-sparkle.key   # export
+   "$S/bin/generate_keys" --account bible-rs -f bible-rs-sparkle.key   # import on another Mac
+   ```
+
+   Never generate a new key for this app: copies already installed would refuse updates signed
+   with it.
 
 ## Making a release
 
@@ -48,8 +65,9 @@ The app needs no entitlements; `packaging/macos/entitlements.plist` says why.
    check out a clean `main`.
 2. Run `scripts/release-macos.sh`. It builds the universal app, checks its architectures, minimum
    macOS version, Info.plist and signature, runs the signed binary, notarizes and staples the app,
-   builds and signs the DMG, notarizes and staples it, zips the app and writes the checksums. It
-   ends by asking Gatekeeper about the app and the DMG; both must say
+   builds and signs the DMG, notarizes and staples it, zips the app, writes the checksums and
+   writes and signs the update feed. It ends by asking Gatekeeper about the app and the DMG; both
+   must say
    `source=Notarized Developer ID`. Expect about two minutes, plus a few minutes for each of
    Apple's two notarization checks.
 3. Tag the commit and push the tag:
@@ -62,23 +80,41 @@ The app needs no entitlements; `packaging/macos/entitlements.plist` says why.
 4. Create the release as a draft, check it, then publish it on GitHub:
 
    ```sh
-   gh release create v<version> --draft --verify-tag --generate-notes --title "bible-rs <version>" \
+   gh release create v<version> --draft --verify-tag --generate-notes --title "Bible <version>" \
      dist/bible-rs-<version>-universal.dmg dist/bible-rs-universal.dmg \
-     dist/bible-rs-<version>-universal.zip dist/bible-rs-<version>-SHA256SUMS.txt
+     dist/bible-rs-<version>-universal.zip dist/bible-rs-<version>-SHA256SUMS.txt dist/appcast.xml
    ```
 
-The website's Download button (`bible-rs.vercel.app/download`) redirects to
-`https://github.com/michaelshimeles/bible-rs/releases/latest/download/bible-rs-universal.dmg`, which
-GitHub serves from the newest published release. Every release must therefore include
-`bible-rs-universal.dmg`, and the site switches to a new version the moment you publish it.
+The website's Download button (`bible.rasmic.xyz/download`) redirects to
+`https://github.com/michaelshimeles/bible-rs/releases/latest/download/bible-rs-universal.dmg`, and
+installed copies read
+`https://github.com/michaelshimeles/bible-rs/releases/latest/download/appcast.xml`. GitHub serves
+both from the newest published release, so every release must include `bible-rs-universal.dmg`
+and `appcast.xml`. Publishing a release switches the site and every installed copy to it at once;
+a draft or a pre-release reaches neither. The feed's enclosure points at
+`releases/download/v<version>/…`, so the tag must be `v<version>`.
 
-v0.1.0 went out signed but not notarized. To replace a published release's files, build the same
-version, upload with `--clobber`, then edit the release notes:
+To replace a published release's files, build the same version, upload with `--clobber`, then
+edit the release notes:
 
 ```sh
-gh release upload v0.1.0 dist/bible-rs-universal.dmg dist/bible-rs-0.1.0-universal.dmg \
-  dist/bible-rs-0.1.0-universal.zip dist/bible-rs-0.1.0-SHA256SUMS.txt --clobber
+gh release upload v<version> dist/bible-rs-universal.dmg dist/bible-rs-<version>-universal.dmg \
+  dist/bible-rs-<version>-universal.zip dist/bible-rs-<version>-SHA256SUMS.txt dist/appcast.xml --clobber
 ```
+
+## Updates
+
+Sparkle checks the feed once a day after the user agrees to automatic checks, which it asks on the
+second launch, and Bible › Check for Updates… (also in Settings › About) checks at once. It
+downloads the zip, checks its signature against `SUPublicEDKey` and that it is signed by the same
+Developer ID team, replaces the app where it is installed and relaunches it.
+
+Up to 0.1.0 the app was `bible-rs.app` and had no updater; its "Check for Updates…" opens the latest
+release's page. Someone on 0.1.0 downloads the DMG and drags `Bible.app` into Applications, which
+leaves `bible-rs.app` beside it. The first time `Bible.app` runs from `/Applications` or
+`~/Applications` it moves a `bible-rs.app` in the same folder with the same bundle ID to the Trash.
+The bundle ID, the data folder (`~/Library/Application Support/bible-rs`) and the keychain items
+are unchanged, so notes, settings and saved API keys carry over.
 
 Other options:
 
@@ -102,6 +138,7 @@ while GitHub Actions billing is broken. The workflow needs these repository secr
 | `NOTARY_API_KEY` | The contents of the App Store Connect API key file: `gh secret set NOTARY_API_KEY < AuthKey_<KEYID>.p8` |
 | `NOTARY_API_KEY_ID` | That key's ID |
 | `NOTARY_API_ISSUER` | The issuer ID shown above the list of keys |
+| `SPARKLE_PRIVATE_KEY` | The update signing key: `"$(scripts/fetch-sparkle.sh)/bin/generate_keys" --account bible-rs -x key.txt && gh secret set SPARKLE_PRIVATE_KEY < key.txt && rm key.txt` |
 
 Delete the exported .p12 once the secret is set. The workflow imports the certificate into a
 temporary keychain and deletes that keychain when it finishes.
@@ -113,8 +150,9 @@ temporary keychain and deletes that keychain when it finishes.
   reads them without a prompt. Changing the bundle ID or the signing team makes every user approve
   access once. A key saved by an ad-hoc signed development build asks for approval once, the first
   time a release build reads it.
-- **Updates.** Settings › About › Check for Updates… opens the latest release page in the browser.
-  The app makes no network requests of its own to check for updates.
+- **Ad-hoc builds.** The hardened runtime loads only frameworks signed by the app's own team, so an
+  ad-hoc signed build (CI, `--ad-hoc`) can't load Sparkle; its Check for Updates… opens the latest
+  release's page.
 - **Rejected notarization.** `scripts/notarize-macos.sh` prints Apple's log, which names each
   file that failed and why.
 - **Intel testing.** On an Apple silicon Mac without Rosetta, the script checks the x86_64 slice's

@@ -1,6 +1,6 @@
-# dmgbuild settings for the bible-rs disk image. scripts/release-macos.sh runs
-#   dmgbuild -s packaging/macos/dmg-settings.py -D app=dist/bible-rs.app \
-#     -D background=packaging/macos/dmg-background.png bible-rs out.dmg
+# dmgbuild settings for the Bible disk image. scripts/release-macos.sh runs
+#   dmgbuild -s packaging/macos/dmg-settings.py -D app=dist/Bible.app \
+#     -D background=packaging/macos/dmg-background.png Bible out.dmg
 #
 # The background is the Paper file "Bible", page Distribution, artboard
 # "DMG Background (640×420)", exported at 1x and 2x (the 2x file set to 144 dpi). dmgbuild

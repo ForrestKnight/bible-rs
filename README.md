@@ -1,6 +1,6 @@
 # bible-rs
 
-A very fast, native Bible reader for the Mac, written in Rust. Just the Bible — beautifully
+Bible: a very fast, native Bible reader for the Mac, written in Rust. Just the Bible — beautifully
 typeset, searchable as you type, with highlights, notes and bookmarks kept on your computer.
 
 ![Reading John 1 in the King James Version](docs/screenshots/reader-light.png)
@@ -307,11 +307,11 @@ cargo build --release
 ./target/release/bible-rs
 ```
 
-On macOS, `scripts/bundle-macos.sh` builds `dist/bible-rs.app` (`UNIVERSAL=1` for arm64 +
+On macOS, `scripts/bundle-macos.sh` builds `dist/Bible.app` (`UNIVERSAL=1` for arm64 +
 x86_64, `SIGN_IDENTITY=…` to sign). `scripts/release-macos.sh` makes the downloadable release: the
-universal app signed with a Developer ID and notarized, a disk image, a zip and their checksums
-([RELEASING.md](RELEASING.md)). CI builds an ad-hoc signed DMG on every push and uploads it as an
-artifact.
+universal app signed with a Developer ID and notarized, a disk image, a zip, their checksums and
+the signed update feed that installed copies check with Sparkle ([RELEASING.md](RELEASING.md)).
+CI builds an ad-hoc signed DMG on every push and uploads it as an artifact.
 
 Other tasks:
 

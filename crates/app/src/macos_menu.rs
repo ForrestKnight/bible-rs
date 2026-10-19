@@ -24,10 +24,11 @@ impl AppMenu {
     pub fn install() -> Option<Self> {
         let menu = Menu::new();
         let app = Submenu::with_items(
-            "bible-rs",
+            "Bible",
             true,
             &[
-                &PredefinedMenuItem::about(Some("About bible-rs"), None),
+                &PredefinedMenuItem::about(Some("About Bible"), None),
+                &item("check_updates", "Check for Updates…", None),
                 &PredefinedMenuItem::separator(),
                 &item("settings", "Settings…", Some("CmdOrCtrl+Comma")),
                 &PredefinedMenuItem::separator(),
@@ -112,6 +113,7 @@ impl AppMenu {
         while let Ok(event) = MenuEvent::receiver().try_recv() {
             let a = match event.id.0.as_str() {
                 "settings" => Action::OpenSettings(SettingsTab::Reading),
+                "check_updates" => Action::CheckForUpdates,
                 "import_translation" => Action::ImportTranslation,
                 "translations" => Action::OpenSettings(SettingsTab::Translations),
                 "export_md" => Action::Export(ExportKind::Markdown),

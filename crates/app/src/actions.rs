@@ -98,6 +98,7 @@ pub enum Action {
     /// Show a page in the main area (the reader, the library, a study collection).
     OpenPage(crate::pages::Page),
     ShowShortcuts,
+    CheckForUpdates,
     ScrollLines(f32),
     ScrollPages(f32),
     Toast(String),

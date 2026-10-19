@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Builds a downloadable macOS release of bible-rs into dist/ with one command:
+# Builds a downloadable macOS release of Bible into dist/ with one command:
 #
-#   bible-rs.app                        universal (arm64 + x86_64), Developer ID signed, stapled
+#   Bible.app                           universal (arm64 + x86_64), Developer ID signed, stapled
 #   bible-rs-<version>-universal.dmg    drag-to-Applications disk image, signed, stapled
 #   bible-rs-universal.dmg              the same DMG under the name the website links to
-#   bible-rs-<version>-universal.zip    the app alone, for direct downloads
+#   bible-rs-<version>-universal.zip    the app alone, for direct downloads and Sparkle updates
 #   bible-rs-<version>-SHA256SUMS.txt   checksums of the DMGs and the zip
+#   appcast.xml                         the update feed installed copies check, signed
 #
 #   scripts/release-macos.sh                  # sign, notarize, staple: ready to publish
 #   scripts/release-macos.sh --skip-notarize  # signed, not notarized: other Macs refuse to
@@ -15,6 +16,7 @@
 #   SIGN_IDENTITY    default "Developer ID Application: Fabrika LLC (5S3KCRYBD2)"
 #   NOTARY_PROFILE   notarytool keychain profile, default bible-notary
 #   NOTARY_KEYCHAIN  keychain holding that profile, default the login keychain
+#   SPARKLE_ACCOUNT  login keychain account of the update signing key, default bible-rs
 #   ALLOW_DIRTY=1    build even though the working tree has uncommitted changes
 #
 # RELEASING.md covers the one-time setup and how to publish. Runs on the bash 3.2 that ships
@@ -51,15 +53,21 @@ cd "$ROOT"
 
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 MIN_MACOS=11.0
-APP="dist/bible-rs.app"
-BIN="$APP/Contents/MacOS/bible-rs"
+APP="dist/Bible.app"
+BIN="$APP/Contents/MacOS/Bible"
 NAME="bible-rs-${VERSION}-universal"
 DMG="dist/$NAME.dmg"
-# bible-rs.vercel.app/download redirects to releases/latest/download/bible-rs-universal.dmg,
+# bible.rasmic.xyz/download redirects to releases/latest/download/bible-rs-universal.dmg,
 # so every release needs this unversioned copy too.
 LATEST_DMG="dist/bible-rs-universal.dmg"
 ZIP="dist/$NAME.zip"
 SUMS="dist/bible-rs-${VERSION}-SHA256SUMS.txt"
+# Installed copies read releases/latest/download/appcast.xml (SUFeedURL), which points them at
+# this release's zip.
+APPCAST="dist/appcast.xml"
+REPO_URL="https://github.com/michaelshimeles/bible-rs"
+SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-bible-rs}"
+SPARKLE_PUBLIC_KEY="$(sed -n 's/^SPARKLE_PUBLIC_KEY="\(.*\)"$/\1/p' scripts/bundle-macos.sh)"
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application: Fabrika LLC (5S3KCRYBD2)}"
 TEAM_ID="$(sed -n 's/.*(\([A-Z0-9]\{10\}\))$/\1/p' <<<"$SIGN_IDENTITY")"
 NOTARY_PROFILE="${NOTARY_PROFILE:-bible-notary}"
@@ -132,6 +140,19 @@ else
   echo "Notarization: skipped"
 fi
 
+SPARKLE="$(scripts/fetch-sparkle.sh)"
+echo "Sparkle: $(plutil -extract CFBundleShortVersionString raw "$SPARKLE/Sparkle.framework/Resources/Info.plist")"
+if [[ "$NOTARIZE" == "1" ]]; then
+  # Installed copies refuse an update signed with any other key than the one in their Info.plist.
+  key="$("$SPARKLE/bin/generate_keys" --account "$SPARKLE_ACCOUNT" -p 2>/dev/null || true)"
+  [[ -n "$key" ]] || die "no update signing key in the login keychain (account $SPARKLE_ACCOUNT).
+       Import the exported key: $SPARKLE/bin/generate_keys --account $SPARKLE_ACCOUNT -f <key-file>
+       (RELEASING.md). Never generate a new one: installed copies only accept the existing key."
+  [[ "$key" == "$SPARKLE_PUBLIC_KEY" ]] ||
+    die "the update signing key in the keychain ($key) is not the one the app trusts ($SPARKLE_PUBLIC_KEY)"
+  echo "Update signing key: $key"
+fi
+
 # The DMG's Finder layout is written by dmgbuild (pinned with hashes), installed into
 # target/dmgbuild with uv, or with pip into a Python 3.10+ venv when uv is missing.
 REQS="packaging/macos/dmgbuild-requirements.txt"
@@ -164,7 +185,7 @@ echo "dmgbuild: $("$VENV/bin/python" -c 'import importlib.metadata as m; print(m
 
 # bundle-macos.sh used to write an unsigned dist/bible-rs-<version>.dmg; don't leave one next
 # to the release where it could be uploaded by mistake.
-rm -rf "$APP" "$DMG" "$LATEST_DMG" "$ZIP" "$SUMS" "dist/bible-rs-${VERSION}.dmg"
+rm -rf "$APP" "$DMG" "$LATEST_DMG" "$ZIP" "$SUMS" "$APPCAST" "dist/bible-rs-${VERSION}.dmg" dist/bible-rs.app
 
 step "Building the universal app"
 if [[ "$ADHOC" == "1" ]]; then
@@ -195,6 +216,13 @@ check_plist() {
   [[ "$got" == "$2" ]] || die "Info.plist $1 is '$got', expected '$2'"
 }
 check_plist CFBundleIdentifier dev.bible-rs.app
+check_plist CFBundleName Bible
+check_plist CFBundleExecutable Bible
+check_plist SUFeedURL "$REPO_URL/releases/latest/download/appcast.xml"
+check_plist SUPublicEDKey "$SPARKLE_PUBLIC_KEY"
+# Sparkle refuses to start with SURequireSignedFeed unless SUVerifyUpdateBeforeExtraction is on.
+check_plist SURequireSignedFeed true
+check_plist SUVerifyUpdateBeforeExtraction true
 check_plist CFBundleShortVersionString "$VERSION"
 check_plist CFBundleVersion "$VERSION"
 check_plist LSMinimumSystemVersion "$MIN_MACOS"
@@ -211,6 +239,9 @@ grep -q 'flags=.*runtime' "$TMP/codesign.txt" || die "the hardened runtime is no
 if [[ "$ADHOC" == "0" ]]; then
   grep -q "^TeamIdentifier=$TEAM_ID$" "$TMP/codesign.txt" || die "not signed by team $TEAM_ID"
   grep -q '^Timestamp=' "$TMP/codesign.txt" || die "the signature has no secure timestamp"
+  # The hardened runtime loads only frameworks signed by the app's own team.
+  codesign --display --verbose=2 "$APP/Contents/Frameworks/Sparkle.framework" >"$TMP/sparkle.txt" 2>&1
+  grep -q "^TeamIdentifier=$TEAM_ID$" "$TMP/sparkle.txt" || die "Sparkle.framework is not signed by team $TEAM_ID"
 fi
 echo "Entitlements: $(codesign --display --entitlements - --xml "$APP" 2>/dev/null |
   plutil -convert json -o - - 2>/dev/null || echo '{}')"
@@ -244,7 +275,7 @@ fi
 
 step "Building the disk image"
 "$VENV/bin/dmgbuild" -s packaging/macos/dmg-settings.py -D app="$APP" \
-  -D background=packaging/macos/dmg-background.png bible-rs "$DMG"
+  -D background=packaging/macos/dmg-background.png Bible "$DMG"
 if [[ "$ADHOC" == "0" ]]; then
   codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"
   codesign --verify --strict --verbose=2 "$DMG"
@@ -255,10 +286,10 @@ echo "hdiutil verify: ok"
 mkdir -p "$MOUNT"
 hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$MOUNT" "$DMG" >/dev/null
 [[ "$(readlink "$MOUNT/Applications")" == /Applications ]] || die "the DMG has no Applications link"
-ditto "$MOUNT/bible-rs.app" "$TMP/installed/bible-rs.app"
+ditto "$MOUNT/Bible.app" "$TMP/installed/Bible.app"
 hdiutil detach "$MOUNT" -quiet
-cmp -s "$BIN" "$TMP/installed/bible-rs.app/Contents/MacOS/bible-rs" || die "the DMG holds a different build"
-codesign --verify --deep --strict --verbose=2 "$TMP/installed/bible-rs.app" ||
+cmp -s "$BIN" "$TMP/installed/Bible.app/Contents/MacOS/Bible" || die "the DMG holds a different build"
+codesign --verify --deep --strict --verbose=2 "$TMP/installed/Bible.app" ||
   die "the app copied out of the DMG fails strict signature checks"
 if [[ "$NOTARIZE" == "1" ]]; then
   step "Notarizing the disk image"
@@ -274,6 +305,41 @@ ditto -c -k --keepParent "$APP" "$ZIP"
 cp -c "$DMG" "$LATEST_DMG" 2>/dev/null || cp "$DMG" "$LATEST_DMG" # -c: APFS clone, no extra space
 (cd dist && shasum -a 256 "$(basename "$DMG")" "$(basename "$LATEST_DMG")" "$(basename "$ZIP")") >"$SUMS"
 
+if [[ "$NOTARIZE" == "1" ]]; then
+  step "Writing the update feed"
+  # The key item trusts generate_keys, which created it; sign_update reading it directly would
+  # make the keychain ask. The export lives in $TMP (mode 700) only while signing.
+  KEY="$TMP/sparkle-ed25519"
+  "$SPARKLE/bin/generate_keys" --account "$SPARKLE_ACCOUNT" -x "$KEY" >/dev/null
+  # sign_update prints the enclosure's attributes: sparkle:edSignature="…" sparkle:length="…".
+  enclosure="$("$SPARKLE/bin/sign_update" --ed-key-file "$KEY" "$ZIP")"
+  [[ "$enclosure" == *'sparkle:edSignature="'*'length="'* ]] || die "sign_update printed '$enclosure'"
+  cat >"$APPCAST" <<XML
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Bible</title>
+    <link>$REPO_URL</link>
+    <item>
+      <title>Bible $VERSION</title>
+      <pubDate>$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
+      <sparkle:version>$VERSION</sparkle:version>
+      <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>$MIN_MACOS</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>$REPO_URL/releases/tag/v$VERSION</sparkle:fullReleaseNotesLink>
+      <enclosure url="$REPO_URL/releases/download/v$VERSION/$(basename "$ZIP")" type="application/octet-stream" $enclosure/>
+    </item>
+  </channel>
+</rss>
+XML
+  # The app sets SURequireSignedFeed, so the feed carries its own signature as well.
+  "$SPARKLE/bin/sign_update" --ed-key-file "$KEY" "$APPCAST"
+  "$SPARKLE/bin/sign_update" --ed-key-file "$KEY" --verify "$APPCAST" ||
+    die "the update feed's signature does not verify"
+  rm -f "$KEY"
+  echo "Feed: $APPCAST → $REPO_URL/releases/download/v$VERSION/$(basename "$ZIP")"
+fi
+
 # --- Gatekeeper and summary ------------------------------------------------------------------
 
 step "Gatekeeper"
@@ -287,7 +353,9 @@ if [[ "$NOTARIZE" == "1" ]]; then
 fi
 
 step "Done"
-for f in "$DMG" "$LATEST_DMG" "$ZIP" "$SUMS"; do
+files=("$DMG" "$LATEST_DMG" "$ZIP" "$SUMS")
+if [[ -f "$APPCAST" ]]; then files+=("$APPCAST"); fi
+for f in "${files[@]}"; do
   bytes="$(stat -f %z "$f")"
   printf '%7.1f MB  %10s bytes  %s\n' "$(bc -l <<<"$bytes / 1048576")" "$bytes" "$ROOT/$f"
 done

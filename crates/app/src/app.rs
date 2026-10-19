@@ -892,6 +892,7 @@ impl BibleApp {
                 }
             }
             Action::ShowShortcuts => self.shortcuts_open = !self.shortcuts_open,
+            Action::CheckForUpdates => crate::updater::check_for_updates(),
             Action::ScrollLines(n) => {
                 let lh = self.settings.typo.size * self.settings.typo.line_height;
                 self.reader.scroll_by(n * lh);
@@ -1125,7 +1126,7 @@ impl BibleApp {
     }
 
     fn import_study(&mut self, ctx: &egui::Context) {
-        let Some(path) = rfd::FileDialog::new().add_filter("bible-rs export", &["json"]).pick_file() else {
+        let Some(path) = rfd::FileDialog::new().add_filter("Bible export", &["json"]).pick_file() else {
             return;
         };
         let r = std::fs::read_to_string(&path)
@@ -2084,6 +2085,9 @@ impl BibleApp {
                 self.library.entries().iter().filter(|e| e.is_local()).map(|e| e.meta.id.clone()).take(3),
             );
             self.library.warm(&ids);
+            if !crate::offscreen() && !crate::probing() {
+                crate::updater::start();
+            }
             if self.startup.probe {
                 let presented = self.startup.t0.elapsed();
                 let epoch_ms = std::time::SystemTime::now()

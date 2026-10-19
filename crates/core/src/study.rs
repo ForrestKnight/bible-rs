@@ -630,7 +630,7 @@ impl StudyStore {
         let mut md = String::new();
         let _ = writeln!(md, "# Bible study notes\n");
         let _ =
-            writeln!(md, "Exported from bible-rs on {} · verse text: {translation}\n", &rfc3339(now())[..10]);
+            writeln!(md, "Exported from Bible on {} · verse text: {translation}\n", &rfc3339(now())[..10]);
         let bookmarks = if include.bookmarks { self.bookmarks() } else { Vec::new() };
         if !bookmarks.is_empty() {
             let _ = writeln!(md, "## Bookmarks\n");
