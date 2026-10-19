@@ -10,7 +10,11 @@
 
 	function toggle() {
 		theme = theme === 'dark' ? 'light' : 'dark';
-		document.documentElement.dataset.theme = theme;
+		const root = document.documentElement;
+		root.dataset.theme = theme;
+		document
+			.querySelector('meta[name="theme-color"]')
+			?.setAttribute('content', getComputedStyle(root).getPropertyValue('--bg').trim());
 		try {
 			localStorage.setItem('theme', theme);
 		} catch {

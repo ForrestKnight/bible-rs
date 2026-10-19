@@ -3,9 +3,14 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<!-- Light here and dark in the script below must match --bg in app.css. -->
+		<meta name="theme-color" content="#fbfaf7" />
 		<script>
 			try {
-				if (localStorage.getItem('theme') === 'dark') document.documentElement.dataset.theme = 'dark';
+				if (localStorage.getItem('theme') === 'dark') {
+					document.documentElement.dataset.theme = 'dark';
+					document.querySelector('meta[name="theme-color"]').content = '#161615';
+				}
 			} catch (e) {}
 		</script>
 		%sveltekit.head%

@@ -29,9 +29,6 @@
 	<title>{title}</title>
 	<meta name="description" content={description} />
 	<link rel="canonical" href={url} />
-	<!-- Keep in sync with --bg in app.css. -->
-	<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfaf7" />
-	<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#161615" />
 	<meta property="og:type" content="website" />
 	<meta property="og:site_name" content={name} />
 	<meta property="og:title" content={title} />
