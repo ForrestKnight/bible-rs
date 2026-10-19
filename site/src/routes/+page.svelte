@@ -2,32 +2,60 @@
 	import { VERSION, SITE_URL } from '#lib/config.js';
 	import ThemeToggle from '#lib/ThemeToggle.svelte';
 
-	const title = 'bible-rs: a fast, native Bible for the Mac';
+	const name = 'Bible';
+	const title = `${name}: a fast, native reader for the Mac`;
 	const description =
 		'A very fast, native Bible reader for the Mac. Beautifully typeset, searchable as you type, with highlights, notes and bookmarks kept on your computer.';
+	const url = `${SITE_URL}/`;
+	const image = `${SITE_URL}/og.jpg`;
+	const imageAlt = `The ${name} app icon and name beside the reader open at John 1`;
+
+	const jsonLd = JSON.stringify({
+		'@context': 'https://schema.org',
+		'@type': 'SoftwareApplication',
+		name,
+		description,
+		url,
+		image,
+		operatingSystem: 'macOS',
+		applicationCategory: 'ReferenceApplication',
+		offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+		downloadUrl: `${SITE_URL}/download`,
+		softwareVersion: VERSION
+	}).replace(/</g, '\\u003c');
 </script>
 
 <svelte:head>
 	<title>{title}</title>
 	<meta name="description" content={description} />
+	<link rel="canonical" href={url} />
+	<!-- Keep in sync with --bg in app.css. -->
+	<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfaf7" />
+	<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#161615" />
 	<meta property="og:type" content="website" />
-	<meta property="og:url" content={SITE_URL} />
+	<meta property="og:site_name" content={name} />
 	<meta property="og:title" content={title} />
 	<meta property="og:description" content={description} />
-	<meta property="og:image" content={`${SITE_URL}/reader-light.jpg`} />
-	<meta property="og:image:width" content="1800" />
-	<meta property="og:image:height" content="1209" />
-	<meta property="og:image:alt" content="Reading John 1 in bible-rs, light theme" />
+	<meta property="og:url" content={url} />
+	<meta property="og:locale" content="en_US" />
+	<meta property="og:image" content={image} />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:image:type" content="image/jpeg" />
+	<meta property="og:image:alt" content={imageAlt} />
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content={title} />
 	<meta name="twitter:description" content={description} />
-	<meta name="twitter:image" content={`${SITE_URL}/reader-light.jpg`} />
+	<meta name="twitter:image" content={image} />
+	<meta name="twitter:image:alt" content={imageAlt} />
+	<!-- eslint-disable-next-line svelte/no-at-html-tags -- static JSON, with < escaped -->
+	{@html `<script type="application/ld+json">${jsonLd}<\/script>`}
 </svelte:head>
 
 <div class="wrap">
 	<header>
 		<ThemeToggle />
-		<img class="icon" src="/icon.png" width="112" height="112" alt="bible-rs app icon" />
+		<img class="icon" src="/icon.png" width="112" height="112" alt="Bible app icon" />
 		<h1>The Bible, instantly.</h1>
 		<p class="lede">{description}</p>
 		<a class="btn" id="download" href="/download" data-sveltekit-reload>
@@ -49,14 +77,14 @@
 				src="/reader-light.jpg"
 				width="1800"
 				height="1209"
-				alt="Reading John 1 in bible-rs, light theme"
+				alt="John 1 open in Bible, light theme"
 			/>
 			<img
 				class="dark"
 				src="/reader-dark.jpg"
 				width="1800"
 				height="1209"
-				alt="Reading in bible-rs, dark theme"
+				alt="Matthew 5 open in Bible, dark theme"
 			/>
 		</div>
 	</header>

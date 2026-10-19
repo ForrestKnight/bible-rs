@@ -9,5 +9,8 @@ export const VERSION = '0.1.0';
 export const DOWNLOAD_URL =
 	'https://github.com/michaelshimeles/bible-rs/releases/latest/download/bible-rs-universal.dmg';
 
-/** Canonical site origin, used for absolute og:image / og:url. */
-export const SITE_URL = 'https://bible-rs.vercel.app';
+/**
+ * Canonical site origin, no trailing slash. Every absolute URL in the page's metadata
+ * is built from it; static/robots.txt and static/sitemap.xml repeat it by hand.
+ */
+export const SITE_URL = 'https://bible.rasmic.xyz';
