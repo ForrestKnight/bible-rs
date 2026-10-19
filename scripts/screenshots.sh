@@ -67,7 +67,7 @@ launch() {
   sleep 0.4
   BIBLE_RS_HOME="$APP_HOME" setsid "$BIN" >"$WORK/app.log" 2>&1 </dev/null &
   disown
-  WID="$(xdotool search --sync --onlyvisible --name '^bible-rs$' | head -1)"
+  WID="$(xdotool search --sync --onlyvisible --name '^Bible$' | head -1)"
   if [[ -n "${SIZE:-}" ]]; then
     xdotool windowsize "$WID" ${SIZE/x/ }
     xdotool windowmove "$WID" $(( (1600 - ${SIZE%x*}) / 2 )) 20
