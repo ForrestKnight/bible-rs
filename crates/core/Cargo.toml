@@ -7,9 +7,12 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-default = ["bundled"]
+default = ["bundled", "tls"]
 # Embed the public-domain translations from data/translations into the binary.
 bundled = []
+# HTTPS (rustls) for the online translations. The phone apps leave it out while they have no
+# online translations, so their binaries carry no encryption code (App Store export rules).
+tls = ["ureq/rustls"]
 
 [dependencies]
 anyhow.workspace = true
@@ -20,7 +23,7 @@ zstd.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
-ureq = "3"
+ureq = { version = "3", default-features = false, features = ["gzip"] }
 
 # API keys live in the macOS Keychain; other platforms use a 0600 file.
 [target.'cfg(target_os = "macos")'.dependencies]

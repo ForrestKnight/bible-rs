@@ -66,6 +66,13 @@ for target in "${TARGETS[@]}"; do
   cargo rustc --quiet --release -p bible-ffi --lib --target "$target" --crate-type staticlib
 done
 
+# The Info.plist tells the App Store the app uses no encryption (ITSAppUsesNonExemptEncryption).
+# That holds only while bible-ffi builds bible-core without its "tls" feature.
+if cargo tree --quiet -p bible-ffi --target aarch64-apple-ios -e normal --prefix none | grep -q '^rustls '; then
+  echo "bible-ffi links rustls now: revisit ITSAppUsesNonExemptEncryption in apps/ios/project.yml" >&2
+  exit 1
+fi
+
 # Swift bindings, read from the library's own metadata.
 mkdir -p "$GENERATED"
 BINDINGS="$(mktemp -d)"

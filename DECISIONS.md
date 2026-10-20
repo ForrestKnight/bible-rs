@@ -347,6 +347,12 @@ What differs is the toolkit, and here the Mac's choice is overruled.
   which would change widths and line breaks. The reading size follows Dynamic Type.
 - **Settings and the reading position** are one JSON value in the study store's settings table
   (`ios`), written 1.5 s after a change and when the app goes to the background.
+- **No network, no encryption.** The phone build turns off `bible-core`'s `tls` feature, so the
+  app contains no TLS or other encryption code. Its Info.plist sets
+  `ITSAppUsesNonExemptEncryption` to `NO`, and the App Store's export questions don't apply.
+  `scripts/build-ios.sh` fails if TLS comes back. Online translations on the phone will need the
+  feature back and a new answer. The privacy manifest, `PrivacyInfo.xcprivacy`, declares no data
+  collected and gives reasons for the two kinds of file API that SQLite calls.
 - **Not on the phone yet:** online translations, import, parallel and compare. Online
   translations need their keys in the iOS Keychain (the `keyring` crate the Mac uses has no iOS
   store) and the same caching limits as on the Mac. Import needs the document picker.
