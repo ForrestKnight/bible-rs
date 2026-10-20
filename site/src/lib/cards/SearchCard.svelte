@@ -13,7 +13,9 @@
 	const RESULTS_AT = KEYS[KEYS.length - 1] + 200;
 	const PICK = 2900;
 
-	const clock = loop(7600, 4200);
+	let { paused = false }: { paused?: boolean } = $props();
+
+	const clock = loop(7600, 4200, () => paused);
 	let t = $derived(clock.t);
 
 	let query = $derived(QUERY.slice(0, KEYS.filter((k) => t >= k).length));

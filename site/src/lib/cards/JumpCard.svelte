@@ -19,7 +19,9 @@
 		kind: 'chapter'
 	};
 
-	const clock = loop(7000, 3200);
+	let { paused = false }: { paused?: boolean } = $props();
+
+	const clock = loop(7000, 3200, () => paused);
 	let t = $derived(clock.t);
 
 	let shown = $derived(envelope(t, 0, 250, 5800, 6300));

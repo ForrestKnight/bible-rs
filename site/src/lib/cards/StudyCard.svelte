@@ -10,7 +10,9 @@
 	const MENU = 700;
 	const PICK = 1900;
 
-	const clock = loop(7000, 2600);
+	let { paused = false }: { paused?: boolean } = $props();
+
+	const clock = loop(7000, 2600, () => paused);
 	let t = $derived(clock.t);
 
 	let menu = $derived(envelope(t, MENU, MENU + 180, 6200, 6450));

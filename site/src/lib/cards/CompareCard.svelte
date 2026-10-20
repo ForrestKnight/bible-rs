@@ -7,7 +7,9 @@
 	const ROWS = 400;
 	const STEP = 140;
 
-	const clock = loop(6400, 2400);
+	let { paused = false }: { paused?: boolean } = $props();
+
+	const clock = loop(6400, 2400, () => paused);
 	let t = $derived(clock.t);
 
 	let shown = $derived(envelope(t, 0, 250, 5700, 6200));

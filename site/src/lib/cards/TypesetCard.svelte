@@ -5,7 +5,9 @@
 	import { PSALM_23, PSALM_23_HEADING, type Run } from '#lib/scripture.js';
 	import Fit from './Fit.svelte';
 
-	const clock = loop(6400, 3000);
+	let { paused = false }: { paused?: boolean } = $props();
+
+	const clock = loop(6400, 3000, () => paused);
 	let t = $derived(clock.t);
 
 	let highlight = $derived(envelope(t, 700, 1100, 5600, 6100));

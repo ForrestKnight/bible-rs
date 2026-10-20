@@ -12,7 +12,9 @@
 	];
 	const STEP = 1500;
 
-	const clock = loop(STEP * THEMES.length, STEP);
+	let { paused = false }: { paused?: boolean } = $props();
+
+	const clock = loop(STEP * THEMES.length, STEP, () => paused);
 	let active = $derived(Math.floor(clock.t / STEP));
 </script>
 

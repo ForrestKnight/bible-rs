@@ -13,7 +13,7 @@
 	import Showcase from '#lib/demo/Showcase.svelte';
 	import { Player } from '#lib/demo/player.svelte.js';
 	import { play } from '#lib/demo/sound.js';
-	import { reveal } from '#lib/motion.svelte.js';
+	import { reducedMotion, reveal } from '#lib/motion.svelte.js';
 
 	const title = `${NAME}: a fast, native reader for the Mac`;
 	const description =
@@ -39,6 +39,8 @@
 	const jsonLd = `<script type="application/ld+json">${app}<\/script>`;
 
 	const player = new Player();
+
+	let paused: Record<string, boolean> = $state({});
 
 	const reading = [
 		{
@@ -131,9 +133,25 @@
 
 {#snippet card(item: (typeof reading)[number], i: number)}
 	<article class="card" style:--delay="{i * 90}ms" {@attach reveal}>
-		<item.Visual />
+		<item.Visual paused={paused[item.title]} />
 		<div class="caption">
-			<h3>{item.title}</h3>
+			<div class="heading">
+				<h3>{item.title}</h3>
+				{#if !reducedMotion.current}
+					<button
+						type="button"
+						class="pause"
+						aria-label="{paused[item.title] ? 'Play' : 'Pause'} the {item.title} animation"
+						onclick={() => (paused[item.title] = !paused[item.title])}
+					>
+						{#if paused[item.title]}
+							<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.6 8z" /></svg>
+						{:else}
+							<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3h2.4v10H4.5zM9.1 3h2.4v10H9.1z" /></svg>
+						{/if}
+					</button>
+				{/if}
+			</div>
 			<p>{item.body}</p>
 		</div>
 	</article>
@@ -349,10 +367,46 @@
 		padding: 20px 22px 24px;
 	}
 
+	.heading {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+	}
+
 	h3 {
 		margin: 0;
 		font: 600 16px/20px var(--sans);
 		letter-spacing: -0.01em;
+	}
+
+	.pause {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		justify-content: center;
+		width: 26px;
+		height: 26px;
+		margin: -3px -5px -3px 0;
+		border: 0;
+		border-radius: 999px;
+		background: transparent;
+		color: var(--muted);
+		cursor: pointer;
+		transition:
+			background 0.15s,
+			color 0.15s;
+	}
+
+	.pause:hover {
+		background: color-mix(in srgb, var(--fg) 7%, transparent);
+		color: var(--fg);
+	}
+
+	.pause svg {
+		width: 12px;
+		height: 12px;
+		fill: currentColor;
 	}
 
 	.caption p {
