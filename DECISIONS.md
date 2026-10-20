@@ -296,6 +296,40 @@ The interface follows the high-fidelity designs in the Paper file "Bible" (Scree
   text and verse numbers off egui's per-run variation path. Literata keeps its default optical
   size: at 20 pt its widths differ from opsz 20 by 0.3 %, so line breaks match the design anyway.
 
+## iPhone: SwiftUI and UIKit over the Rust core
+
+The phone app lives in the same repository (`apps/ios`) and shares `bible-core` with the Mac:
+the `.bbl` model and bundled texts, search, references, the study store and copy formatting.
+What differs is the toolkit, and here the Mac's choice is overruled.
+
+| Option | Why not (on a phone) |
+|---|---|
+| **egui on iOS** (eframe via winit) | Text fields get no native keyboard behaviour: no autocorrect, dictation, selection handles or hardware-keyboard shortcuts. AccessKit has no UIKit adapter, so VoiceOver would see an empty view. Scrolling would be egui's own physics, not `UIScrollView`'s deceleration, rubber-banding and scroll-to-top. No Dynamic Type. On the Mac each of these was a small cost; on a phone they are most of the experience. |
+| Flutter, React Native | A second runtime and bridge in front of the same Rust core, with text drawn by their engines rather than Core Text. |
+| Tauri mobile | A web view: the start-up time and memory the Mac app avoided. |
+| **SwiftUI + UIKit over UniFFI** ✔ | Native text input, VoiceOver, Dynamic Type, scrolling and sheets. The Rust interface is described once, and Swift (and later Kotlin) bindings are generated from it. |
+
+- **The Rust boundary is `crates/ffi` (`bible-ffi`), exported with UniFFI.** It returns plain
+  records: a chapter as blocks (prose, poetry with levels, headings, Psalm titles) of styled runs
+  (verse numbers, words of Christ, additions, small capitals), search hits with their match
+  ranges, references, and study data. Everything that isn't drawing stays in Rust, so an
+  Android app would draw the same structure. Match ranges are UTF-16 offsets, which Swift's
+  `NSString` and Kotlin's `String` index directly. Calls are coarse (a chapter, a page of hits),
+  so UniFFI's per-call cost of copying records through a buffer is small next to the work.
+  A hand-written C ABI (cbindgen) would avoid that copy, but every string, list and error would
+  need glue code written twice, once per platform.
+- **Packaging:** `scripts/build-ios.sh` builds the crate as a static library for the device
+  (`aarch64-apple-ios`) and the simulator (`aarch64-apple-ios-sim`), generates the Swift
+  bindings, wraps both libraries in `BibleFFI.xcframework`, generates the Xcode project from the
+  checked-in `apps/ios/project.yml` (XcodeGen) and builds the app. The library is a static one,
+  so nothing extra is loaded at launch. The bundled translations come with it, embedded in the
+  library as on the Mac.
+- **Chrome is SwiftUI; the reader is UIKit.** SwiftUI's `Text` can't report which character
+  was tapped or where a verse's glyphs are, and lazy stacks with rows of varying height jump
+  when scrolled to an item far away. Both are central to a reader that selects verses and jumps
+  to references. The reader is a `UIScrollView` whose content is typeset with TextKit, so
+  scrolling keeps the system's physics.
+
 ## What was traded away
 
 - No per-word highlighting (verse-level only) and no free text selection inside verses — verse
