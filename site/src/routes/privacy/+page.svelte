@@ -66,8 +66,10 @@
 
 	<h2>This website</h2>
 	<p>
-		This site sets no cookies and runs no analytics. It loads its fonts from Google Fonts, which
-		sees your IP address when it serves them.
+		This site sets no cookies. It counts page views with Vercel Web Analytics, which records the
+		page, the site that linked to it, and your country, city, browser, system and device type. It
+		tells visits apart by a hash of the request that it discards after 24 hours, and keeps no IP
+		addresses. The fonts come from Google Fonts, which sees your IP address when it serves them.
 	</p>
 
 	<h2>Changes and questions</h2>
