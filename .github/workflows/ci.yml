@@ -35,6 +35,22 @@ jobs:
       - name: Startup and scrolling under Xvfb (software OpenGL)
         run: RUNS=5 scripts/bench-startup.sh
 
+  ios:
+    name: iOS · framework, simulator and device builds
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+      - name: XcodeGen
+        run: brew install xcodegen && xcodebuild -version
+      - name: Simulator build
+        run: scripts/build-ios.sh
+      - name: Device build (unsigned)
+        run: scripts/build-ios.sh --device
+
   macos:
     name: macOS · build, tests, universal app and DMG
     runs-on: macos-latest
