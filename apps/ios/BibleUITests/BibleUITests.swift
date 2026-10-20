@@ -53,6 +53,23 @@ final class BibleUITests: XCTestCase {
         XCTAssertTrue(verse("Romans 8:28").isHittable)
     }
 
+    func testRotatingKeepsYourPlace() {
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        reference.tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        field.tap()
+        field.typeText("rom 8:28\n")
+        expectChapter("Romans 8")
+        XCTAssertTrue(verse("Romans 8:28").waitForExistence(timeout: 3))
+        for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+            XCUIDevice.shared.orientation = orientation
+            sleep(1)
+            expectChapter("Romans 8")
+            XCTAssertTrue(verse("Romans 8:28").isHittable, "Romans 8:28 left the screen at orientation \(orientation.rawValue)")
+        }
+    }
+
     func testPicksABookAndChapter() {
         reference.tap()
         let romans = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Romans'")).firstMatch
