@@ -8,24 +8,24 @@ for its holder.
 
 ## Decide first
 
-1. **The App Store name.** "Bible" is taken, and names are unique across the store. The name
-   under the icon, `CFBundleDisplayName`, can stay "Bible" whatever the listing is called. Two
-   that fit the 30-character limit are "Bible: Fast Offline Reader" and "Bible Reader: Typeset,
-   Offline".
-2. **The bundle ID.** It's `dev.bible-rs.ios`, set as `BIBLE_BUNDLE_ID` in
-   `Config/Bible.xcconfig`, and it can't change once the record exists. The Mac app is `dev.bible-rs.app` and ships outside the store,
-   so the two don't need to match.
-3. **The version.** The phone app takes its version from `Cargo.toml`, like the Mac, so it would
+The App Store name is **Bible: Fast & Offline**. The name under the icon, `CFBundleDisplayName`,
+stays "Bible". No live app in the US, UK, Canadian or Australian store used the name on 20
+October 2026; App Store Connect confirms it's free when the record is created.
+
+1. **The bundle ID.** It's `dev.bible-rs.ios`, set as `BIBLE_BUNDLE_ID` in
+   `Config/Bible.xcconfig`, and it can't change once the record exists. The Mac app is
+   `dev.bible-rs.app` and ships outside the store, so the two don't need to match.
+2. **The version.** The phone app takes its version from `Cargo.toml`, like the Mac, so it would
    launch as 0.2.0. The store accepts that; set 1.0.0 there first if you'd rather launch at 1.0.
-4. **The UK store.** The KJV is public domain everywhere except the UK, where the Crown's letters
+3. **The UK store.** The KJV is public domain everywhere except the UK, where the Crown's letters
    patent cover it. Either leave the UK out under Pricing and Availability, or keep it in, as the
    Mac download already does.
-5. **A support email.** The support page sends people to GitHub issues, which needs a GitHub
+4. **A support email.** The support page sends people to GitHub issues, which needs a GitHub
    account. An email address there would reach everyone else.
 
 ## One-time setup
 
-1. **The app's record.** In App Store Connect, Apps, +, New App: platform iOS, the name, primary
+1. **The app's record.** In App Store Connect, Apps, +, New App: platform iOS, name "Bible: Fast & Offline", primary
    language English (U.S.), bundle ID `dev.bible-rs.ios`, SKU `bible-ios`. If the bundle ID isn't
    in the list yet, register it first under Certificates, Identifiers & Profiles, Identifiers, as
    an explicit App ID with no capabilities.
@@ -58,16 +58,18 @@ for its holder.
 
 | Field | Text |
 |---|---|
-| Subtitle | Read and search, offline |
+| Name | Bible: Fast & Offline |
+| Subtitle | Seven translations, built in |
 | Category | Reference (primary), Books (secondary) |
 | Price | Free |
 | Support URL | https://bible.rasmic.xyz/support |
 | Marketing URL | https://bible.rasmic.xyz |
 | Privacy Policy URL | https://bible.rasmic.xyz/privacy |
 | Copyright | 2026 Micky |
-| Keywords | `kjv,scripture,holy,verse,offline,study,psalms,gospel,web,bsb,asv,devotional,notes,highlight,daily` |
+| Keywords | `kjv,scripture,holy,verse,study,psalms,gospel,web,bsb,asv,devotional,notes,highlight,daily,christian` |
 
-The keywords leave out "bible" because the store already indexes words in the name.
+The keywords and subtitle leave out "bible", "fast" and "offline", because the store already
+indexes the words in the name.
 
 **Promotional text**, which you can change without a new version:
 
@@ -133,7 +135,7 @@ back, because the answer would then change.
 users write and has no web access, messaging or ads.
 
 **Content rights.** Yes, the app shows third-party content: the seven translations. You have the
-rights to it because they're all in the public domain. Point 4 above covers the KJV in the UK.
+rights to it because they're all in the public domain. Point 3 above covers the KJV in the UK.
 
 **App Review information.** No sign-in is needed. Notes for the reviewer:
 
