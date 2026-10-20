@@ -1,0 +1,28 @@
+[package]
+name = "bible-ffi"
+description = "The interface the bible-rs phone apps use to reach bible-core (UniFFI)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# scripts/build-ios.sh builds the static library with `cargo rustc --crate-type staticlib`, so
+# tests and clippy don't link a second copy of everything.
+[lib]
+name = "bible_ffi"
+
+[features]
+# The `uniffi-bindgen` binary that writes the Swift bindings.
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+bible-core.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uniffi = "0.32"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
