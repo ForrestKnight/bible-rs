@@ -329,6 +329,35 @@ What differs is the toolkit, and here the Mac's choice is overruled.
   when scrolled to an item far away. Both are central to a reader that selects verses and jumps
   to references. The reader is a `UIScrollView` whose content is typeset with TextKit, so
   scrolling keeps the system's physics.
+- **The scroll holds a window of chapters, like the Mac's.** Chapters are typeset as they come
+  within a screen and a half and dropped beyond four; adding or dropping one above moves the
+  content and the offset together, so the text on screen stays still and the scroll runs from
+  Genesis 1 to Revelation 22. The chapter just past each end of the window is typeset ahead on
+  a background queue (TextKit 1 is safe off the main thread while no view owns the layout), so
+  a fling never waits for it; a jump typesets its chapter on the spot. The text is drawn into
+  256-pt tiles, so only what is on screen is ever drawn.
+- **TextKit 1, not 2.** `NSLayoutManager` gives the glyph rectangles of any verse directly,
+  which highlights, selection, taps and the note markers all need. A layout-manager delegate
+  centres each line's face in its line box, as CSS and the Mac app do, so line spacing matches.
+  A phone column has no margin, so verse-per-line numbers and poetry numbers sit in a narrow
+  gutter at the start of the column; in paragraphs they are superscripts, as on the Mac.
+- **One set of design tokens.** Colours come from `crates/app/assets/design-tokens.json`, compiled
+  into `bible-ffi` and read through `palette(theme:)`, and the fonts are the Mac's files.
+  Literata's optical size is pinned at its default (12) rather than following the point size,
+  which would change widths and line breaks. The reading size follows Dynamic Type.
+- **Settings and the reading position** are one JSON value in the study store's settings table
+  (`ios`), written 1.5 s after a change and when the app goes to the background.
+- **Not on the phone yet:** online translations, import, parallel and compare. Online
+  translations need their keys in the iOS Keychain (the `keyring` crate the Mac uses has no iOS
+  store) and the same caching limits as on the Mac. Import needs the document picker.
+- **Measured** in an iPhone 17 Pro simulator on an M4 Pro, Release build:
+  - Launch: the first page is drawn about 340 ms after the process starts (median of 7 warm
+    launches). Almost all of it is iOS starting the process and the scene; the app's own work
+    (opening the core, typesetting and drawing John 1) is about 25 ms.
+  - Search: `love one another` returns 19 verses in about 1 ms.
+  - Scrolling: a tile draws in 0.2 ms on average (1.1 ms at most). Chapters are typeset in
+    1–7 ms each on the background queue, never during a frame. The first chapter takes 13–19 ms,
+    because it includes decoding the translation.
 
 ## What was traded away
 

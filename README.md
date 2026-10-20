@@ -1,7 +1,8 @@
 # bible-rs
 
 Bible: a very fast, native Bible reader for the Mac, written in Rust. Just the Bible — beautifully
-typeset, searchable as you type, with highlights, notes and bookmarks kept on your computer.
+typeset, searchable as you type, with highlights, notes and bookmarks kept on your computer. The
+[iPhone version](#iphone) shares the same core.
 
 ![Reading John 1 in the King James Version](docs/screenshots/reader-light.png)
 
@@ -317,7 +318,7 @@ Other tasks:
 
 | | |
 |---|---|
-| `cargo test --workspace` | core (model, format, importers, search, references, study, online with a mock server) and typesetting tests |
+| `cargo test --workspace` | core (model, format, importers, search, references, study, online with a mock server), typesetting and FFI tests |
 | `cargo run -p xtask -- build-data` | re-download the pinned public-domain sources and regenerate `data/translations/*.bbl` |
 | `scripts/screenshots.sh` | regenerate `docs/screenshots/` under Xvfb |
 | `BIBLE_RS_HOME=/some/dir bible-rs` | use another data folder |
@@ -333,6 +334,40 @@ bible-rs export --markdown -o notes.md
 bible-rs import-notes notes.json
 ```
 
+## iPhone
+
+`apps/ios` is the iPhone app (iPad runs it too): SwiftUI around the same Rust core, through
+UniFFI (`crates/ffi`). It has the Mac's typesetting, themes and colours. You can scroll through all
+1,189 chapters, jump to a reference (`jn 3:16`), search as you type, and highlight, annotate,
+bookmark, copy or share verses. Parallel and compare views, import and online translations are
+Mac-only for now.
+
+<table>
+<tr>
+<td><img src="docs/screenshots/ios/reader-light.png" alt="John 3 on iPhone, light theme, with highlights and a note"></td>
+<td><img src="docs/screenshots/ios/psalm-dark.png" alt="Psalm 23 on iPhone, dark theme"></td>
+<td><img src="docs/screenshots/ios/search-light.png" alt="Search on iPhone"></td>
+<td><img src="docs/screenshots/ios/selection-dark.png" alt="A selected verse with highlight colours and actions"></td>
+</tr>
+</table>
+
+Requires Xcode 26 (the app targets iOS 17+), [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+(`brew install xcodegen`) and rustup; the script adds the iOS Rust targets.
+
+```sh
+scripts/build-ios.sh --run        # build, then launch in a simulator
+scripts/build-ios.sh --test       # UI tests in a simulator
+scripts/build-ios.sh --framework  # just the Rust framework and the Xcode project, then:
+open apps/ios/Bible.xcodeproj
+scripts/ios-screenshots.sh        # regenerate docs/screenshots/ios/
+```
+
+`--run` and `--test` use a simulator named "Bible iPhone", created if needed; set
+`SIMULATOR="iPhone 17 Pro"` to use another. Simulator builds need no signing. For a device, create
+`apps/ios/Config/Local.xcconfig` (git-ignored) with `DEVELOPMENT_TEAM = <your team ID>`, and
+`BIBLE_BUNDLE_ID = <your bundle ID>` if you don't own the default one. Then run
+`scripts/build-ios.sh --device` or run from Xcode.
+
 ## How it's built
 
 ```
@@ -341,6 +376,9 @@ crates/core   bible-core: canonical book grid, verse-indexed model, .bbl format,
               ESV/API.Bible providers, Keychain secrets, translation library
 crates/app    bible-rs: egui app — reader (typesetting, continuous scroll), sidebar, palette,
               panels, settings, macOS menu bar, CLI
+crates/ffi    bible-ffi: the core for mobile apps through UniFFI — chapters as styled blocks,
+              search, references, study data, design tokens
+apps/ios      the iPhone app: SwiftUI, with a UIKit/TextKit reader; XcodeGen project.yml
 xtask         reproducible bundled-data build from pinned public-domain sources
 data          generated .bbl files (public domain only)
 ```
