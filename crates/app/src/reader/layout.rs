@@ -404,24 +404,7 @@ fn push_styled_lead(
     }
 }
 
-/// Words printed in capitals (LORD where a text has no divine-name markup, GOD, JESUS OF
-/// NAZARETH…): two or more letters, all upper case. Set in small capitals, as printed Bibles do.
-pub(crate) fn caps_words(text: &str) -> Vec<Range<usize>> {
-    let mut out = Vec::new();
-    let mut word: Option<(usize, bool, usize)> = None;
-    for (i, c) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
-        if c.is_alphabetic() {
-            let (start, upper, n) = word.unwrap_or((i, true, 0));
-            word = Some((start, upper && c.is_uppercase(), n + 1));
-        } else if let Some((start, upper, n)) = word.take()
-            && upper
-            && n >= 2
-        {
-            out.push(start..i);
-        }
-    }
-    out
-}
+pub(crate) use bible_core::model::caps_words;
 
 /// "LORD"/"Lord" → L + ᴏʀᴅ: the first letter of each word at full size, the rest upper-cased smaller.
 fn small_caps(job: &mut LayoutJob, cx: &Ctx<'_>, text: &str, styles: u8, lead: f32) {

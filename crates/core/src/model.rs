@@ -709,6 +709,26 @@ impl TranslationBuilder {
     }
 }
 
+/// Words printed in capitals (LORD where a text has no divine-name markup, GOD, JESUS OF
+/// NAZARETH…): two or more letters, all upper case. Readers set them in small capitals, as
+/// printed Bibles do.
+pub fn caps_words(text: &str) -> Vec<Range<usize>> {
+    let mut out = Vec::new();
+    let mut word: Option<(usize, bool, usize)> = None;
+    for (i, c) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
+        if c.is_alphabetic() {
+            let (start, upper, n) = word.unwrap_or((i, true, 0));
+            word = Some((start, upper && c.is_uppercase(), n + 1));
+        } else if let Some((start, upper, n)) = word.take()
+            && upper
+            && n >= 2
+        {
+            out.push(start..i);
+        }
+    }
+    out
+}
+
 fn collapse_ws(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for w in s.split_whitespace() {
@@ -798,6 +818,14 @@ mod tests {
         let t = b.finish();
         let v = t.verses_in(ChapterIdx::new(BookId(42), 3).unwrap()).next().unwrap();
         assert_eq!(v.spans, &[Span { start: 0, end: 13, style: Style::WordsOfJesus }]);
+    }
+
+    #[test]
+    fn caps_words_finds_words_in_capitals() {
+        let text = "the LORD GOD of Élan, JÉSUS; A man said I AM.";
+        let words: Vec<&str> = caps_words(text).into_iter().map(|r| &text[r]).collect();
+        assert_eq!(words, ["LORD", "GOD", "JÉSUS", "AM"]);
+        assert!(caps_words("Lord God").is_empty());
     }
 
     #[test]
