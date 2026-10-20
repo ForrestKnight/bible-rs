@@ -120,6 +120,18 @@ final class BibleUITests: XCTestCase {
         XCTAssertTrue(verse("John 13:34").isHittable)
     }
 
+    func testSearchLoadsMoreAsYouScroll() {
+        app.buttons["search"].tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        field.typeText("lamb\n")
+        XCTAssertTrue(row("Genesis 21:28").waitForExistence(timeout: 5))
+        // The last of 175 hits, on the fourth page.
+        let last = row("Revelation 22:3")
+        for _ in 0..<40 where !last.exists { app.swipeUp(velocity: .fast) }
+        XCTAssertTrue(last.exists)
+    }
+
     func testMisspelledSearchOffersASuggestion() {
         app.buttons["search"].tap()
         let field = app.searchFields.firstMatch

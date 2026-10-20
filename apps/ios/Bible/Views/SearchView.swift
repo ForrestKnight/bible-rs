@@ -16,9 +16,18 @@ struct SearchView: View {
     @State private var searched = ""
     @State private var task: Task<Void, Never>?
     @State private var paging = false
-    /// Bumped by every new search, so a later page of an older one (say, the same words in
-    /// another scope) is dropped.
-    @State private var generation = 0
+    @State private var requests = 0
+    /// The search whose results are listed. Later pages repeat it exactly and are dropped if
+    /// another search's results have replaced it by the time they arrive.
+    @State private var listed: Request?
+
+    private struct Request {
+        let id: Int
+        let text: String
+        let translation: String
+        let scope: SearchScope
+        let wholeWords: Bool
+    }
 
     enum Scope: Hashable { case all, old, new, book }
 
@@ -119,59 +128,56 @@ struct SearchView: View {
 
     private func search(debounce: Bool = true) {
         task?.cancel()
-        generation += 1
-        paging = false
         let text = query.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else {
             hits = []
             total = 0
             suggestion = nil
             searched = ""
+            listed = nil
+            paging = false
             return
         }
-        let bible = store.bible
-        let translation = store.settings.translation
-        let scope = coreScope
-        let whole = store.settings.wholeWords
-        let limit = Self.pageSize
+        requests += 1
+        let request = Request(
+            id: requests, text: text, translation: store.settings.translation, scope: coreScope,
+            wholeWords: store.settings.wholeWords)
         task = Task {
             if debounce { try? await Task.sleep(for: .milliseconds(80)) }
             guard !Task.isCancelled else { return }
-            let page = await Task.detached(priority: .userInitiated) {
-                try? bible.search(
-                    translation: translation, query: text, scope: scope, wholeWords: whole, offset: 0, limit: limit)
-            }.value
+            let page = await fetch(request, from: 0)
             guard !Task.isCancelled else { return }
             hits = page?.hits ?? []
             total = page?.total ?? 0
             elapsed = page?.elapsedMs ?? 0
             suggestion = page?.suggestion
             searched = text
+            listed = request
+            paging = false
         }
     }
 
     private func more() {
-        guard hits.count < total, !paging else { return }
+        guard let request = listed, hits.count < total, !paging else { return }
         paging = true
-        let bible = store.bible
-        let translation = store.settings.translation
-        let scope = coreScope
-        let whole = store.settings.wholeWords
-        let text = searched
         let offset = UInt32(hits.count)
-        let limit = Self.pageSize
-        let generation = generation
         Task {
-            let page = await Task.detached(priority: .userInitiated) {
-                try? bible.search(
-                    translation: translation, query: text, scope: scope, wholeWords: whole, offset: offset,
-                    limit: limit)
-            }.value
-            guard generation == self.generation else { return }
+            let page = await fetch(request, from: offset)
+            guard listed?.id == request.id else { return }
             paging = false
             guard let page, hits.count == offset else { return }
             hits += page.hits
         }
+    }
+
+    private func fetch(_ request: Request, from offset: UInt32) async -> SearchPage? {
+        let bible = store.bible
+        let limit = Self.pageSize
+        return await Task.detached(priority: .userInitiated) {
+            try? bible.search(
+                translation: request.translation, query: request.text, scope: request.scope,
+                wholeWords: request.wholeWords, offset: offset, limit: limit)
+        }.value
     }
 }
 
