@@ -277,7 +277,8 @@ final class Store {
 
     func note(_ ref: VerseRef) -> String { (try? bible.note(verse: ref)) ?? "" }
 
-    func setNote(_ ref: VerseRef, _ body: String) {
+    @discardableResult
+    func setNote(_ ref: VerseRef, _ body: String) -> Bool {
         study { try bible.setNote(verse: ref, body: body) }
     }
 
@@ -297,13 +298,16 @@ final class Store {
         try? bible.export(format: format, translation: settings.translation)
     }
 
-    private func study(_ change: () throws -> Void) {
+    @discardableResult
+    private func study(_ change: () throws -> Void) -> Bool {
+        defer { marksVersion += 1 }
         do {
             try change()
+            return true
         } catch {
             show("Couldn’t save: \(error.localizedDescription)")
+            return false
         }
-        marksVersion += 1
     }
 
     // MARK: Toasts

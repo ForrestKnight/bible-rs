@@ -120,6 +120,8 @@ final class ChapterLayout {
         let line = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
         let band = Self.band(line: line, glyph: glyph, manager: manager)
         guard band.insetBy(dx: 0, dy: -4).contains(CGPoint(x: line.midX, y: p.y)) else { return nil }
+        let used = manager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+        guard p.x >= used.minX - 22, p.x <= used.maxX + 22 else { return nil }
         let char = manager.characterIndexForGlyph(at: glyph)
         return storage.attribute(.verse, at: min(char, storage.length - 1), effectiveRange: nil) as? Int
     }

@@ -8,6 +8,7 @@ struct NoteEditor: View {
     let theme: Theme
     @State private var text = ""
     @State private var existed = false
+    @State private var failed = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -35,21 +36,20 @@ struct NoteEditor: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        store.setNote(ref, text.trimmingCharacters(in: .whitespacesAndNewlines))
-                        dismiss()
-                    }
-                    .fontWeight(.semibold)
+                    Button("Save") { save(text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                        .fontWeight(.semibold)
                 }
                 if existed {
                     ToolbarItem(placement: .bottomBar) {
-                        Button("Delete Note", role: .destructive) {
-                            store.setNote(ref, "")
-                            dismiss()
-                        }
-                        .foregroundStyle(Color(theme.danger))
+                        Button("Delete Note", role: .destructive) { save("") }
+                            .foregroundStyle(Color(theme.danger))
                     }
                 }
+            }
+            .alert("Couldn’t save the note", isPresented: $failed) {
+                Button("OK") {}
+            } message: {
+                Text("Your note is still here. Try again in a moment.")
             }
         }
         .onAppear {
@@ -57,6 +57,10 @@ struct NoteEditor: View {
             existed = !text.isEmpty
             focused = true
         }
+    }
+
+    private func save(_ body: String) {
+        if store.setNote(ref, body) { dismiss() } else { failed = true }
     }
 
     /// The verse as it would be copied: text and reference.

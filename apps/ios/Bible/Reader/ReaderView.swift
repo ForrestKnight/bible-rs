@@ -487,12 +487,13 @@ final class ReaderView: UIScrollView, UIScrollViewDelegate, UIGestureRecognizerD
             var elements: [UIAccessibilityElement] = []
             for p in placed {
                 let layout = p.layout
+                var chapter: [UIAccessibilityElement] = []
                 for heading in layout.headingElements {
                     let e = UIAccessibilityElement(accessibilityContainer: self)
                     e.accessibilityLabel = heading.text
                     e.accessibilityTraits = .header
                     e.accessibilityFrameInContainerSpace = heading.frame.offsetBy(dx: 0, dy: p.y)
-                    elements.append(e)
+                    chapter.append(e)
                 }
                 for top in layout.verseTops {
                     guard let text = layout.spokenText(of: top.verse) else { continue }
@@ -502,14 +503,20 @@ final class ReaderView: UIScrollView, UIScrollViewDelegate, UIGestureRecognizerD
                     e.reader = self
                     e.chapter = layout.index
                     e.verse = top.verse
-                    e.accessibilityLabel = "\(top.verse). \(text)"
-                    e.accessibilityHint = "Double-tap to select."
-                    e.accessibilityTraits = .staticText
                     let ref = VerseRef(book: layout.content.book, chapter: layout.content.chapter, verse: UInt8(top.verse))
-                    e.accessibilityIdentifier = rangeLabel(from: ref, to: ref)
+                    let reference = rangeLabel(from: ref, to: ref)
+                    // The reference is in the hint: spoken when a verse is focused, not before
+                    // every verse while reading on.
+                    e.accessibilityLabel = "\(top.verse). \(text)"
+                    e.accessibilityHint = "\(reference). Double-tap to select."
+                    e.accessibilityTraits = .staticText
+                    e.accessibilityIdentifier = reference
                     e.accessibilityFrameInContainerSpace = bands.dropFirst().reduce(first) { $0.union($1) }
                         .offsetBy(dx: 0, dy: p.y)
-                    elements.append(e)
+                    chapter.append(e)
+                }
+                elements += chapter.sorted {
+                    $0.accessibilityFrameInContainerSpace.minY < $1.accessibilityFrameInContainerSpace.minY
                 }
             }
             accessibilityCache = elements

@@ -16,6 +16,9 @@ struct SearchView: View {
     @State private var searched = ""
     @State private var task: Task<Void, Never>?
     @State private var paging = false
+    /// Bumped by every new search, so a later page of an older one (say, the same words in
+    /// another scope) is dropped.
+    @State private var generation = 0
 
     enum Scope: Hashable { case all, old, new, book }
 
@@ -116,6 +119,8 @@ struct SearchView: View {
 
     private func search(debounce: Bool = true) {
         task?.cancel()
+        generation += 1
+        paging = false
         let text = query.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else {
             hits = []
@@ -155,14 +160,16 @@ struct SearchView: View {
         let text = searched
         let offset = UInt32(hits.count)
         let limit = Self.pageSize
+        let generation = generation
         Task {
             let page = await Task.detached(priority: .userInitiated) {
                 try? bible.search(
                     translation: translation, query: text, scope: scope, wholeWords: whole, offset: offset,
                     limit: limit)
             }.value
+            guard generation == self.generation else { return }
             paging = false
-            guard let page, searched == text, hits.count == offset else { return }
+            guard let page, hits.count == offset else { return }
             hits += page.hits
         }
     }
