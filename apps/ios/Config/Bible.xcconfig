@@ -1,0 +1,13 @@
+// Identity and signing. Simulator builds need none of it. For a device, put your own values in
+// Local.xcconfig next to this file (git ignores it), for example:
+//
+//   DEVELOPMENT_TEAM = ABCDE12345
+//   BIBLE_BUNDLE_ID = com.example.bible
+BIBLE_BUNDLE_ID = dev.bible-rs.ios
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic
+
+MARKETING_VERSION = 0.0.0
+CURRENT_PROJECT_VERSION = 1
+#include? "../Generated/Version.xcconfig"
+#include? "Local.xcconfig"

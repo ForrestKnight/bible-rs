@@ -1,0 +1,6 @@
+# Made by scripts/build-ios.sh.
+/Generated/
+/Frameworks/
+/Bible.xcodeproj/
+# Your signing team and bundle id.
+/Config/Local.xcconfig
