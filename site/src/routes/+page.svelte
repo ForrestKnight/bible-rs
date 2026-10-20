@@ -122,5 +122,6 @@
 	</section>
 	<footer>
 		Requires macOS on Apple Silicon or Intel. Made by <a href="https://rasmic.xyz">Micky</a>.
+		<a href="/privacy">Privacy</a> · <a href="/support">Support</a>
 	</footer>
 </div>
