@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { VERSION, SITE_URL } from '#lib/config.js';
+	import { VERSION, REPO_URL, SITE_URL } from '#lib/config.js';
+	import DownloadCount from '#lib/DownloadCount.svelte';
 	import ThemeToggle from '#lib/ThemeToggle.svelte';
 
 	const name = 'Bible';
@@ -67,7 +68,9 @@
 			>
 			Download for Mac
 		</a>
-		<div class="meta">Version {VERSION} · Apple Silicon and Intel · Free</div>
+		<div class="meta">
+			Version {VERSION} · Apple Silicon and Intel · Free<DownloadCount repo={REPO_URL} />
+		</div>
 		<div class="shot">
 			<img
 				class="light"

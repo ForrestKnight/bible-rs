@@ -66,8 +66,8 @@
 
 	<h2>This website</h2>
 	<p>
-		This site sets no cookies and runs no analytics. It loads its fonts from Google Fonts, which
-		sees your IP address when it serves them.
+		This site sets no cookies and runs no analytics. It loads its fonts from Google Fonts and the
+		download count from GitHub, which see your IP address when they serve them.
 	</p>
 
 	<h2>Changes and questions</h2>

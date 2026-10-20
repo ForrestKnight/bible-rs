@@ -5,9 +5,10 @@
  */
 export const VERSION = '0.1.0';
 
-/** Public repo michaelshimeles/bible-rs: GitHub "latest release" asset URL. */
-export const DOWNLOAD_URL =
-	'https://github.com/michaelshimeles/bible-rs/releases/latest/download/bible-rs-universal.dmg';
+export const REPO_URL = 'https://github.com/michaelshimeles/bible-rs';
+
+/** The DMG on the latest GitHub release. */
+export const DOWNLOAD_URL = `${REPO_URL}/releases/latest/download/bible-rs-universal.dmg`;
 
 /**
  * Canonical site origin, no trailing slash. Every absolute URL in the page's metadata
