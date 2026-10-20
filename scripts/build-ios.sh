@@ -84,7 +84,7 @@ xcodebuild -quiet -create-xcframework \
   -library target/aarch64-apple-ios-sim/release/libbible_ffi.a -headers "$BINDINGS/include" \
   -output "$IOS/Frameworks/BibleFFI.xcframework" >/dev/null
 
-BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
 cat > "$GENERATED/Version.xcconfig" <<EOF
 // Written by scripts/build-ios.sh from Cargo.toml and the commit count.
 MARKETING_VERSION = $VERSION
