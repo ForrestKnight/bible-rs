@@ -43,8 +43,8 @@
 	<p>The Mac app goes online for two things only:</p>
 	<ul>
 		<li>
-			Checking for updates, which downloads the list of releases from GitHub. The request carries
-			only the app's version, and GitHub sees your IP address, as with any download.
+			Checking for updates once a day, which downloads the list of releases from GitHub. The request
+			carries only the app's version, and GitHub sees your IP address, as with any download.
 		</li>
 		<li>
 			Online translations you add yourself: the ESV, NLT, NET, or a Bible from API.Bible. The app

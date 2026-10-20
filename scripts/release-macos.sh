@@ -223,6 +223,7 @@ check_plist SUPublicEDKey "$SPARKLE_PUBLIC_KEY"
 # Sparkle refuses to start with SURequireSignedFeed unless SUVerifyUpdateBeforeExtraction is on.
 check_plist SURequireSignedFeed true
 check_plist SUVerifyUpdateBeforeExtraction true
+check_plist SUEnableAutomaticChecks true
 check_plist CFBundleShortVersionString "$VERSION"
 check_plist CFBundleVersion "$VERSION"
 check_plist LSMinimumSystemVersion "$MIN_MACOS"

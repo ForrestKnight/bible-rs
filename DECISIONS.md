@@ -212,8 +212,10 @@ disk. Export to JSON (round-trips via import) and Markdown.
   (`SUVerifyUpdateBeforeExtraction`, without which Sparkle refuses to start when the feed must be
   signed). The cost: the key can't be replaced by leaning on the Developer ID signature, so losing
   it means installed copies stop updating.
-- Sparkle asks on the second launch whether to check automatically, once a day. Until the user
-  agrees, the app makes no update requests of its own.
+- Sparkle checks once a day without asking first (`SUEnableAutomaticChecks`), so every installed
+  copy hears about a new release. Left to itself, Sparkle asks on the second launch, and anyone
+  who declined or never answered would stay on an old version. The check downloads the feed and
+  sends nothing but the app's version.
 - 0.1.0 had no updater. Its users drag `Bible.app` from the new DMG into Applications, so the new
   app moves a `bible-rs.app` with the same bundle ID in the same Applications folder to the Trash.
 

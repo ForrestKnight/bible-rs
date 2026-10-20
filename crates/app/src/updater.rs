@@ -8,9 +8,9 @@
 /// The project's releases on GitHub.
 pub const RELEASES: &str = "https://github.com/michaelshimeles/bible-rs/releases";
 
-/// Starts Sparkle, which checks for updates on its own schedule once the user has agreed to
-/// automatic checks (it asks on the second launch), and moves a copy of the app left under its
-/// old name to the Trash. Main thread; later calls do nothing.
+/// Starts Sparkle, which checks for updates once a day without asking first
+/// (`SUEnableAutomaticChecks`) and offers to install a new release, and moves a copy of the app
+/// left under its old name to the Trash. Main thread; later calls do nothing.
 pub fn start() {
     #[cfg(target_os = "macos")]
     {

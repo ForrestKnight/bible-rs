@@ -107,10 +107,11 @@ gh release upload v<version> dist/bible-rs-universal.dmg dist/bible-rs-<version>
 
 ## Updates
 
-Sparkle checks the feed once a day after the user agrees to automatic checks, which it asks on the
-second launch, and Bible › Check for Updates… (also in Settings › About) checks at once. It
-downloads the zip, checks its signature against `SUPublicEDKey` and that it is signed by the same
-Developer ID team, replaces the app where it is installed and relaunches it.
+Sparkle checks the feed once a day without asking first (`SUEnableAutomaticChecks`), and Bible ›
+Check for Updates… (also in Settings › About) checks at once. When the feed has a newer version, it
+shows the update window. Installing downloads the zip, checks its signature against `SUPublicEDKey`
+and that it is signed by the same Developer ID team, replaces the app where it is installed and
+relaunches it.
 
 Up to 0.1.0 the app was `bible-rs.app` and had no updater; its "Check for Updates…" opens the latest
 release's page. Someone on 0.1.0 downloads the DMG and drags `Bible.app` into Applications, which
