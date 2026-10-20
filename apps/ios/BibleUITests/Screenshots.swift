@@ -16,13 +16,13 @@ final class Screenshots: XCTestCase {
         // A little study history to show.
         go("jn 3")
         verse("John 3:3").tap()
-        app.buttons["Highlight Yellow"].tap()
+        app.selectionAction("Highlight Yellow").tap()
         verse("John 3:5").tap()
-        app.buttons["Note"].tap()
+        app.selectionAction("Note").tap()
         app.textFields["Write a note"].typeText("Born of water and of the Spirit: compare Ezekiel 36:25–27.")
         app.buttons["Save"].tap()
         verse("John 3:7").tap()
-        app.buttons["Highlight Blue"].tap()
+        app.selectionAction("Highlight Blue").tap()
 
         for theme in ["Light", "Dark", "Sepia"] {
             setTheme(theme)
@@ -36,7 +36,7 @@ final class Screenshots: XCTestCase {
             }
             verse("John 3:2").tap()
             snap("selection-\(name)")
-            app.buttons["Clear selection"].tap()
+            app.selectionAction("Clear selection").tap()
 
             go("ps 23")
             snap("psalm-\(name)")

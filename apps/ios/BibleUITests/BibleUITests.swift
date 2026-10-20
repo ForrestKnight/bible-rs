@@ -135,13 +135,13 @@ final class BibleUITests: XCTestCase {
     func testHighlightBookmarkAndNoteShowInStudy() {
         let first = verse("John 1:1")
         first.tap()
-        app.buttons["Highlight Green"].tap()
+        app.selectionAction("Highlight Green").tap()
 
         first.tap()
-        app.buttons["Bookmark"].tap()
+        app.selectionAction("Bookmark").tap()
 
         verse("John 1:3").tap()
-        app.buttons["Note"].tap()
+        app.selectionAction("Note").tap()
         let note = app.textFields["Write a note"].exists ? app.textFields["Write a note"] : app.textViews.firstMatch
         XCTAssertTrue(note.waitForExistence(timeout: 3))
         note.typeText("All things, without exception.")
@@ -158,7 +158,7 @@ final class BibleUITests: XCTestCase {
 
     func testCopiesAVerseWithItsReference() {
         verse("John 1:4").tap()
-        app.buttons["Copy"].tap()
+        app.selectionAction("Copy").tap()
         XCTAssertTrue(app.staticTexts["Copied John 1:4"].waitForExistence(timeout: 3))
     }
 
@@ -182,5 +182,16 @@ final class BibleUITests: XCTestCase {
 
     private func row(_ reference: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", reference)).firstMatch
+    }
+}
+
+extension XCUIApplication {
+    /// A button in the selection bar, once the bar has slid into place (0.28 s): a tap while it
+    /// moves lands on the text behind it.
+    func selectionAction(_ label: String) -> XCUIElement {
+        let button = buttons[label]
+        XCTAssertTrue(button.waitForExistence(timeout: 3), label)
+        usleep(400_000)
+        return button
     }
 }
