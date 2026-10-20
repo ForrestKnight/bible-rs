@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { SITE_URL } from '#lib/config.js';
-	import ThemeToggle from '#lib/ThemeToggle.svelte';
+	import Doc from '#lib/Doc.svelte';
 
 	const title = 'Support · Bible';
 	const description = 'Help with Bible for iPhone, iPad and Mac, and how to report a problem.';
@@ -14,14 +15,7 @@
 	<link rel="canonical" href={url} />
 </svelte:head>
 
-<div class="wrap doc">
-	<header>
-		<ThemeToggle />
-		<a href="/"><img class="icon" src="/icon.png" width="64" height="64" alt="Bible home" /></a>
-		<h1>Support</h1>
-		<p class="meta">Bible for iPhone, iPad and Mac</p>
-	</header>
-
+<Doc heading="Support" meta="Bible for iPhone, iPad and Mac">
 	<p class="lede">
 		Found a problem or have a question? <a href="{issues}/new">Open an issue on GitHub</a>, or
 		<a href={issues}>search the existing ones</a>. Include your device, its system version and the
@@ -51,8 +45,7 @@
 	<h2>Privacy</h2>
 	<p>
 		Bible collects no data, and the iPhone and iPad app never goes online. The
-		<a href="/privacy">privacy policy</a> has the details.
+		<a href={resolve('/privacy')}>privacy policy</a> has the details.
 	</p>
 
-	<footer>Made by <a href="https://rasmic.xyz">Micky</a>.</footer>
-</div>
+</Doc>

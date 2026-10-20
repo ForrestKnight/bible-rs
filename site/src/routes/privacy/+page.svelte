@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { SITE_URL } from '#lib/config.js';
-	import ThemeToggle from '#lib/ThemeToggle.svelte';
+	import Doc from '#lib/Doc.svelte';
 
 	const title = 'Privacy policy · Bible';
 	const description =
@@ -14,14 +15,7 @@
 	<link rel="canonical" href={url} />
 </svelte:head>
 
-<div class="wrap doc">
-	<header>
-		<ThemeToggle />
-		<a href="/"><img class="icon" src="/icon.png" width="64" height="64" alt="Bible home" /></a>
-		<h1>Privacy policy</h1>
-		<p class="meta">Updated 20 October 2026. Covers Bible for iPhone, iPad and Mac.</p>
-	</header>
-
+<Doc heading="Privacy policy" meta="Updated 20 October 2026. Covers Bible for iPhone, iPad and Mac.">
 	<p class="lede">
 		Bible collects no data. There's no account, no analytics, no ads and no tracking. Your
 		highlights, notes, bookmarks, searches and reading history are never sent to the developer.
@@ -43,8 +37,8 @@
 	<p>The Mac app goes online for two things only:</p>
 	<ul>
 		<li>
-			Checking for updates once a day, which downloads the list of releases from GitHub. The request
-			carries only the app's version, and GitHub sees your IP address, as with any download.
+			Checking for updates, which downloads the list of releases from GitHub. The request carries
+			only the app's version, and GitHub sees your IP address, as with any download.
 		</li>
 		<li>
 			Online translations you add yourself: the ESV, NLT, NET, or a Bible from API.Bible. The app
@@ -66,15 +60,14 @@
 
 	<h2>This website</h2>
 	<p>
-		This site sets no cookies and runs no analytics. It loads its fonts from Google Fonts and the
-		download count from GitHub, which see your IP address when they serve them.
+		This site sets no cookies, runs no analytics and serves its own fonts. It loads the download
+		count from GitHub, which sees your IP address when it serves it.
 	</p>
 
 	<h2>Changes and questions</h2>
 	<p>
 		Changes to this policy are published on this page with a new date. Questions are welcome on the
-		<a href="/support">support page</a>.
+		<a href={resolve('/support')}>support page</a>.
 	</p>
 
-	<footer>Made by <a href="https://rasmic.xyz">Micky</a>.</footer>
-</div>
+</Doc>
