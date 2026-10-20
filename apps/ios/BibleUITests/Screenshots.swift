@@ -50,7 +50,9 @@ final class Screenshots: XCTestCase {
                     .waitForExistence(timeout: 5))
             app.typeText("\n")
             snap("search-\(name)")
-            app.buttons["Close"].firstMatch.tap()
+            // iPhone: the search field's Close button. iPad shows search in a sheet with Done.
+            let close = app.buttons["Close"].firstMatch
+            (close.exists ? close : app.buttons["Done"].firstMatch).tap()
 
             app.buttons["reference"].tap()
             XCTAssertTrue(app.buttons["Psalms 23"].waitForExistence(timeout: 3))
