@@ -360,6 +360,7 @@ scripts/build-ios.sh --test       # UI tests in a simulator
 scripts/build-ios.sh --framework  # just the Rust framework and the Xcode project, then:
 open apps/ios/Bible.xcodeproj
 scripts/ios-screenshots.sh        # regenerate docs/screenshots/ios/
+scripts/ios-screenshots.sh --app-store  # full-size iPhone and iPad sets for the App Store
 ```
 
 `--run` and `--test` use a simulator named "Bible iPhone", created if needed; set
@@ -367,6 +368,10 @@ scripts/ios-screenshots.sh        # regenerate docs/screenshots/ios/
 `apps/ios/Config/Local.xcconfig` (git-ignored) with `DEVELOPMENT_TEAM = <your team ID>`, and
 `BIBLE_BUNDLE_ID = <your bundle ID>` if you don't own the default one. Then run
 `scripts/build-ios.sh --device` or run from Xcode.
+
+`scripts/release-ios.sh` archives, signs and uploads a build for the App Store.
+[apps/ios/APP_STORE.md](apps/ios/APP_STORE.md) covers the setup, the listing and the answers App
+Store Connect asks for.
 
 ## How it's built
 

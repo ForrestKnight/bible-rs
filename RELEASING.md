@@ -1,5 +1,8 @@
 # Releasing Bible for macOS
 
+The iPhone and iPad app goes through the App Store instead; see
+[apps/ios/APP_STORE.md](apps/ios/APP_STORE.md).
+
 `scripts/release-macos.sh` builds everything on a Mac in one command. It writes to `dist/`:
 
 | File | What it is |
