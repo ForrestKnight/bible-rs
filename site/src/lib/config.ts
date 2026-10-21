@@ -17,6 +17,6 @@ export const DOWNLOAD_URL = `${REPO_URL}/releases/latest/download/bible-rs-unive
 
 /**
  * Canonical site origin, no trailing slash. Every absolute URL in the page's metadata
- * is built from it; static/robots.txt and static/sitemap.xml repeat it by hand.
+ * is built from it; static/robots.txt repeats it by hand.
  */
 export const SITE_URL = 'https://bible.rasmic.xyz';

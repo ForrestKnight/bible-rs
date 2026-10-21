@@ -9,7 +9,9 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter()
+			adapter: adapter(),
+			// The reader registers it (for /read only), so the landing page never downloads the reader.
+			serviceWorker: { register: false }
 		})
 	]
 });

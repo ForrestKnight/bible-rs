@@ -11,7 +11,7 @@
 		let total = 0;
 		try {
 			while (page) {
-				const res = await fetch(page);
+				const res: Response = await fetch(page);
 				// A partial total would drop every time a release pushes older ones onto the next page.
 				if (!res.ok) return;
 				const releases: { assets: { name: string; download_count: number }[] }[] =

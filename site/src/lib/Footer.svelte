@@ -13,8 +13,8 @@
 	</div>
 	<p>Made by <a href="https://rasmic.xyz">Micky</a>. {@render children?.()}</p>
 	<div class="links">
-		<a href={resolve('/privacy')}>Privacy</a>
-		<a href={resolve('/support')}>Support</a>
+		<a href={resolve('/(site)/privacy')}>Privacy</a>
+		<a href={resolve('/(site)/support')}>Support</a>
 		<a href={REPO_URL}>
 			<svg viewBox="0 0 16 16" aria-hidden="true">
 				<path

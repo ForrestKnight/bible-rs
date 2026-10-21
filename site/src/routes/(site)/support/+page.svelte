@@ -45,7 +45,7 @@
 	<h2>Privacy</h2>
 	<p>
 		Bible collects no data, and the iPhone and iPad app never goes online. The
-		<a href={resolve('/privacy')}>privacy policy</a> has the details.
+		<a href={resolve('/(site)/privacy')}>privacy policy</a> has the details.
 	</p>
 
 </Doc>

@@ -1,0 +1,227 @@
+/*
+ * The reader's base styles. Colours, sizes and type styles are the Mac app's design tokens
+ * (tokens.css, generated). Fonts are site/scripts/fonts.sh's subsets of Literata and Inter (OFL).
+ */
+@import './tokens.css';
+
+/*
+ * The metric overrides are the fonts' hhea values, which the Mac's layout assumes (CSS line boxes
+ * centre ascender + descender). Without them Windows would use the OS/2 win metrics instead.
+ */
+@font-face {
+	font-family: 'Literata Reader';
+	font-style: normal;
+	font-weight: 300 600;
+	font-display: swap;
+	src: url('/fonts/read/literata.woff2') format('woff2');
+	ascent-override: 117.7%;
+	descent-override: 30.8%;
+	line-gap-override: 0%;
+}
+
+@font-face {
+	font-family: 'Literata Reader';
+	font-style: italic;
+	font-weight: 300 600;
+	font-display: swap;
+	src: url('/fonts/read/literata-italic.woff2') format('woff2');
+	ascent-override: 117.7%;
+	descent-override: 30.8%;
+	line-gap-override: 0%;
+}
+
+@font-face {
+	font-family: 'Literata Heading';
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url('/fonts/read/literata-heading.woff2') format('woff2');
+	ascent-override: 117.7%;
+	descent-override: 30.8%;
+	line-gap-override: 0%;
+}
+
+@font-face {
+	font-family: 'Inter Reader';
+	font-style: normal;
+	font-weight: 400 700;
+	font-display: swap;
+	src: url('/fonts/read/inter.woff2') format('woff2');
+	ascent-override: 96.875%;
+	descent-override: 24.12%;
+	line-gap-override: 0%;
+}
+
+/* The flash on a verse jumped to fades this wash (reader/Chapter.svelte). */
+@property --fl {
+	syntax: '<color>';
+	inherits: false;
+	initial-value: transparent;
+}
+
+html[data-read] {
+	--font-reading: 'Literata Reader', Georgia, serif;
+	--font-ui: 'Inter Reader', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+	/* One design point at the reading size (the Mac's `s(pt)`): calc(16 * var(--u)). */
+	--u: calc(var(--reading-size) / 20);
+	--lh: round(calc(var(--reading-size) * var(--reading-line-height)), 1px);
+	color-scheme: light;
+	background: var(--paper);
+	color: var(--ink);
+	font: var(--type-ui);
+	/* Each role pins its optical size below; the default instance is opsz 12. */
+	font-optical-sizing: none;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	text-rendering: optimizeLegibility;
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+	overflow: hidden;
+	overscroll-behavior: none;
+}
+
+html[data-read][data-theme='dark'] {
+	color-scheme: dark;
+}
+
+html[data-read] body {
+	margin: 0;
+	overflow: hidden;
+	background: var(--paper);
+}
+
+html[data-read] *,
+html[data-read] *::before,
+html[data-read] *::after {
+	box-sizing: border-box;
+}
+
+html[data-read] :where(button, input, textarea, select) {
+	font: inherit;
+	color: inherit;
+	letter-spacing: inherit;
+}
+
+html[data-read] :where(button) {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	cursor: default;
+	-webkit-tap-highlight-color: transparent;
+}
+
+html[data-read] :where(h1, h2, h3, h4, p, ul, ol, figure, blockquote) {
+	margin: 0;
+	padding: 0;
+}
+
+html[data-read] :where(ul, ol) {
+	list-style: none;
+}
+
+html[data-read] :where(a) {
+	color: inherit;
+	text-decoration: none;
+}
+
+html[data-read] ::selection {
+	background: var(--selection);
+}
+
+/* Not on what's only focused from code or arrow keys: panels, and menu rows (lit instead); nor
+   on text fields, which draw their own. Components can still turn it off. */
+html[data-read]
+	:where(:focus-visible:not([tabindex='-1'], input:not([type='checkbox'], [type='radio'], [type='range']), textarea)) {
+	outline: var(--focus-ring-width) solid var(--focus);
+	outline-offset: 1px;
+}
+
+/* The fonts' roles (theme.rs): body text uses each font's default instance. */
+html[data-read] .serif {
+	font-family: var(--font-reading);
+	font-weight: 400;
+}
+
+html[data-read] .serif-medium {
+	font-family: var(--font-reading);
+	font-weight: 500;
+	font-variation-settings: 'opsz' 14;
+}
+
+html[data-read] .serif-semibold {
+	font-family: var(--font-reading);
+	font-weight: 600;
+	font-variation-settings: 'opsz' 16;
+}
+
+html[data-read] .serif-heading {
+	font-family: var(--font-reading);
+	font-weight: 400;
+	font-variation-settings: 'opsz' 28;
+}
+
+html[data-read] .serif-display {
+	font-family: var(--font-reading);
+	font-weight: 300;
+	font-variation-settings: 'opsz' 48;
+}
+
+/* The design's type styles, with their tracking. */
+html[data-read] .t-display {
+	font: var(--type-display);
+	letter-spacing: var(--type-display-tracking);
+	font-variation-settings: 'opsz' 48;
+}
+html[data-read] .t-heading {
+	font: var(--type-heading);
+	letter-spacing: var(--type-heading-tracking);
+	font-variation-settings: 'opsz' 28;
+}
+html[data-read] .t-body {
+	font: var(--type-body);
+}
+html[data-read] .t-subtitle {
+	font: var(--type-subtitle);
+}
+html[data-read] .t-snippet {
+	font: var(--type-snippet);
+}
+html[data-read] .t-snippet-sm {
+	font: var(--type-snippet-sm);
+}
+html[data-read] .t-ui-title {
+	font: var(--type-ui-title);
+	letter-spacing: var(--type-ui-title-tracking);
+}
+html[data-read] .t-ui {
+	font: var(--type-ui);
+}
+html[data-read] .t-ui-strong {
+	font: var(--type-ui-strong);
+}
+html[data-read] .t-small {
+	font: var(--type-small);
+}
+html[data-read] .t-caption {
+	font: var(--type-caption);
+}
+html[data-read] .t-label {
+	font: var(--type-label);
+	letter-spacing: var(--type-label-tracking);
+	text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html[data-read] {
+		--motion-fast: 0ms;
+		--motion-base: 0ms;
+		--motion-slow: 0ms;
+	}
+}
+
+html[data-read][data-reduce-motion] {
+	--motion-fast: 0ms;
+	--motion-base: 0ms;
+	--motion-slow: 0ms;
+}

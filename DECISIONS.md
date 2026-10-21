@@ -367,6 +367,68 @@ What differs is the toolkit, and here the Mac's choice is overruled.
     1–7 ms each on the background queue, never during a frame. The first chapter takes 13–19 ms,
     because it includes decoding the translation.
 
+## Web: the core in WebAssembly, the reader in the DOM
+
+The web reader (`/read` on the site, `site/src/routes/read`) is the Mac app in a browser tab: the
+same typesetting, themes, palette, search, study tools, pages and shortcuts. Every chapter is
+also a static page that search engines can index.
+
+| Option | Why not |
+|---|---|
+| **egui on the web** (eframe to a canvas) | One canvas: no text selection, find in page, screen readers, translation tools or reader mode, and nothing for a search engine to index. A few megabytes of wasm before the first word. |
+| A JavaScript port of the core | Two implementations of search, references, the study store and the chapter layout, which would drift apart. |
+| **bible-core in wasm, a Svelte reader drawing DOM text** ✔ | One core for Mac, iPhone and web. The browser lays out the text, so selection, accessibility and find in page work, and each chapter can be served as plain HTML. |
+
+- **The boundary is `crates/web` (`bible-web`), through wasm-bindgen.** It is the same shape as
+  `bible-ffi`: a chapter as blocks of styled runs (`bible_core::content`, shared by both), search
+  hits with match ranges, references, copy formats, study data, history and plans. The study
+  store keeps everything in memory and writes to SQLite only with the `native` feature, so in
+  the browser it runs in memory and the page saves its JSON export in `localStorage` (debounced,
+  and when the tab is hidden). `scripts/build-web.sh` builds it (with SIMD, which makes search's
+  scans several times faster) into `site/src/lib/read/wasm/`. The output is committed, so the site
+  builds without Rust: 612 KB, 196 KB with brotli.
+- **Every chapter of every bundled translation is a prerendered page** (7 × 1,189 = 8,323), at
+  `/read/<translation>/<book>/<chapter>`, with its title, a description taken from its first
+  verses, a canonical URL and a sitemap entry. The server runs the same wasm module in Node to typeset
+  the chapter with the default settings, so the page is readable before any script runs.
+  `/read` itself restores the saved place.
+- **Hydration never shows a wrong layout.** The first client render matches the server's.
+  Saved settings are applied after mount. An inline script in `app.html` sets the theme and
+  accent before the first paint. When saved settings change the typesetting (verse per line,
+  parallel columns, no headings, a different place), the same script hides the text until the core
+  has typeset it again, with a 5 s fallback.
+- **Typesetting is CSS with the Mac's metrics.** The same Literata and Inter files, cut to the
+  axis ranges and characters the reader uses (`site/scripts/fonts.sh`), with the same pinned
+  optical sizes. CSS centres each line's glyphs in the line box, as the Mac app does. Highlights,
+  the selection and the flash are stacked background layers sized to the 28 pt line box. With
+  `box-decoration-break: clone` they wrap exactly as egui paints them. Colours come from
+  `design-tokens.json` through `site/scripts/tokens.js`. Line breaks agree with the Mac's except
+  for the odd word at the column edge, because the browser's shaping and harfrust's differ by a
+  fraction of a pixel per line.
+- **Continuous scrolling keeps a window of chapters and an anchor.** The anchor is the verse at
+  the top of the reading area and how far into it (or how far above it, in a chapter head). Any
+  relayout puts it back: fonts arriving, a resize, a settings change, chapters added above.
+  Scrolling up or down never shifts the text on screen.
+- **Translations are static files.** The bundled `.bbl` files are served from `/translations/`
+  and fetched when first used. A service worker scoped to `/read` precaches the app, its wasm and
+  fonts, keeps translations cache-first and pages network-first, so the reader works offline after
+  one visit.
+- **Importing runs in a worker, with its own wasm module.** The Mac's importers (USFM, OSIS,
+  Zefania, SWORD, locked modules included) take their files from memory as well as from disk
+  (`import::peek_files`, `import::import_files`). They sit behind bible-core's `import` feature,
+  which brings the zip and gzip readers but not SQLite or the HTTP client. `scripts/build-web.sh`
+  builds `bible-web` twice: the reader's module without the importers (612 KB) and
+  `bible_import` with them (906 KB). Only `import.worker.ts` loads the second module, the first
+  time someone imports, so the reader doesn't pay for it and a long conversion never blocks the
+  page. On wasm the `.bbl` is compressed with ruzstd's fastest level, since zstd's C library
+  isn't available there. The converted bytes go to IndexedDB, and the list of imports to
+  `localStorage` next to the settings. An imported translation has no static page, so while it
+  is the reading translation the address stays `/read`.
+- **No online translations on the web.** ESV, API.Bible, NLT and NET need an API key that
+  would either be exposed in the page or call for a proxy that relays licensed text. Their APIs
+  also aren't all open to browsers (CORS). The web reader offers the bundled translations and
+  files you import.
+
 ## What was traded away
 
 - No per-word highlighting (verse-level only) and no free text selection inside verses — verse

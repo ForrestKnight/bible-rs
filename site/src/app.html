@@ -7,13 +7,34 @@
 		<meta name="theme-color" content="#0a0a0b" />
 		<script>
 			try {
-				if (localStorage.getItem('theme') === 'light') {
-					document.documentElement.dataset.theme = 'light';
-					document.querySelector('meta[name="theme-color"]').content = '#f5f5f7';
+				var d = document.documentElement;
+				var meta = document.querySelector('meta[name="theme-color"]');
+				if ('read' in d.dataset) {
+					// The reader's appearance, before the first paint (see lib/read/settings.ts).
+					var s = JSON.parse(localStorage.getItem('bible.read.settings') || '{}');
+					var dark = matchMedia('(prefers-color-scheme: dark)').matches;
+					var theme = s.themeSystem ? (dark ? 'dark' : 'light') : s.theme;
+					if (theme === 'light' || theme === 'sepia' || theme === 'dark') d.dataset.theme = theme;
+					if (typeof s.accent === 'string') d.dataset.accent = s.accent;
+					var t = s.typo || {};
+					if (t.size > 0) d.style.setProperty('--reading-size', t.size + 'px');
+					if (t.lineHeight > 0) d.style.setProperty('--reading-line-height', t.lineHeight);
+					if (t.measure > 0) d.style.setProperty('--reading-measure', t.measure + 'em');
+					meta.content = { light: '#ffffff', sepia: '#f6eedc', dark: '#161618' }[d.dataset.theme];
+					// The page holds its chapter typeset with the defaults; when the saved settings or
+					// place need the core first, the text waits for it rather than jumping.
+					var restoring = location.pathname === '/read' && s.typo && (s.chapter !== 997 || s.verse > 1 || s.translation !== 'kjv');
+					var parallel = s.parallelOn && s.parallel && s.parallel.length > 0;
+					if (restoring || parallel || t.mode === 'versePerLine' || t.headings === false || t.verseNumbers === false) {
+						d.dataset.pending = '';
+						setTimeout(function () { delete d.dataset.pending; }, 5000);
+					}
+				} else if (localStorage.getItem('theme') === 'light') {
+					d.dataset.theme = 'light';
+					meta.content = '#f5f5f7';
 				}
 			} catch {}
 		</script>
-		<link rel="preload" href="/fonts/literata.woff2" as="font" type="font/woff2" crossorigin />
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

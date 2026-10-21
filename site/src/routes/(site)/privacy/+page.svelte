@@ -67,7 +67,7 @@
 	<h2>Changes and questions</h2>
 	<p>
 		Changes to this policy are published on this page with a new date. Questions are welcome on the
-		<a href={resolve('/support')}>support page</a>.
+		<a href={resolve('/(site)/support')}>support page</a>.
 	</p>
 
 </Doc>
