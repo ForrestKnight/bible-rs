@@ -1,7 +1,8 @@
 /**
  * The share card (share_sheet.rs `draw_card`): its size per shape, the verse set as large as fits
- * (21 pt down to 12), and the same layout drawn to a canvas for the image. Lines are broken here,
- * with the canvas's measurements, so the preview and the image wrap alike.
+ * (21 pt down to 12, then cut short with "…" where the Mac lets it run off the card), and the same
+ * layout drawn to a canvas for the image. Lines are broken here, with the canvas's measurements,
+ * so the preview and the image wrap alike.
  */
 import type { CardShape, CardStyle } from './settings';
 import { ICONS, type IconDef, type IconName } from './ui/icons';
@@ -27,6 +28,8 @@ export interface CardLayout {
 	size: number;
 	lineHeight: number;
 	lines: Seg[][];
+	/** Whether the verses didn't all fit, even at 12 pt, and end in "…". */
+	cut: boolean;
 }
 
 const SIZES: Record<CardShape, [number, number]> = {
@@ -127,7 +130,26 @@ export function layoutCard(shape: CardShape, runs: Seg[], reference: boolean): C
 		size--;
 		lines = wrap(ws, serif(size), inner);
 	}
-	return { width, height, pad, size, lineHeight: Math.round((size * 32) / 21), lines };
+	const lineHeight = Math.round((size * 32) / 21);
+	const keep = Math.max(1, Math.floor(room / lineHeight));
+	const cut = lines.length > keep;
+	if (cut) {
+		// The most words that fit with "…" after them.
+		const upTo = (n: number) => {
+			const last = ws[n - 1];
+			const end = last[last.length - 1];
+			const ended = [...last.slice(0, -1), { ...end, text: `${end.text.replace(/[,;:.]+$/, '')}…` }];
+			return wrap([...ws.slice(0, n - 1), ended], serif(size), inner);
+		};
+		let [lo, hi] = [1, ws.length];
+		while (lo < hi) {
+			const mid = Math.ceil((lo + hi) / 2);
+			if (upTo(mid).length <= keep) lo = mid;
+			else hi = mid - 1;
+		}
+		lines = upTo(lo);
+	}
+	return { width, height, pad, size, lineHeight, lines, cut };
 }
 
 /** A card style's colours, from the theme it borrows (`el` carries that theme's tokens). */

@@ -148,18 +148,25 @@
 		schedule();
 	}
 
-	// Text arriving for a pending jump (a translation loading) places it.
+	// Text arriving (a translation loading) places a pending jump, or puts the verse that was at
+	// the top back there.
 	$effect(() => {
 		void app.loaded.size;
 		void cols;
-		untrack(() => tick().then(place));
+		untrack(() =>
+			tick().then(() => {
+				place();
+				restore();
+			})
+		);
 	});
 
 	// ------------------------------------------------------------------ keeping the place
 
 	/** Remembers the verse at the top line, so a relayout can keep it there. */
 	function remember() {
-		if (!scroller || !column) return;
+		// Until the translation loads its chapters are placeholders: keep the verse from before.
+		if (!scroller || !column || !app.loaded.has(translation)) return;
 		const line = scroller.getBoundingClientRect().top + laidTop;
 		for (const section of column.querySelectorAll<HTMLElement>('section[data-chapter]')) {
 			const r = section.getBoundingClientRect();
@@ -309,6 +316,9 @@
 
 	// ------------------------------------------------------------------ where the reader is
 
+	/** The chapter `app.furthest` counts verses in. */
+	let furthestIn = -1;
+
 	/** The first verse whose last line is below the reading line (22% down), and the furthest in view. */
 	function locate() {
 		if (!scroller || pending) return;
@@ -333,7 +343,10 @@
 				if (el.getBoundingClientRect().top < bottom) furthest = Number(el.dataset.v);
 				else break;
 			}
-			if (furthest > app.furthest || app.here.chapter !== chapter) app.furthest = furthest;
+			if (furthest > app.furthest || furthestIn !== chapter) {
+				app.furthest = furthest;
+				furthestIn = chapter;
+			}
 			return;
 		}
 	}

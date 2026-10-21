@@ -1,6 +1,7 @@
 <!--
 	Settings › Data (settings_ui.rs `data`): what's in the library and where, exports, backups and
-	erasing. The Mac keeps its library and backups as files; here they are in the browser.
+	erasing. The Mac keeps its library and backups as files; here they are in the browser, so the
+	last backup is restored from its row rather than picked as a file.
 -->
 <script lang="ts">
 	import { getApp, now } from '../app.svelte';
@@ -30,6 +31,11 @@
 		{ key: 'bookmarks', label: 'Bookmarks' },
 		{ key: 'history', label: 'History' }
 	] as const;
+
+	const hasBackup = $derived.by(() => {
+		void app.studyGen;
+		return app.backups().length > 0;
+	});
 
 	const lastBackup = $derived.by(() => {
 		void app.studyGen;
@@ -104,6 +110,9 @@
 	<div class="row">
 		<span class="row-label">Last backup</span>
 		<span class="last">{lastBackup}</span>
+		{#if hasBackup}
+			<Button size="sm" label="Restore" onclick={() => app.dispatch({ type: 'restoreBackup' })} />
+		{/if}
 	</div>
 	<div class="row">
 		<span class="row-label">Restore from a JSON backup</span>

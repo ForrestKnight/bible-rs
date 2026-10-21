@@ -154,6 +154,7 @@
 					<span class="brand"><Icon name="book" size={12} />Bible</span>
 				</footer>
 			</div>
+			{#if layout?.cut}<p class="cut">Too long for one card: it ends with “…”</p>{/if}
 		</div>
 
 		<div class="options">
@@ -224,12 +225,23 @@
 
 	.well {
 		display: grid;
+		position: relative;
 		place-items: center;
 		flex: none;
 		width: 352px;
 		height: 440px;
 		border-radius: 14px;
 		background: var(--fill);
+	}
+
+	.cut {
+		position: absolute;
+		right: 0;
+		bottom: 12px;
+		left: 0;
+		color: var(--ink-3);
+		font: var(--type-small);
+		text-align: center;
 	}
 
 	.card {

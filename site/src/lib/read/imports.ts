@@ -89,12 +89,13 @@ function open(): Promise<IDBDatabase> {
 	return db;
 }
 
+/** Runs one request, settling once its transaction has committed (or failed). */
 async function run<T>(mode: IDBTransactionMode, op: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-	const store = (await open()).transaction(STORE, mode).objectStore(STORE);
+	const tx = (await open()).transaction(STORE, mode);
 	return new Promise((resolve, reject) => {
-		const req = op(store);
-		req.onsuccess = () => resolve(req.result);
-		req.onerror = () => reject(req.error);
+		const req = op(tx.objectStore(STORE));
+		tx.oncomplete = () => resolve(req.result);
+		tx.onabort = tx.onerror = () => reject(tx.error ?? req.error ?? new Error('the browser stopped saving it'));
 	});
 }
 
@@ -144,6 +145,11 @@ function call<T>(message: object, progress?: (p: Partial<ImportProgress>) => voi
 				else p.reject(new Error(r.error));
 			}
 		};
+		worker.onerror = (e) => {
+			e.preventDefault();
+			reset(new Error(e.message || "the importer couldn't start"));
+		};
+		worker.onmessageerror = () => reset(new Error("the importer's reply couldn't be read"));
 	}
 	const id = nextId++;
 	return new Promise<T>((resolve, reject) => {
@@ -163,9 +169,13 @@ export const convertSource = (
 
 /** Stops a conversion under way: the worker goes, and the next call starts another. */
 export function cancelConversion() {
+	reset(new Error('import cancelled'));
+}
+
+function reset(error: Error) {
 	worker?.terminate();
 	worker = null;
-	for (const p of pending.values()) p.reject(new Error('import cancelled'));
+	for (const p of pending.values()) p.reject(error);
 	pending.clear();
 }
 

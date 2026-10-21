@@ -35,6 +35,18 @@ self.addEventListener('activate', (event) => {
 	);
 });
 
+// The translations a page loaded before this worker controlled it.
+self.addEventListener('message', (event) => {
+	const urls: unknown = event.data?.cache;
+	if (!Array.isArray(urls)) return;
+	const wanted = urls.filter((u): u is string => typeof u === 'string' && u.startsWith('/translations/'));
+	event.waitUntil(
+		caches.open(CACHE).then(async (cache) => {
+			for (const url of wanted) if (!(await cache.match(url))) await cache.add(url).catch(() => {});
+		})
+	);
+});
+
 self.addEventListener('fetch', (event) => {
 	const request = event.request;
 	const url = new URL(request.url);

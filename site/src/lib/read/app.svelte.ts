@@ -12,6 +12,7 @@ import {
 	core as startCore,
 	chapterLabel,
 	chapterVerses,
+	planDays,
 	type ChapterContent,
 	type ContentOptions,
 	type Core,
@@ -42,6 +43,7 @@ import {
 	type SidebarTab,
 	type Theme
 } from './settings';
+import { dayStart } from './time';
 
 export type Page = 'reader' | 'translations' | 'bookmarks' | 'highlights' | 'notes' | 'history' | 'plans';
 export type SettingsTab = 'reading' | 'appearance' | 'translations' | 'shortcuts' | 'data' | 'about';
@@ -86,6 +88,7 @@ export type Action =
 	| { type: 'startPlan'; id: string }
 	| { type: 'stopPlan'; id: string }
 	| { type: 'setPlanRead'; plan: string; day: number; passage: number; read: boolean }
+	| { type: 'finishPlan'; id: string; at: number | null }
 	| { type: 'setPlanReminder'; on: boolean }
 	| { type: 'setAccent'; accent: Accent }
 	| { type: 'setReduceMotion'; on: boolean }
@@ -116,6 +119,7 @@ export type Action =
 	| { type: 'toggleRedLetters' }
 	| { type: 'export'; kind: 'json' | 'markdown' }
 	| { type: 'importStudy' }
+	| { type: 'restoreBackup' }
 	| { type: 'importTranslation'; folder?: boolean }
 	| { type: 'removeTranslation'; id: string }
 	| { type: 'openPage'; page: Page }
@@ -224,6 +228,9 @@ export class ReadApp {
 	#verses = new Map<string, VerseContent[]>();
 	#toastId = 0;
 	#saveStudy: ReturnType<typeof setTimeout> | undefined;
+	#studyDirty = false;
+	/** The day the plan reminder last showed. */
+	#reminded: number | null = null;
 	#session: ReadingSession | null = null;
 	#seconds = 0;
 	#last: number | null = null;
@@ -324,6 +331,7 @@ export class ReadApp {
 			this.toastNow(`Couldn't save the import: ${e instanceof Error ? e.message : e}`);
 			return;
 		}
+		this.#forget(info.id);
 		if (this.core) {
 			this.core.add(r.bytes);
 			this.loaded.add(info.id);
@@ -352,7 +360,15 @@ export class ReadApp {
 		s.parallel = s.parallel.filter((p) => p !== id);
 		if (this.translationPick === id) this.translationPick = null;
 		this.loaded.delete(id);
+		this.#forget(id);
 		this.toastNow(`Removed ${info.abbrev}`);
+	}
+
+	/** Drops a translation's chapters from the caches (an import removed, or replaced under its id). */
+	#forget(id: string) {
+		for (const cache of [this.#content, this.#verses]) {
+			for (const key of cache.keys()) if (key.startsWith(`${id}:`)) cache.delete(key);
+		}
 	}
 
 	// ---------------------------------------------------------------- reading
@@ -571,17 +587,36 @@ export class ReadApp {
 
 	studyChanged() {
 		this.studyGen++;
+		this.#studyDirty = true;
 		clearTimeout(this.#saveStudy);
 		this.#saveStudy = setTimeout(() => this.saveStudyNow(), 300);
 	}
 
+	/** Saves the study if it changed here, since each save replaces what other tabs saved. */
 	saveStudyNow() {
 		clearTimeout(this.#saveStudy);
-		if (!this.core) return;
+		if (!this.core || !this.#studyDirty) return;
 		try {
 			localStorage.setItem(STUDY_KEY, this.core.bible.snapshot());
+			this.#studyDirty = false;
 		} catch (e) {
 			this.toastNow(`Couldn't save your study: ${e instanceof Error ? e.message : e}`);
+		}
+	}
+
+	/**
+	 * Another tab saved its study: take it, or with changes here still to save, add it to them
+	 * (what that tab deleted then comes back, rather than losing what this one added).
+	 */
+	studySaved(json: string | null) {
+		const core = this.core;
+		if (!core || json === null) return;
+		try {
+			if (this.#studyDirty) core.bible.importStudy(json);
+			else core.bible.restore(json);
+			this.studyGen++;
+		} catch (e) {
+			console.error('Saved study unreadable', e);
 		}
 	}
 
@@ -624,6 +659,7 @@ export class ReadApp {
 
 	/** Called about once a second with where the reader is (reading.rs's tick). */
 	tick(focused: boolean) {
+		this.#remindPlans();
 		const core = this.core;
 		const id = this.settings.translation;
 		if (!core || !this.loaded.has(id) || this.page !== 'reader') return;
@@ -668,6 +704,30 @@ export class ReadApp {
 	finishReading() {
 		this.#saveReading();
 		this.#session = null;
+	}
+
+	/** The daily plan reminder: once a day from 7:00, while a plan has today's reading to do (app.rs `plan_reminder`). */
+	#remindPlans() {
+		if (!this.settings.planReminder || !this.core) return;
+		const t = now();
+		const today = dayStart(t);
+		if (this.#reminded === today || t - today < 7 * 3600) return;
+		this.#reminded = today;
+		for (const p of this.plans()) {
+			if (p.finished !== null) continue;
+			const day = Math.floor((today - p.started) / 86_400) + 1;
+			const due = planDays(p.id)[day - 1];
+			const reads = this.planReads(p.id);
+			if (due?.passages.some((_, i) => !reads.has(`${day}:${i}`))) {
+				this.toastNow(`Today's reading: ${due.label}`);
+				return;
+			}
+		}
+	}
+
+	/** Forgets the chapter being read without saving it, if it began at `since` or later. */
+	#dropReading(since = 0) {
+		if (this.#session && this.#session.started >= since) this.#session = null;
 	}
 
 	// ---------------------------------------------------------------- toasts
@@ -816,6 +876,9 @@ export class ReadApp {
 			case 'setPlanRead':
 				this.study((c) => c.bible.setPlanRead(a.plan, a.day, a.passage, a.read));
 				break;
+			case 'finishPlan':
+				this.study((c) => c.bible.finishPlan(a.id, a.at));
+				break;
 			case 'setPlanReminder':
 				s.planReminder = a.on;
 				break;
@@ -831,8 +894,10 @@ export class ReadApp {
 					this.toastNow("Couldn't erase: the backup couldn't be saved");
 					break;
 				}
-				if (this.study((c) => (c.bible.eraseStudy(), true), "Couldn't erase"))
+				if (this.study((c) => (c.bible.eraseStudy(), true), "Couldn't erase")) {
+					this.#dropReading();
 					this.toastNow('Erased. A backup was saved first (Settings › Data)');
+				}
 				break;
 			case 'toggleFocus':
 				this.focus = !this.focus;
@@ -844,6 +909,7 @@ export class ReadApp {
 				break;
 			case 'clearReading':
 				this.study((c) => c.bible.clearReading(a.since));
+				this.#dropReading(a.since);
 				break;
 			case 'copyText': {
 				const refs = this.selectedRefs();
@@ -931,6 +997,11 @@ export class ReadApp {
 			case 'export':
 				this.exportStudy(a.kind);
 				break;
+			case 'restoreBackup': {
+				const last = this.backups()[0];
+				if (last) this.importStudyText(last.json);
+				break;
+			}
 			case 'importStudy':
 				void pickFile('.json,application/json').then((f) => f?.text().then((t) => this.importStudyText(t)));
 				break;

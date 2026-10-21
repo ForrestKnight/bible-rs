@@ -12,6 +12,7 @@
 	import { chapterLabel, type ChapterContent, type TranslationInfo } from './core';
 	import { handleKey } from './keyboard';
 	import { dragsFiles, fromDrop } from './imports';
+	import { STUDY_KEY } from './settings';
 	import { importer } from './overlays/importer.svelte';
 	import Reader from './reader/Reader.svelte';
 	import Toolbar from './chrome/Toolbar.svelte';
@@ -124,10 +125,25 @@
 		const onVisibility = () => document.hidden && leave();
 		document.addEventListener('visibilitychange', onVisibility);
 		window.addEventListener('pagehide', leave);
+		const onStorage = (e: StorageEvent) => e.key === STUDY_KEY && app.studySaved(e.newValue);
+		window.addEventListener('storage', onStorage);
 		const backups = setInterval(() => autoBackup(), 3600_000);
 		setTimeout(autoBackup, 10_000);
 		if (!dev && 'serviceWorker' in navigator) {
-			void navigator.serviceWorker.register('/service-worker.js', { scope: '/read' }).catch(() => {});
+			const sw = navigator.serviceWorker;
+			// On a first visit the translations load before the worker takes over, so it hasn't kept them.
+			if (!sw.controller) {
+				sw.addEventListener(
+					'controllerchange',
+					() => {
+						const ids = new Set([...app.loaded, ...app.columns()]);
+						const cache = [...ids].filter((id) => !app.info(id)?.imported).map((id) => `/translations/${id}.bbl`);
+						sw.controller?.postMessage({ cache });
+					},
+					{ once: true }
+				);
+			}
+			void sw.register('/service-worker.js', { scope: '/read' }).catch(() => {});
 		}
 		return () => {
 			dark.removeEventListener('change', onDark);
@@ -136,6 +152,7 @@
 			clearInterval(backups);
 			document.removeEventListener('visibilitychange', onVisibility);
 			window.removeEventListener('pagehide', leave);
+			window.removeEventListener('storage', onStorage);
 			leave();
 			for (const k of ['read', 'theme', 'accent', 'reduceMotion', 'pending']) delete d.dataset[k];
 		};

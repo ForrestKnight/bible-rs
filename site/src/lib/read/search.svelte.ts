@@ -4,6 +4,7 @@
  * The core searches the whole translation in a few milliseconds; hits are fetched in pages as the
  * result list scrolls.
  */
+import { untrack } from 'svelte';
 import type { ReadApp } from './app.svelte';
 import type { SearchHit, SearchPage, SearchScope } from './core';
 
@@ -38,11 +39,20 @@ export class Search {
 		return this.query.trim() !== '';
 	}
 
+	/**
+	 * The book "This book first" puts first: the one being read when the search changed, so going
+	 * to a hit in another book doesn't reorder the results under it.
+	 */
+	#preferred = { search: '', book: -1 };
+
 	/** What the results depend on; a change runs the search again and selects the first hit. */
 	readonly key = $derived.by(() => {
 		const s = this.app.settings;
-		const first = this.currentFirst ? this.app.hereRef().book : -1;
-		return JSON.stringify([s.translation, this.query.trim(), this.scope, s.wholeWords, first, this.#generation]);
+		const search = JSON.stringify([s.translation, this.query.trim(), this.scope, s.wholeWords, this.currentFirst, this.#generation]);
+		if (this.#preferred.search !== search) {
+			this.#preferred = { search, book: this.currentFirst ? untrack(() => this.app.hereRef().book) : -1 };
+		}
+		return `${search}${this.#preferred.book}`;
 	});
 
 	/** The count, the books and the first hits, or null with no search (or no text yet). */
@@ -69,7 +79,7 @@ export class Search {
 	}
 
 	#first(): number | null {
-		return this.currentFirst ? this.app.hereRef().book : null;
+		return this.currentFirst ? this.#preferred.book : null;
 	}
 
 	/** The `i`th hit, fetching its page when it isn't in yet. */

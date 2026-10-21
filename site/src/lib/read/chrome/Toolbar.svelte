@@ -319,7 +319,8 @@
 	</Menu>
 {/if}
 {#if app.textPopover && reading}
-	{@const anchor = compact && !showField ? moreEl : textEl}
+	<!-- A compact bar that's searching shows only the field: the popover hangs from that. -->
+	{@const anchor = compact ? (showField ? field : moreEl) : textEl}
 	{#if anchor}
 		<TextPopover {anchor} align={compact ? 'end' : 'start'} onclose={() => (app.textPopover = false)} />
 	{/if}

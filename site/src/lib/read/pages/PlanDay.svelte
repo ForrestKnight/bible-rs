@@ -3,7 +3,7 @@
 	reflection on its first verse, and beside them the plan's progress, what's next and the reminder.
 -->
 <script lang="ts">
-	import { getApp } from '../app.svelte';
+	import { getApp, now } from '../app.svelte';
 	import { weekday, weekdayShort, ago } from '../time';
 	import { Button, CapsText, Icon, RoundButton, Toggle } from '../ui';
 	import { DAY, MONTHS, Under, minutes, openPassage, passageSize, plansPage } from './plans.svelte';
@@ -52,6 +52,16 @@
 	const quote = $derived(
 		verse ? (app.core?.verse(app.settings.translation, verse)?.runs.map((r) => r.text).join('').trim() ?? '') : ''
 	);
+
+	/** Ticks a reading off (or back on). Every day read finishes the plan; un-ticking one resumes it. */
+	function mark(passage: number, read: boolean) {
+		app.dispatch({ type: 'setPlanRead', plan: u.info.id, day, passage, read });
+		const after = new Under(u.info, u.state, app);
+		const complete = after.doneDays() === after.len;
+		if (complete !== (u.state.finished !== null)) {
+			app.dispatch({ type: 'finishPlan', id: u.info.id, at: complete ? now() : null });
+		}
+	}
 
 	const done = $derived(u.doneDays());
 	const frac = $derived(done / Math.max(len, 1));
@@ -104,7 +114,7 @@
 					role="checkbox"
 					aria-checked={isDone}
 					aria-label="Read {p.label}"
-					onclick={() => app.dispatch({ type: 'setPlanRead', plan: u.info.id, day, passage: i, read: !isDone })}
+					onclick={() => mark(i, !isDone)}
 				>
 					{#if isDone}<Icon name="check" size={12} />{/if}
 				</button>

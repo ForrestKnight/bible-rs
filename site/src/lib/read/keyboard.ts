@@ -221,6 +221,17 @@ function typing(): boolean {
 	return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 }
 
+/**
+ * Whether Space should press the focused control rather than scroll: one in a menu or popover, or
+ * one reached from the keyboard (a button clicked keeps focus, and Space still scrolls then).
+ */
+function pressable(): boolean {
+	const el = document.activeElement as HTMLElement | null;
+	const control =
+		'button, a[href], [role^="menuitem"], [role="button"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"]';
+	return !!el?.matches(control) && (!!el.closest('.popover') || el.matches(':focus-visible'));
+}
+
 /** The reader's shortcuts; returns whether the key was taken. */
 export function handleKey(app: ReadApp, e: KeyboardEvent): boolean {
 	if (e.defaultPrevented || e.isComposing || app.onboarding) return false;
@@ -280,7 +291,7 @@ export function handleKey(app: ReadApp, e: KeyboardEvent): boolean {
 	if (!shift && key === 'ArrowUp') return go({ type: 'scrollLines', n: -3 });
 	if (key === 'PageDown') return go({ type: 'scrollPages', n: 1 });
 	if (key === 'PageUp') return go({ type: 'scrollPages', n: -1 });
-	if (key === 'Space') return go({ type: 'scrollPages', n: shift ? -1 : 1 });
+	if (key === 'Space') return pressable() ? false : go({ type: 'scrollPages', n: shift ? -1 : 1 });
 	if (!shift && key === 'J') return go({ type: 'selectNext' });
 	if (!shift && key === 'K') return go({ type: 'selectPrev' });
 	if (key === 'Escape') return go({ type: 'clearSelection' });
