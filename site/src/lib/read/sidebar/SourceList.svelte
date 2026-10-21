@@ -102,7 +102,8 @@
 		});
 	});
 
-	// Development renders: an expanded study collection (`study:bookmarks`), or filtering.
+	// Development renders: an expanded study collection (`study:bookmarks`), or filtering. The Mac
+	// opens the collection before its first frame, so the book is revealed below it.
 	$effect(() => {
 		const d = app.demo.study;
 		if (!d) return;
@@ -111,6 +112,7 @@
 			else if (STUDY_KINDS.includes(d as StudyKind)) {
 				const i = STUDY_KINDS.indexOf(d as StudyKind);
 				if (!st.studyOpen[i]) st.toggleStudy(d as StudyKind);
+				void tick().then(reveal);
 			}
 		});
 	});
