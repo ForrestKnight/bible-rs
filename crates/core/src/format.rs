@@ -24,8 +24,8 @@ use crate::model::{Mark, MarkKind, Span, Style, Translation, TranslationMeta, Ve
 const MAGIC: &[u8; 4] = b"BIBL";
 const VERSION: u16 = 1;
 
-/// Serializes a translation. `level` is the zstd level (19 for bundled data, ~9 for imports).
-#[cfg(not(target_arch = "wasm32"))]
+/// Serializes a translation. `level` is the zstd level (19 for bundled data, ~9 for imports); the
+/// browser's encoder has one level, about zstd's 1.
 pub fn encode(t: &Translation, level: i32) -> Result<Vec<u8>> {
     let mut body = Vec::with_capacity(t.text.len() + t.text.len() / 4);
     // Re-pack text, marks and spans in verse order so that starts are implicit.
@@ -80,7 +80,13 @@ pub fn encode(t: &Translation, level: i32) -> Result<Vec<u8>> {
     }
     body.extend(spans.iter().map(|s| s.style as u8));
 
+    #[cfg(not(target_arch = "wasm32"))]
     let compressed = zstd::bulk::compress(&body, level).context("zstd compression")?;
+    #[cfg(target_arch = "wasm32")]
+    let compressed = {
+        let _ = level;
+        ruzstd::encoding::compress_to_vec(&body[..], ruzstd::encoding::CompressionLevel::Fastest)
+    };
     let meta = serde_json::to_vec(&t.meta)?;
     let mut out = Vec::with_capacity(compressed.len() + meta.len() + 16);
     out.extend_from_slice(MAGIC);
@@ -216,7 +222,6 @@ fn decompress(data: &[u8], len: usize) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn put_bytes(out: &mut Vec<u8>, b: &[u8]) {
     out.extend_from_slice(&(b.len() as u32).to_le_bytes());
     out.extend_from_slice(b);

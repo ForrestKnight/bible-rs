@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds bible-core for the browser: crates/web as WebAssembly, with its JavaScript bindings, into
-# site/src/lib/read/wasm/, where the web reader (/read) imports it. The output is committed so the
+# site/src/lib/read/wasm/, where the web reader (/read) imports it; and again with the importers,
+# for the worker that converts a translation the reader brings. The output is committed so the
 # site builds without a Rust toolchain; run this after changing crates/web or what it uses of
 # bible-core.
 #
@@ -25,16 +26,19 @@ if [[ "$HAVE" != "$WANT" ]]; then
 fi
 
 # SIMD makes search's substring scans several times faster; every current browser has it.
-RUSTFLAGS="-C target-feature=+simd128" \
-  cargo build --quiet --profile wasm --locked -p bible-web --target wasm32-unknown-unknown
+build() {
+  RUSTFLAGS="-C target-feature=+simd128" \
+    cargo build --quiet --profile wasm --locked -p bible-web --target wasm32-unknown-unknown "${@:2}"
+  wasm-bindgen --target web --out-dir "$OUT" --out-name "$1" \
+    target/wasm32-unknown-unknown/wasm/bible_web.wasm
+  if command -v wasm-opt >/dev/null; then
+    wasm-opt -O3 --enable-simd --enable-bulk-memory --enable-nontrapping-float-to-int \
+      --enable-sign-ext --enable-mutable-globals -o "$OUT/$1_bg.wasm" "$OUT/$1_bg.wasm"
+  fi
+  ls -l "$OUT/$1_bg.wasm" | awk '{printf "%s: %.0f KB\n", $NF, $5 / 1024}'
+}
 
 rm -rf "$OUT"
-wasm-bindgen --target web --out-dir "$OUT" --out-name bible \
-  target/wasm32-unknown-unknown/wasm/bible_web.wasm
-
-if command -v wasm-opt >/dev/null; then
-  wasm-opt -O3 --enable-simd --enable-bulk-memory --enable-nontrapping-float-to-int \
-    --enable-sign-ext --enable-mutable-globals -o "$OUT/bible_bg.wasm" "$OUT/bible_bg.wasm"
-fi
-
-ls -l "$OUT/bible_bg.wasm" | awk '{printf "%s: %.0f KB\n", $NF, $5 / 1024}'
+# The reader's module, and the import worker's (the same with the importers).
+build bible
+build bible_import --features import

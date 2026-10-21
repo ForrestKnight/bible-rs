@@ -64,6 +64,8 @@ pub struct Progress {
     pub book: AtomicU8,
     /// Set to give up: the import stops with an error once conversion ends.
     pub cancel: AtomicBool,
+    /// Called as each book begins, for a caller with no other thread to watch from (the browser).
+    pub on_book: Option<fn(&Progress)>,
 }
 
 impl Progress {
@@ -100,12 +102,23 @@ pub struct Peek {
 /// Reads an import source's format and names without converting it.
 pub fn peek(path: &Path) -> Result<Peek> {
     let src = load_source(path)?;
-    let format = detect(&src)?;
     let bytes = if path.is_dir() {
         src.files.values().map(|f| f.len() as u64).sum()
     } else {
         std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
     };
+    peek_source(src, bytes)
+}
+
+/// [`peek`] for files already in memory, keyed by path relative to the source (a single file's
+/// name, or a folder's contents); a lone zip is opened. `label` names the source.
+pub fn peek_files(files: HashMap<String, Vec<u8>>, label: &str) -> Result<Peek> {
+    let bytes = files.values().map(|f| f.len() as u64).sum();
+    peek_source(source_of(files, label)?, bytes)
+}
+
+fn peek_source(src: Source, bytes: u64) -> Result<Peek> {
+    let format = detect(&src)?;
     let stem =
         Path::new(&src.label).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let mut abbrev = String::new();
@@ -168,21 +181,7 @@ fn load_source(path: &Path) -> Result<Source> {
         let mut total = 0u64;
         walk(path, path, &mut files, &mut total)?;
     } else if is_zip(path)? {
-        let mut archive = zip::ZipArchive::new(std::fs::File::open(path)?).context("reading zip archive")?;
-        let mut total = 0u64;
-        for i in 0..archive.len() {
-            let mut f = archive.by_index(i)?;
-            if !f.is_file() {
-                continue;
-            }
-            total += f.size();
-            if total > MAX_TOTAL {
-                bail!("archive is larger than 512 MB uncompressed");
-            }
-            let mut buf = Vec::with_capacity(f.size() as usize);
-            f.read_to_end(&mut buf)?;
-            files.insert(f.name().replace('\\', "/"), buf);
-        }
+        files = unzip(std::fs::File::open(path)?)?;
     } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("conf")) {
         // A SWORD .conf: the module root is the parent of `mods.d`.
         let root =
@@ -199,6 +198,35 @@ fn load_source(path: &Path) -> Result<Source> {
         );
     }
     Ok(Source { files, label })
+}
+
+/// The source for files in memory: a lone zip's contents, or the files as given.
+fn source_of(mut files: HashMap<String, Vec<u8>>, label: &str) -> Result<Source> {
+    if files.len() == 1 && files.values().all(|b| b.starts_with(ZIP_MAGIC)) {
+        let (_, bytes) = files.drain().next().unwrap();
+        files = unzip(std::io::Cursor::new(bytes))?;
+    }
+    Ok(Source { files, label: label.to_string() })
+}
+
+fn unzip(reader: impl std::io::Read + std::io::Seek) -> Result<HashMap<String, Vec<u8>>> {
+    let mut archive = zip::ZipArchive::new(reader).context("reading zip archive")?;
+    let mut files = HashMap::new();
+    let mut total = 0u64;
+    for i in 0..archive.len() {
+        let mut f = archive.by_index(i)?;
+        if !f.is_file() {
+            continue;
+        }
+        total += f.size();
+        if total > MAX_TOTAL {
+            bail!("archive is larger than 512 MB uncompressed");
+        }
+        let mut buf = Vec::with_capacity(f.size() as usize);
+        f.read_to_end(&mut buf)?;
+        files.insert(f.name().replace('\\', "/"), buf);
+    }
+    Ok(files)
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut HashMap<String, Vec<u8>>, total: &mut u64) -> Result<()> {
@@ -219,10 +247,12 @@ fn walk(root: &Path, dir: &Path, out: &mut HashMap<String, Vec<u8>>, total: &mut
     Ok(())
 }
 
+const ZIP_MAGIC: &[u8; 4] = b"PK\x03\x04";
+
 fn is_zip(path: &Path) -> Result<bool> {
     let mut magic = [0u8; 4];
     let mut f = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    Ok(f.read(&mut magic)? == 4 && magic == *b"PK\x03\x04")
+    Ok(f.read(&mut magic)? == 4 && magic == *ZIP_MAGIC)
 }
 
 fn text_of(bytes: &[u8]) -> String {
@@ -272,6 +302,21 @@ pub fn import_path(path: &Path, opts: &ImportOptions) -> Result<Imported> {
 pub fn import_with_progress(path: &Path, opts: &ImportOptions, progress: &Arc<Progress>) -> Result<Imported> {
     progress.step.store(0, Ordering::Relaxed);
     let src = load_source(path)?;
+    import_source(src, opts, progress)
+}
+
+/// [`import_with_progress`] for files already in memory, as [`peek_files`] takes them.
+pub fn import_files(
+    files: HashMap<String, Vec<u8>>,
+    label: &str,
+    opts: &ImportOptions,
+    progress: &Arc<Progress>,
+) -> Result<Imported> {
+    progress.step.store(0, Ordering::Relaxed);
+    import_source(source_of(files, label)?, opts, progress)
+}
+
+fn import_source(src: Source, opts: &ImportOptions, progress: &Arc<Progress>) -> Result<Imported> {
     progress.step.store(1, Ordering::Relaxed);
     let format = detect(&src)?;
     progress.step.store(2, Ordering::Relaxed);
@@ -283,6 +328,9 @@ pub fn import_with_progress(path: &Path, opts: &ImportOptions, progress: &Arc<Pr
     b.on_book = Some(Box::new(move |book| {
         p.books.fetch_add(1, Ordering::Relaxed);
         p.book.store(book.0 + 1, Ordering::Relaxed);
+        if let Some(f) = p.on_book {
+            f(&p);
+        }
     }));
     let mut detected_name = String::new();
     let mut detected_abbrev = String::new();
@@ -439,6 +487,36 @@ mod tests {
         cancelled.cancel.store(true, Ordering::Relaxed);
         assert!(import_with_progress(&d, &ImportOptions::default(), &cancelled).is_err());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn imports_files_in_memory() {
+        let usfm = b"\\id JHN\n\\c 3\n\\p\n\\v 16 For God so loved the world.".to_vec();
+        let files = HashMap::from([("43JHN.usfm".to_string(), usfm.clone())]);
+        let peek = peek_files(files.clone(), "Mine").unwrap();
+        assert_eq!(
+            (peek.format, peek.abbrev.as_str(), peek.bytes),
+            (Format::Usfm, "MINE", usfm.len() as u64)
+        );
+
+        static BOOKS: AtomicU16 = AtomicU16::new(0);
+        fn count(p: &Progress) {
+            BOOKS.store(p.books(), Ordering::Relaxed);
+        }
+        let progress = Arc::new(Progress { on_book: Some(count), ..Default::default() });
+        let imp = import_files(files, "Mine", &ImportOptions::default(), &progress).unwrap();
+        assert_eq!((imp.translation.verse_count(), BOOKS.load(Ordering::Relaxed)), (1, 1));
+
+        let mut zipped = std::io::Cursor::new(Vec::new());
+        {
+            let mut z = zip::ZipWriter::new(&mut zipped);
+            z.start_file("x/43JHN.usfm", zip::write::SimpleFileOptions::default()).unwrap();
+            std::io::Write::write_all(&mut z, &usfm).unwrap();
+            z.finish().unwrap();
+        }
+        let files = HashMap::from([("bible.zip".to_string(), zipped.into_inner())]);
+        let imp = import_files(files, "bible.zip", &ImportOptions::default(), &Arc::default()).unwrap();
+        assert_eq!((imp.translation.meta.abbrev.as_str(), imp.translation.verse_count()), ("BIBLE", 1));
     }
 
     #[test]

@@ -589,6 +589,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "bible-core",
+ "js-sys",
  "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",

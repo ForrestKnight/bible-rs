@@ -18,6 +18,9 @@ use bible_core::{BookId, ChapterIdx, VerseRef, bundled, format, plans};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
+#[cfg(feature = "import")]
+mod import;
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TranslationInfo {

@@ -10,10 +10,13 @@ license.workspace = true
 default = ["bundled", "native", "tls"]
 # Embed the public-domain translations from data/translations into the binary.
 bundled = []
-# Files, SQLite and the network: the translation library, importers, online translations, secrets
-# and the study store's SQLite file. The web build leaves it out and keeps the model, `.bbl`
-# decoding, chapter layout, search, references and the study store in memory.
-native = ["dep:rusqlite", "dep:zip", "dep:flate2", "dep:ureq"]
+# Files, SQLite and the network: the translation library, online translations, secrets and the
+# study store's SQLite file. The web build leaves it out and keeps the model, `.bbl` files, chapter
+# layout, search, references and the study store in memory.
+native = ["import", "dep:rusqlite", "dep:ureq"]
+# The importers (USFM, OSIS, Zefania, SWORD; zips), which the web build takes without `native`
+# to convert files the reader picks in the browser.
+import = ["dep:zip", "dep:flate2"]
 # HTTPS (rustls) for the online translations. The phone apps leave it out while they have no
 # online translations, so their binaries carry no encryption code (App Store export rules).
 tls = ["native", "ureq/rustls"]
