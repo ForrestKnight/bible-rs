@@ -36,7 +36,10 @@
 	);
 	const note = $derived(selected ? app.noteFor(selected) : null);
 	const saved = $derived(note?.body ?? '');
-	let text = $derived(saved);
+	/** What's typed and not saved yet, on the verse it's typed on: another tab saving the note keeps it. */
+	let typed = $state<{ verse: VerseRef; text: string } | null>(null);
+	const text = $derived(typed && selected && sameVerse(typed.verse, selected) ? typed.text : saved);
+	const setText = (body: string) => selected && (typed = { verse: selected, text: body });
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let editing = $state(false);
 	let field = $state<HTMLTextAreaElement>();
@@ -45,6 +48,7 @@
 	function flush() {
 		clearTimeout(timer);
 		if (selected && text !== saved) app.dispatch({ type: 'saveNote', verse: selected, body: text });
+		typed = null;
 	}
 
 	function changed() {
@@ -114,7 +118,7 @@
 		const r = parseReference(linkText);
 		if (!r?.verse) return;
 		const label = app.label({ book: r.book, chapter: r.chapter, verse: r.verse });
-		text = `${text}${text && !text.endsWith('\n') ? '\n' : ''}- ${label}`;
+		setText(`${text}${text && !text.endsWith('\n') ? '\n' : ''}- ${label}`);
 		changed();
 		linkText = '';
 		linking = false;
@@ -123,6 +127,7 @@
 	function remove() {
 		if (!selected) return;
 		clearTimeout(timer);
+		typed = null;
 		app.dispatch({ type: 'removeNote', verse: selected });
 		notesPage.selected = null;
 		editing = false;
@@ -153,7 +158,7 @@
 		if (!editing) await edit();
 		if (!field) return;
 		const [next, a, b] = apply(tool, text, field.selectionStart, field.selectionEnd);
-		text = next;
+		setText(next);
 		changed();
 		await tick();
 		field.setSelectionRange(a, b);
@@ -273,7 +278,7 @@
 					<textarea
 						class="body"
 						bind:this={field}
-						bind:value={text}
+						bind:value={() => text, setText}
 						placeholder="Write a note…"
 						aria-label="Note on {app.label(v)}"
 						oninput={() => (changed(), track())}

@@ -4,8 +4,10 @@
 -->
 <script lang="ts">
 	import { getApp, now } from '../app.svelte';
+	import type { VerseRef } from '../core';
 	import { weekday, weekdayShort, ago } from '../time';
 	import { Button, CapsText, Icon, RoundButton, Toggle } from '../ui';
+	import { sameVerse } from './notes.svelte';
 	import { DAY, MONTHS, Under, minutes, openPassage, passageSize, plansPage } from './plans.svelte';
 
 	let { under: u, day: asked }: { under: Under; day: number } = $props();
@@ -47,7 +49,9 @@
 	});
 	const saved = $derived(verse ? (app.noteFor(verse)?.body ?? '') : '');
 	const note = $derived(verse ? app.noteFor(verse) : null);
-	let draft = $derived(saved);
+	/** What's typed and not saved yet, on the verse it's typed on: another tab saving the note keeps it. */
+	let typed = $state<{ verse: VerseRef; text: string } | null>(null);
+	const draft = $derived(typed && verse && sameVerse(typed.verse, verse) ? typed.text : saved);
 	let editor = $state<HTMLTextAreaElement>();
 	const quote = $derived(
 		verse ? (app.core?.verse(app.settings.translation, verse)?.runs.map((r) => r.text).join('').trim() ?? '') : ''
@@ -144,7 +148,7 @@
 				<p class="quote"><CapsText text={quote} /></p>
 				<textarea
 					bind:this={editor}
-					bind:value={draft}
+					bind:value={() => draft, (text) => verse && (typed = { verse, text })}
 					rows="1"
 					placeholder="Write a note…"
 					aria-label="Reflection"
@@ -158,7 +162,7 @@
 						label="Cancel"
 						disabled={draft === saved}
 						onclick={() => {
-							draft = saved;
+							typed = null;
 							editor?.blur();
 						}}
 					/>
@@ -167,7 +171,10 @@
 						size="sm"
 						label="Save"
 						disabled={draft === saved}
-						onclick={() => verse && app.dispatch({ type: 'saveNote', verse, body: draft })}
+						onclick={() => {
+							if (verse) app.dispatch({ type: 'saveNote', verse, body: draft });
+							typed = null;
+						}}
 					/>
 				</div>
 			</div>
