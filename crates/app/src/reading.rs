@@ -34,7 +34,7 @@ impl Tracker {
         furthest: u8,
         translation: &str,
         library: &Library,
-        study: &StudyStore,
+        study: &mut StudyStore,
     ) {
         let same = self
             .session
@@ -78,7 +78,7 @@ impl Tracker {
         }
     }
 
-    fn save(&self, study: &StudyStore) {
+    fn save(&self, study: &mut StudyStore) {
         if let Some(s) = &self.session
             && self.seconds >= MIN_SECONDS
         {
@@ -87,7 +87,7 @@ impl Tracker {
     }
 
     /// Saves the open session (on leaving a chapter, and on quit).
-    pub fn finish(&mut self, study: &StudyStore) {
+    pub fn finish(&mut self, study: &mut StudyStore) {
         self.save(study);
         self.session = None;
     }

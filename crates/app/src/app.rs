@@ -117,7 +117,7 @@ impl Settings {
         study.setting("app").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }
 
-    pub fn save(&self, study: &StudyStore) {
+    pub fn save(&self, study: &mut StudyStore) {
         if let Ok(s) = serde_json::to_string(self) {
             let _ = study.set_setting("app", &s);
         }
@@ -2361,7 +2361,7 @@ impl eframe::App for BibleApp {
                     self.reader.furthest_in_view,
                     &self.settings.translation,
                     &self.library,
-                    &self.study,
+                    &mut self.study,
                 );
             }
             if band > 0.0 {
@@ -2519,10 +2519,10 @@ impl eframe::App for BibleApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.reading.finish(&self.study);
+        self.reading.finish(&mut self.study);
         self.settings.chapter = self.reader.location.0.0;
         self.settings.verse = self.reader.location.1;
-        self.settings.save(&self.study);
+        self.settings.save(&mut self.study);
     }
 }
 

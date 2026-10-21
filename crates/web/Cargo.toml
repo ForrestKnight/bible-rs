@@ -1,0 +1,18 @@
+[package]
+name = "bible-web"
+description = "bible-core in the browser, through wasm-bindgen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The page fetches the `.bbl` files itself, so nothing is embedded and nothing native comes along.
+bible-core = { workspace = true, default-features = false }
+anyhow.workspace = true
+serde.workspace = true
+serde-wasm-bindgen = "0.6"
+wasm-bindgen = "0.2"

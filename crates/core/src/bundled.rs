@@ -1,13 +1,21 @@
 //! Public-domain translations compiled into the binary (see `LICENSES/` for provenance).
 //!
 //! Only the compressed `.bbl` bytes are embedded; a translation is decoded the first time it is
-//! used (≈10 ms), so startup only pays for the one being read.
+//! used (≈10 ms), so startup only pays for the one being read. Without the `bundled` feature (the
+//! web build, which fetches the same files) only the facts about them are here.
 
+#[cfg(feature = "bundled")]
 use anyhow::Result;
 
+#[cfg(feature = "bundled")]
 use crate::format;
+#[cfg(feature = "bundled")]
 use crate::model::{Translation, TranslationMeta};
 
+/// The bundled translations, in the order they are offered to the reader.
+pub const IDS: &[&str] = &["kjv", "web", "bsb", "asv", "ylt", "dby", "wbs"];
+
+#[cfg(feature = "bundled")]
 macro_rules! bbl {
     ($id:literal) => {
         (
@@ -18,7 +26,8 @@ macro_rules! bbl {
     };
 }
 
-/// `(id, compressed bytes)`, in the order they are offered to the reader.
+/// `(id, compressed bytes)`, in the order of [`IDS`].
+#[cfg(feature = "bundled")]
 pub static BUNDLED: &[(&str, &[u8])] =
     &[bbl!("kjv"), bbl!("web"), bbl!("bsb"), bbl!("asv"), bbl!("ylt"), bbl!("dby"), bbl!("wbs")];
 
@@ -52,20 +61,23 @@ pub fn description(id: &str) -> Option<&'static str> {
     })
 }
 
+#[cfg(feature = "bundled")]
 pub fn bytes(id: &str) -> Option<&'static [u8]> {
     BUNDLED.iter().find(|(i, _)| *i == id).map(|(_, b)| *b)
 }
 
+#[cfg(feature = "bundled")]
 pub fn load(id: &str) -> Result<Translation> {
     let b = bytes(id).ok_or_else(|| anyhow::anyhow!("no bundled translation {id:?}"))?;
     format::decode(b)
 }
 
+#[cfg(feature = "bundled")]
 pub fn metas() -> Vec<TranslationMeta> {
     BUNDLED.iter().filter_map(|(_, b)| format::read_meta(b).ok()).collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "bundled"))]
 mod tests {
     use super::*;
     use crate::books::{BookId, ChapterIdx, VerseRef};
@@ -73,6 +85,7 @@ mod tests {
 
     #[test]
     fn every_bundled_translation_is_complete_and_public_domain() {
+        assert_eq!(BUNDLED.iter().map(|(id, _)| *id).collect::<Vec<_>>(), IDS);
         for (id, _) in BUNDLED {
             let t = load(id).unwrap();
             assert_eq!(t.meta.id, *id);

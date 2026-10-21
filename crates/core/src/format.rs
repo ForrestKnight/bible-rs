@@ -25,6 +25,7 @@ const MAGIC: &[u8; 4] = b"BIBL";
 const VERSION: u16 = 1;
 
 /// Serializes a translation. `level` is the zstd level (19 for bundled data, ~9 for imports).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn encode(t: &Translation, level: i32) -> Result<Vec<u8>> {
     let mut body = Vec::with_capacity(t.text.len() + t.text.len() / 4);
     // Re-pack text, marks and spans in verse order so that starts are implicit.
@@ -204,11 +205,18 @@ pub fn decode(bytes: &[u8]) -> Result<Translation> {
 
 fn decompress(data: &[u8], len: usize) -> Result<Vec<u8>> {
     let mut out = Vec::with_capacity(len);
+    #[cfg(not(target_arch = "wasm32"))]
     zstd::stream::read::Decoder::with_buffer(data)?.take(len as u64 + 1).read_to_end(&mut out)?;
+    #[cfg(target_arch = "wasm32")]
+    ruzstd::decoding::StreamingDecoder::new(data)
+        .map_err(|e| anyhow::anyhow!("zstd: {e}"))?
+        .take(len as u64 + 1)
+        .read_to_end(&mut out)?;
     ensure!(out.len() == len, "decompressed size mismatch");
     Ok(out)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn put_bytes(out: &mut Vec<u8>, b: &[u8]) {
     out.extend_from_slice(&(b.len() as u32).to_le_bytes());
     out.extend_from_slice(b);

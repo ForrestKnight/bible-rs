@@ -8,7 +8,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-bible-core = { workspace = true, default-features = false }
+bible-core = { workspace = true, default-features = false, features = ["native"] }
 anyhow.workspace = true
 sha2 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }

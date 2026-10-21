@@ -1,15 +1,16 @@
-//! Local study data: highlights, notes, bookmarks and settings, in one SQLite file.
+//! Local study data: highlights, notes, bookmarks, reading history, plans and settings.
 //!
 //! Everything is keyed by canonical verse reference (not by translation), so a highlight made
-//! while reading the KJV shows up in the WEB too. The tables are mirrored in memory — they hold
-//! hundreds of rows, not millions — so the reader can look them up per verse every frame; writes go
-//! straight through to SQLite (WAL mode, a few hundred microseconds each).
+//! while reading the KJV shows up in the WEB too. The store lives in memory — hundreds of rows,
+//! not millions — so the reader can look it up per verse every frame. The native apps back it with
+//! one SQLite file and write straight through (WAL mode, a few hundred microseconds each); the web
+//! app has no SQLite and saves the store's JSON export instead.
 
-use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::{Context, Result, bail};
-use rusqlite::{Connection, OptionalExtension, params};
+#[cfg(feature = "native")]
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 use crate::books::{BookId, ChapterIdx, VerseRef};
@@ -48,10 +49,12 @@ impl HighlightColor {
         }
     }
 
+    #[cfg(feature = "native")]
     fn from_i64(v: i64) -> Option<Self> {
         Self::ALL.get(usize::try_from(v).ok()?).copied()
     }
 
+    #[cfg(feature = "native")]
     fn to_i64(self) -> i64 {
         Self::ALL.iter().position(|c| *c == self).unwrap() as i64
     }
@@ -71,13 +74,21 @@ pub struct Bookmark {
 }
 
 pub struct StudyStore {
-    conn: Connection,
+    /// The SQLite file behind the store, when there is one.
+    #[cfg(feature = "native")]
+    conn: Option<Connection>,
     highlights: HashMap<u32, (HighlightColor, i64)>,
     notes: HashMap<u32, Note>,
     bookmarks: BTreeMap<u32, Bookmark>,
+    /// Reading sessions by when they started.
+    reading: BTreeMap<i64, ReadingSession>,
+    plans: HashMap<String, PlanProgress>,
+    plan_reads: HashMap<String, HashSet<(u16, u8)>>,
+    settings: HashMap<String, String>,
     generation: u64,
 }
 
+#[cfg(feature = "native")]
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS highlights(
     book TEXT NOT NULL, chapter INTEGER NOT NULL, verse INTEGER NOT NULL,
@@ -142,101 +153,171 @@ pub struct PlanProgress {
     pub finished: Option<i64>,
 }
 
+/// Unix seconds.
 pub fn now() -> i64 {
+    // The browser has no system clock for std to read: asking panics.
+    #[cfg(target_arch = "wasm32")]
+    return (js_sys::Date::now() / 1000.0) as i64;
+    #[cfg(not(target_arch = "wasm32"))]
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
 
+#[cfg(feature = "native")]
 fn verse_from_row(book: &str, chapter: i64, verse: i64) -> Option<VerseRef> {
     let book = BookId::from_code(book)?;
     Some(VerseRef::new(book, u8::try_from(chapter).ok()?, u8::try_from(verse).ok()?))
 }
 
+#[cfg(feature = "native")]
+fn query<T>(
+    conn: &Connection,
+    sql: &str,
+    row: impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+) -> Result<Vec<T>> {
+    Ok(conn.prepare(sql)?.query_map([], row)?.collect::<rusqlite::Result<_>>()?)
+}
+
+impl Default for StudyStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StudyStore {
-    pub fn open(path: &Path) -> Result<Self> {
+    /// An empty store that keeps nothing on disk.
+    pub fn new() -> Self {
+        Self {
+            #[cfg(feature = "native")]
+            conn: None,
+            highlights: HashMap::new(),
+            notes: HashMap::new(),
+            bookmarks: BTreeMap::new(),
+            reading: BTreeMap::new(),
+            plans: HashMap::new(),
+            plan_reads: HashMap::new(),
+            settings: HashMap::new(),
+            generation: 1,
+        }
+    }
+
+    #[cfg(feature = "native")]
+    pub fn open(path: &std::path::Path) -> Result<Self> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
         let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        Self::init(conn)
+        Self::with_connection(conn)
     }
 
+    #[cfg(feature = "native")]
     pub fn open_in_memory() -> Result<Self> {
-        Self::init(Connection::open_in_memory()?)
+        Self::with_connection(Connection::open_in_memory()?)
     }
 
-    fn init(conn: Connection) -> Result<Self> {
+    #[cfg(feature = "native")]
+    fn with_connection(conn: Connection) -> Result<Self> {
         conn.execute_batch(SCHEMA)?;
-        let mut s = Self {
-            conn,
-            highlights: HashMap::new(),
-            notes: HashMap::new(),
-            bookmarks: BTreeMap::new(),
-            generation: 1,
-        };
-        s.reload()?;
+        let mut s = Self { conn: Some(conn), ..Self::new() };
+        s.load()?;
         Ok(s)
     }
 
-    fn reload(&mut self) -> Result<()> {
-        self.highlights.clear();
-        self.notes.clear();
-        self.bookmarks.clear();
-        let mut st = self.conn.prepare("SELECT book, chapter, verse, color, created FROM highlights")?;
-        let rows = st.query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, i64>(2)?,
-                r.get::<_, i64>(3)?,
-                r.get(4)?,
-            ))
+    /// Reads every table into memory.
+    #[cfg(feature = "native")]
+    fn load(&mut self) -> Result<()> {
+        let Some(conn) = &self.conn else { return Ok(()) };
+        let verse = |r: &rusqlite::Row<'_>| -> rusqlite::Result<_> {
+            Ok(verse_from_row(&r.get::<_, String>(0)?, r.get(1)?, r.get(2)?))
+        };
+        let highlights = query(conn, "SELECT book, chapter, verse, color, created FROM highlights", |r| {
+            Ok((verse(r)?, HighlightColor::from_i64(r.get(3)?), r.get(4)?))
         })?;
-        for row in rows {
-            let (b, c, v, color, created) = row?;
-            if let (Some(vr), Some(color)) = (verse_from_row(&b, c, v), HighlightColor::from_i64(color)) {
-                self.highlights.insert(vr.key(), (color, created));
+        self.highlights = highlights.into_iter().filter_map(|(v, c, t)| Some((v?.key(), (c?, t)))).collect();
+        let notes = query(conn, "SELECT book, chapter, verse, body, created, updated FROM notes", |r| {
+            Ok((verse(r)?, Note { body: r.get(3)?, created: r.get(4)?, updated: r.get(5)? }))
+        })?;
+        self.notes = notes.into_iter().filter_map(|(v, n)| Some((v?.key(), n))).collect();
+        let bookmarks = query(conn, "SELECT book, chapter, verse, label, created FROM bookmarks", |r| {
+            Ok((verse(r)?, Bookmark { label: r.get(3)?, created: r.get(4)? }))
+        })?;
+        self.bookmarks = bookmarks.into_iter().filter_map(|(v, b)| Some((v?.key(), b))).collect();
+        let reading = query(
+            conn,
+            "SELECT started, book, chapter, translation, seconds, furthest, verses FROM reading",
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, i64>(4)?,
+                    r.get::<_, i64>(5)?,
+                    r.get::<_, i64>(6)?,
+                ))
+            },
+        )?;
+        self.reading = reading
+            .into_iter()
+            .filter_map(|(started, book, chapter, translation, seconds, furthest, verses)| {
+                let session = ReadingSession {
+                    started,
+                    book: BookId::from_code(&book)?,
+                    chapter: u8::try_from(chapter).ok()?,
+                    translation,
+                    seconds: u32::try_from(seconds).ok()?,
+                    furthest: u8::try_from(furthest).ok()?,
+                    verses: u8::try_from(verses).ok()?,
+                };
+                Some((started, session))
+            })
+            .collect();
+        let plans = query(conn, "SELECT id, started, finished FROM plans", |r| {
+            Ok(PlanProgress { id: r.get(0)?, started: r.get(1)?, finished: r.get(2)? })
+        })?;
+        self.plans = plans.into_iter().map(|p| (p.id.clone(), p)).collect();
+        let reads = query(conn, "SELECT plan, day, passage FROM plan_reads", |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+        })?;
+        self.plan_reads.clear();
+        for (plan, day, passage) in reads {
+            if let (Ok(day), Ok(passage)) = (u16::try_from(day), u8::try_from(passage)) {
+                self.plan_reads.entry(plan).or_default().insert((day, passage));
             }
         }
-        let mut st = self.conn.prepare("SELECT book, chapter, verse, body, created, updated FROM notes")?;
-        let rows = st.query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, i64>(2)?,
-                r.get::<_, String>(3)?,
-                r.get(4)?,
-                r.get(5)?,
-            ))
-        })?;
-        for row in rows {
-            let (b, c, v, body, created, updated) = row?;
-            if let Some(vr) = verse_from_row(&b, c, v) {
-                self.notes.insert(vr.key(), Note { body, created, updated });
-            }
-        }
-        let mut st = self.conn.prepare("SELECT book, chapter, verse, label, created FROM bookmarks")?;
-        let rows = st.query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, i64>(2)?,
-                r.get::<_, String>(3)?,
-                r.get(4)?,
-            ))
-        })?;
-        for row in rows {
-            let (b, c, v, label, created) = row?;
-            if let Some(vr) = verse_from_row(&b, c, v) {
-                self.bookmarks.insert(vr.key(), Bookmark { label, created });
-            }
-        }
+        self.settings = query(conn, "SELECT key, value FROM settings", |r| Ok((r.get(0)?, r.get(1)?)))?
+            .into_iter()
+            .collect();
         self.generation += 1;
         Ok(())
+    }
+
+    /// Runs a statement on the SQLite file, when the store has one.
+    #[cfg(feature = "native")]
+    fn exec(&self, sql: &str, params: impl rusqlite::Params) -> Result<()> {
+        if let Some(conn) = &self.conn {
+            conn.execute(sql, params)?;
+        }
+        Ok(())
+    }
+
+    /// Runs `f` as one transaction: when it fails, what it wrote is undone on disk and in memory.
+    fn transaction(&mut self, f: impl FnOnce(&mut Self) -> Result<()>) -> Result<()> {
+        #[cfg(feature = "native")]
+        self.exec("BEGIN", [])?;
+        let result = f(self);
+        #[cfg(feature = "native")]
+        if result.is_ok() {
+            self.exec("COMMIT", [])?;
+        } else {
+            self.exec("ROLLBACK", [])?;
+            self.load()?;
+        }
+        result
     }
 
     /// Increments whenever study data changes (the reader uses it to invalidate layouts).
@@ -261,22 +342,13 @@ impl StudyStore {
     }
 
     pub fn set_highlight(&mut self, v: VerseRef, color: Option<HighlightColor>) -> Result<()> {
-        let code = v.book.info().code;
         match color {
-            Some(c) => {
-                let created = now();
-                self.conn.execute(
-                    "INSERT INTO highlights(book, chapter, verse, color, created) VALUES(?1, ?2, ?3, ?4, ?5)
-                     ON CONFLICT(book, chapter, verse) DO UPDATE SET color = excluded.color",
-                    params![code, v.chapter, v.verse, c.to_i64(), created],
-                )?;
-                let created = self.highlights.get(&v.key()).map_or(created, |(_, t)| *t);
-                self.highlights.insert(v.key(), (c, created));
-            }
+            Some(c) => self.put_highlight(v, c, now())?,
             None => {
-                self.conn.execute(
+                #[cfg(feature = "native")]
+                self.exec(
                     "DELETE FROM highlights WHERE book = ?1 AND chapter = ?2 AND verse = ?3",
-                    params![code, v.chapter, v.verse],
+                    params![v.book.info().code, v.chapter, v.verse],
                 )?;
                 self.highlights.remove(&v.key());
             }
@@ -285,51 +357,75 @@ impl StudyStore {
         Ok(())
     }
 
+    /// A verse already highlighted keeps when it was first highlighted.
+    fn put_highlight(&mut self, v: VerseRef, color: HighlightColor, created: i64) -> Result<()> {
+        #[cfg(feature = "native")]
+        self.exec(
+            "INSERT INTO highlights(book, chapter, verse, color, created) VALUES(?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(book, chapter, verse) DO UPDATE SET color = excluded.color",
+            params![v.book.info().code, v.chapter, v.verse, color.to_i64(), created],
+        )?;
+        let created = self.highlights.get(&v.key()).map_or(created, |(_, t)| *t);
+        self.highlights.insert(v.key(), (color, created));
+        Ok(())
+    }
+
     /// Saves a note; an empty (whitespace-only) body deletes it.
     pub fn set_note(&mut self, v: VerseRef, body: &str) -> Result<()> {
-        let code = v.book.info().code;
         if body.trim().is_empty() {
-            self.conn.execute(
+            #[cfg(feature = "native")]
+            self.exec(
                 "DELETE FROM notes WHERE book = ?1 AND chapter = ?2 AND verse = ?3",
-                params![code, v.chapter, v.verse],
+                params![v.book.info().code, v.chapter, v.verse],
             )?;
             self.notes.remove(&v.key());
         } else {
             let t = now();
-            self.conn.execute(
-                "INSERT INTO notes(book, chapter, verse, body, created, updated) VALUES(?1, ?2, ?3, ?4, ?5, ?5)
-                 ON CONFLICT(book, chapter, verse) DO UPDATE SET body = excluded.body, updated = excluded.updated",
-                params![code, v.chapter, v.verse, body, t],
-            )?;
-            let created = self.notes.get(&v.key()).map_or(t, |n| n.created);
-            self.notes.insert(v.key(), Note { body: body.to_string(), created, updated: t });
+            self.put_note(v, body, t, t)?;
         }
         self.generation += 1;
         Ok(())
     }
 
+    /// A verse that already has a note keeps when it was first written.
+    fn put_note(&mut self, v: VerseRef, body: &str, created: i64, updated: i64) -> Result<()> {
+        #[cfg(feature = "native")]
+        self.exec(
+            "INSERT INTO notes(book, chapter, verse, body, created, updated) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(book, chapter, verse) DO UPDATE SET body = excluded.body, updated = excluded.updated",
+            params![v.book.info().code, v.chapter, v.verse, body, created, updated],
+        )?;
+        let created = self.notes.get(&v.key()).map_or(created, |n| n.created);
+        self.notes.insert(v.key(), Note { body: body.to_string(), created, updated });
+        Ok(())
+    }
+
     pub fn set_bookmark(&mut self, v: VerseRef, label: Option<&str>) -> Result<()> {
-        let code = v.book.info().code;
         match label {
-            Some(label) => {
-                let t = now();
-                self.conn.execute(
-                    "INSERT INTO bookmarks(book, chapter, verse, label, created) VALUES(?1, ?2, ?3, ?4, ?5)
-                     ON CONFLICT(book, chapter, verse) DO UPDATE SET label = excluded.label",
-                    params![code, v.chapter, v.verse, label, t],
-                )?;
-                let created = self.bookmarks.get(&v.key()).map_or(t, |b| b.created);
-                self.bookmarks.insert(v.key(), Bookmark { label: label.to_string(), created });
-            }
+            Some(label) => self.put_bookmark(v, label, now())?,
             None => {
-                self.conn.execute(
+                #[cfg(feature = "native")]
+                self.exec(
                     "DELETE FROM bookmarks WHERE book = ?1 AND chapter = ?2 AND verse = ?3",
-                    params![code, v.chapter, v.verse],
+                    params![v.book.info().code, v.chapter, v.verse],
                 )?;
                 self.bookmarks.remove(&v.key());
             }
         }
         self.generation += 1;
+        Ok(())
+    }
+
+    /// A verse already bookmarked keeps when it was first bookmarked.
+    fn put_bookmark(&mut self, v: VerseRef, label: &str, created: i64) -> Result<()> {
+        #[cfg(feature = "native")]
+        self.exec(
+            "INSERT INTO bookmarks(book, chapter, verse, label, created) VALUES(?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(book, chapter, verse) DO UPDATE SET label = excluded.label",
+            params![v.book.info().code, v.chapter, v.verse, label, created],
+        )?;
+        let created = self.bookmarks.get(&v.key()).map_or(created, |b| b.created);
+        self.bookmarks.insert(v.key(), Bookmark { label: label.to_string(), created });
         Ok(())
     }
 
@@ -384,138 +480,127 @@ impl StudyStore {
     }
 
     /// Saves a reading session, replacing an earlier save of the same session.
-    pub fn record_reading(&self, s: &ReadingSession) -> Result<()> {
-        self.conn.execute(
+    pub fn record_reading(&mut self, s: &ReadingSession) -> Result<()> {
+        #[cfg(feature = "native")]
+        self.exec(
             "INSERT INTO reading(started, book, chapter, translation, seconds, furthest, verses)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(started) DO UPDATE SET seconds = excluded.seconds, furthest = excluded.furthest,
                verses = excluded.verses, translation = excluded.translation",
             params![s.started, s.book.info().code, s.chapter, s.translation, s.seconds, s.furthest, s.verses],
         )?;
+        self.reading
+            .entry(s.started)
+            .and_modify(|e| {
+                e.seconds = s.seconds;
+                e.furthest = s.furthest;
+                e.verses = s.verses;
+                e.translation.clone_from(&s.translation);
+            })
+            .or_insert_with(|| s.clone());
         Ok(())
     }
 
     /// Reading sessions that started at or after `since` (Unix seconds), newest first.
     pub fn reading_since(&self, since: i64) -> Vec<ReadingSession> {
-        let Ok(mut st) = self.conn.prepare_cached(
-            "SELECT started, book, chapter, translation, seconds, furthest, verses FROM reading
-             WHERE started >= ?1 ORDER BY started DESC",
-        ) else {
-            return Vec::new();
-        };
-        let rows = st.query_map([since], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, i64>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, i64>(4)?,
-                r.get::<_, i64>(5)?,
-                r.get::<_, i64>(6)?,
-            ))
-        });
-        let Ok(rows) = rows else { return Vec::new() };
-        rows.filter_map(|r| r.ok())
-            .filter_map(|(started, book, chapter, translation, seconds, furthest, verses)| {
-                Some(ReadingSession {
-                    started,
-                    book: BookId::from_code(&book)?,
-                    chapter: u8::try_from(chapter).ok()?,
-                    translation,
-                    seconds: u32::try_from(seconds).ok()?,
-                    furthest: u8::try_from(furthest).ok()?,
-                    verses: u8::try_from(verses).ok()?,
-                })
-            })
-            .collect()
+        self.reading.range(since..).rev().map(|(_, s)| s.clone()).collect()
     }
 
     /// Forgets reading history from `since` on (all of it for 0).
-    pub fn clear_reading(&self, since: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM reading WHERE started >= ?1", [since])?;
+    pub fn clear_reading(&mut self, since: i64) -> Result<()> {
+        #[cfg(feature = "native")]
+        self.exec("DELETE FROM reading WHERE started >= ?1", [since])?;
+        self.reading.retain(|&started, _| started < since);
         Ok(())
     }
 
     /// Plans started, newest first.
     pub fn plans(&self) -> Vec<PlanProgress> {
-        let Ok(mut st) =
-            self.conn.prepare_cached("SELECT id, started, finished FROM plans ORDER BY started DESC")
-        else {
-            return Vec::new();
-        };
-        st.query_map([], |r| Ok(PlanProgress { id: r.get(0)?, started: r.get(1)?, finished: r.get(2)? }))
-            .map(|rows| rows.filter_map(|r| r.ok()).collect())
-            .unwrap_or_default()
+        let mut v: Vec<_> = self.plans.values().cloned().collect();
+        v.sort_by(|a, b| b.started.cmp(&a.started).then_with(|| a.id.cmp(&b.id)));
+        v
     }
 
     /// Starts (or restarts) a plan on the day containing `started`, forgetting earlier progress.
     pub fn start_plan(&mut self, id: &str, started: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM plan_reads WHERE plan = ?1", [id])?;
-        self.conn.execute(
-            "INSERT OR REPLACE INTO plans(id, started, finished) VALUES(?1, ?2, NULL)",
-            params![id, started],
-        )?;
+        #[cfg(feature = "native")]
+        self.exec("DELETE FROM plan_reads WHERE plan = ?1", [id])?;
+        self.plan_reads.remove(id);
+        self.put_plan(id, started, None)?;
         self.generation += 1;
         Ok(())
     }
 
+    fn put_plan(&mut self, id: &str, started: i64, finished: Option<i64>) -> Result<()> {
+        #[cfg(feature = "native")]
+        self.exec(
+            "INSERT OR REPLACE INTO plans(id, started, finished) VALUES(?1, ?2, ?3)",
+            params![id, started, finished],
+        )?;
+        self.plans.insert(id.to_string(), PlanProgress { id: id.to_string(), started, finished });
+        Ok(())
+    }
+
     pub fn finish_plan(&mut self, id: &str, at: Option<i64>) -> Result<()> {
-        self.conn.execute("UPDATE plans SET finished = ?2 WHERE id = ?1", params![id, at])?;
+        #[cfg(feature = "native")]
+        self.exec("UPDATE plans SET finished = ?2 WHERE id = ?1", params![id, at])?;
+        if let Some(p) = self.plans.get_mut(id) {
+            p.finished = at;
+        }
         self.generation += 1;
         Ok(())
     }
 
     pub fn stop_plan(&mut self, id: &str) -> Result<()> {
-        self.conn.execute("DELETE FROM plans WHERE id = ?1", [id])?;
-        self.conn.execute("DELETE FROM plan_reads WHERE plan = ?1", [id])?;
+        #[cfg(feature = "native")]
+        {
+            self.exec("DELETE FROM plans WHERE id = ?1", [id])?;
+            self.exec("DELETE FROM plan_reads WHERE plan = ?1", [id])?;
+        }
+        self.plans.remove(id);
+        self.plan_reads.remove(id);
         self.generation += 1;
         Ok(())
     }
 
     /// The passages ticked off in a plan, as (day, passage index) pairs.
-    pub fn plan_reads(&self, id: &str) -> std::collections::HashSet<(u16, u8)> {
-        let Ok(mut st) = self.conn.prepare_cached("SELECT day, passage FROM plan_reads WHERE plan = ?1")
-        else {
-            return Default::default();
-        };
-        st.query_map([id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))
-            .map(|rows| {
-                rows.filter_map(|r| r.ok())
-                    .filter_map(|(d, p)| Some((u16::try_from(d).ok()?, u8::try_from(p).ok()?)))
-                    .collect()
-            })
-            .unwrap_or_default()
+    pub fn plan_reads(&self, id: &str) -> HashSet<(u16, u8)> {
+        self.plan_reads.get(id).cloned().unwrap_or_default()
     }
 
     pub fn set_plan_read(&mut self, id: &str, day: u16, passage: u8, read: bool) -> Result<()> {
         if read {
-            self.conn.execute(
+            #[cfg(feature = "native")]
+            self.exec(
                 "INSERT OR REPLACE INTO plan_reads(plan, day, passage, at) VALUES(?1, ?2, ?3, ?4)",
                 params![id, day, passage, now()],
             )?;
+            self.plan_reads.entry(id.to_string()).or_default().insert((day, passage));
         } else {
-            self.conn.execute(
+            #[cfg(feature = "native")]
+            self.exec(
                 "DELETE FROM plan_reads WHERE plan = ?1 AND day = ?2 AND passage = ?3",
                 params![id, day, passage],
             )?;
+            if let Some(reads) = self.plan_reads.get_mut(id) {
+                reads.remove(&(day, passage));
+            }
         }
         self.generation += 1;
         Ok(())
     }
 
     pub fn setting(&self, key: &str) -> Option<String> {
-        self.conn
-            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0))
-            .optional()
-            .ok()
-            .flatten()
+        self.settings.get(key).cloned()
     }
 
-    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
-        self.conn.execute(
+    pub fn set_setting(&mut self, key: &str, value: &str) -> Result<()> {
+        #[cfg(feature = "native")]
+        self.exec(
             "INSERT INTO settings(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![key, value],
         )?;
+        self.settings.insert(key.to_string(), value.to_string());
         Ok(())
     }
 
@@ -702,94 +787,64 @@ impl StudyStore {
             let book = BookId::from_code(&e.book).with_context(|| format!("unknown book {}", e.book))?;
             Ok(VerseRef::new(book, e.chapter, e.verse))
         };
-        let tx = self.conn.unchecked_transaction()?;
-        for h in &doc.highlights {
-            let v = verse(&h.verse)?;
-            tx.execute(
-                "INSERT INTO highlights(book, chapter, verse, color, created) VALUES(?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT(book, chapter, verse) DO UPDATE SET color = excluded.color",
-                params![
-                    v.book.info().code,
-                    v.chapter,
-                    v.verse,
-                    h.color.to_i64(),
-                    parse_rfc3339(&h.created).unwrap_or_else(now)
-                ],
-            )?;
-        }
-        for n in &doc.notes {
-            let v = verse(&n.verse)?;
-            tx.execute(
-                "INSERT INTO notes(book, chapter, verse, body, created, updated) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT(book, chapter, verse) DO UPDATE SET body = excluded.body, updated = excluded.updated",
-                params![
-                    v.book.info().code,
-                    v.chapter,
-                    v.verse,
-                    n.note,
-                    parse_rfc3339(&n.created).unwrap_or_else(now),
-                    parse_rfc3339(&n.updated).unwrap_or_else(now)
-                ],
-            )?;
-        }
-        for b in &doc.bookmarks {
-            let v = verse(&b.verse)?;
-            tx.execute(
-                "INSERT INTO bookmarks(book, chapter, verse, label, created) VALUES(?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT(book, chapter, verse) DO UPDATE SET label = excluded.label",
-                params![
-                    v.book.info().code,
-                    v.chapter,
-                    v.verse,
-                    b.label,
-                    parse_rfc3339(&b.created).unwrap_or_else(now)
-                ],
-            )?;
-        }
-        for r in &doc.history {
-            let Some(book) = BookId::from_code(&r.book) else { continue };
-            tx.execute(
-                "INSERT OR REPLACE INTO reading(started, book, chapter, translation, seconds, furthest, verses)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![
-                    parse_rfc3339(&r.started).unwrap_or_else(now),
-                    book.info().code,
-                    r.chapter,
-                    r.translation,
-                    r.seconds,
-                    r.furthest,
-                    r.verses
-                ],
-            )?;
-        }
-        for p in &doc.plans {
-            tx.execute(
-                "INSERT OR REPLACE INTO plans(id, started, finished) VALUES(?1, ?2, ?3)",
-                params![
-                    p.id,
-                    parse_rfc3339(&p.started).unwrap_or_else(now),
-                    p.finished.as_deref().and_then(parse_rfc3339)
-                ],
-            )?;
-            for (day, passage) in &p.read {
-                tx.execute(
-                    "INSERT OR REPLACE INTO plan_reads(plan, day, passage, at) VALUES(?1, ?2, ?3, ?4)",
-                    params![p.id, day, passage, now()],
-                )?;
+        // Every verse is checked before anything is written.
+        let highlights =
+            doc.highlights.iter().map(|h| Ok((verse(&h.verse)?, h))).collect::<Result<Vec<_>>>()?;
+        let notes = doc.notes.iter().map(|n| Ok((verse(&n.verse)?, n))).collect::<Result<Vec<_>>>()?;
+        let bookmarks =
+            doc.bookmarks.iter().map(|b| Ok((verse(&b.verse)?, b))).collect::<Result<Vec<_>>>()?;
+        let date = |s: &str| parse_rfc3339(s).unwrap_or_else(now);
+        self.transaction(|s| {
+            for (v, h) in &highlights {
+                s.put_highlight(*v, h.color, date(&h.created))?;
             }
-        }
-        tx.commit()?;
-        self.reload()?;
+            for (v, n) in &notes {
+                s.put_note(*v, &n.note, date(&n.created), date(&n.updated))?;
+            }
+            for (v, b) in &bookmarks {
+                s.put_bookmark(*v, &b.label, date(&b.created))?;
+            }
+            for r in &doc.history {
+                let Some(book) = BookId::from_code(&r.book) else { continue };
+                s.record_reading(&ReadingSession {
+                    started: date(&r.started),
+                    book,
+                    chapter: r.chapter,
+                    translation: r.translation.clone(),
+                    seconds: r.seconds,
+                    furthest: r.furthest,
+                    verses: r.verses,
+                })?;
+            }
+            for p in &doc.plans {
+                s.put_plan(&p.id, date(&p.started), p.finished.as_deref().and_then(parse_rfc3339))?;
+                for &(day, passage) in &p.read {
+                    s.set_plan_read(&p.id, day, passage, true)?;
+                }
+            }
+            Ok(())
+        })?;
+        self.generation += 1;
         Ok((doc.highlights.len(), doc.notes.len(), doc.bookmarks.len()))
     }
 
     /// Erases every highlight, note, bookmark, plan and the reading history.
     pub fn erase_all(&mut self) -> Result<()> {
-        self.conn.execute_batch(
-            "DELETE FROM highlights; DELETE FROM notes; DELETE FROM bookmarks;
-             DELETE FROM plans; DELETE FROM plan_reads; DELETE FROM reading;",
-        )?;
-        self.reload()
+        #[cfg(feature = "native")]
+        if let Some(conn) = &self.conn {
+            conn.execute_batch(
+                "DELETE FROM highlights; DELETE FROM notes; DELETE FROM bookmarks;
+                 DELETE FROM plans; DELETE FROM plan_reads; DELETE FROM reading;",
+            )?;
+        }
+        self.highlights.clear();
+        self.notes.clear();
+        self.bookmarks.clear();
+        self.plans.clear();
+        self.plan_reads.clear();
+        self.reading.clear();
+        self.generation += 1;
+        Ok(())
     }
 }
 
@@ -963,7 +1018,7 @@ mod tests {
 
     #[test]
     fn reading_sessions() {
-        let s = StudyStore::open_in_memory().unwrap();
+        let mut s = StudyStore::open_in_memory().unwrap();
         let mut session = ReadingSession {
             started: 1_000,
             book: BookId(42),
@@ -1002,6 +1057,18 @@ mod tests {
             s.set_note(jn316(), "God's love").unwrap();
             assert!(s.toggle_bookmark(VerseRef::new(BookId(0), 1, 1)).unwrap());
             s.set_setting("theme", "dark").unwrap();
+            s.record_reading(&ReadingSession {
+                started: 1_000,
+                book: BookId(42),
+                chapter: 3,
+                translation: "kjv".into(),
+                seconds: 90,
+                furthest: 20,
+                verses: 36,
+            })
+            .unwrap();
+            s.start_plan("john-21", 900).unwrap();
+            s.set_plan_read("john-21", 1, 0, true).unwrap();
             assert!(s.generation() > g);
         }
         let mut s = StudyStore::open(&path).unwrap();
@@ -1010,6 +1077,8 @@ mod tests {
         assert!(s.is_bookmarked(VerseRef::new(BookId(0), 1, 1)));
         assert_eq!(s.setting("theme").as_deref(), Some("dark"));
         assert_eq!(s.counts(), (1, 1, 1));
+        assert_eq!(s.reading_since(0)[0].furthest, 20);
+        assert_eq!((s.plans()[0].started, s.plan_reads("john-21").len()), (900, 1));
         s.set_note(jn316(), "  ").unwrap();
         s.set_highlight(jn316(), None).unwrap();
         assert!(!s.toggle_bookmark(VerseRef::new(BookId(0), 1, 1)).unwrap());
@@ -1064,6 +1133,46 @@ mod tests {
         assert_eq!(c.plan_reads("john-21").len(), 1);
         c.erase_all().unwrap();
         assert_eq!((c.counts(), c.reading_since(0).len(), c.plans().len()), ((0, 0, 0), 0, 0));
+    }
+
+    /// The web app's store: no SQLite, saved and restored through its JSON export.
+    #[test]
+    fn without_a_database() {
+        let mut a = StudyStore::new();
+        a.set_highlight(jn316(), Some(HighlightColor::Blue)).unwrap();
+        a.set_note(jn316(), "first").unwrap();
+        a.set_bookmark(VerseRef::new(BookId(18), 23, 1), Some("Shepherd")).unwrap();
+        a.set_setting("web", "{}").unwrap();
+        a.record_reading(&ReadingSession {
+            started: 1_000,
+            book: BookId(42),
+            chapter: 3,
+            translation: "kjv".into(),
+            seconds: 300,
+            furthest: 36,
+            verses: 36,
+        })
+        .unwrap();
+        a.start_plan("john-21", 900).unwrap();
+        a.set_plan_read("john-21", 1, 0, true).unwrap();
+        a.finish_plan("john-21", Some(2_000)).unwrap();
+        assert_eq!(a.setting("web").as_deref(), Some("{}"));
+
+        let saved = a.export_json_with("KJV", |_| None, Include::EVERYTHING).unwrap();
+        let mut b = StudyStore::new();
+        b.import_json(&saved).unwrap();
+        assert_eq!(b.highlight(jn316()), Some(HighlightColor::Blue));
+        assert_eq!(b.note(jn316()), a.note(jn316()));
+        assert_eq!(b.bookmarks()[0].1, a.bookmarks()[0].1);
+        assert_eq!(b.reading_since(0), a.reading_since(0));
+        assert_eq!(b.plans(), a.plans());
+        assert_eq!(b.plan_reads("john-21"), a.plan_reads("john-21"));
+
+        b.clear_reading(0).unwrap();
+        b.stop_plan("john-21").unwrap();
+        assert!(b.reading_since(0).is_empty() && b.plans().is_empty() && b.plan_reads("john-21").is_empty());
+        b.erase_all().unwrap();
+        assert_eq!(b.counts(), (0, 0, 0));
     }
 
     #[test]

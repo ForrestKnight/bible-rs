@@ -17,7 +17,7 @@ bindgen = ["uniffi/cli"]
 
 [dependencies]
 # Without "tls": the phone apps don't offer online translations yet (see bible-core's features).
-bible-core = { workspace = true, default-features = false, features = ["bundled"] }
+bible-core = { workspace = true, default-features = false, features = ["bundled", "native"] }
 anyhow.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -7,23 +7,35 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-default = ["bundled", "tls"]
+default = ["bundled", "native", "tls"]
 # Embed the public-domain translations from data/translations into the binary.
 bundled = []
+# Files, SQLite and the network: the translation library, importers, online translations, secrets
+# and the study store's SQLite file. The web build leaves it out and keeps the model, `.bbl`
+# decoding, chapter layout, search, references and the study store in memory.
+native = ["dep:rusqlite", "dep:zip", "dep:flate2", "dep:ureq"]
 # HTTPS (rustls) for the online translations. The phone apps leave it out while they have no
 # online translations, so their binaries carry no encryption code (App Store export rules).
-tls = ["ureq/rustls"]
+tls = ["native", "ureq/rustls"]
 
 [dependencies]
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 memchr.workspace = true
+rusqlite = { version = "0.40", features = ["bundled"], optional = true }
+zip = { version = "2", default-features = false, features = ["deflate"], optional = true }
+flate2 = { version = "1", optional = true }
+ureq = { version = "3", default-features = false, features = ["gzip"], optional = true }
+
+# The C zstd needs a C compiler that targets wasm; the browser decodes with a pure-Rust one.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 zstd.workspace = true
-rusqlite = { version = "0.40", features = ["bundled"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
-flate2 = "1"
-ureq = { version = "3", default-features = false, features = ["gzip"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ruzstd = { version = "0.9", default-features = false, features = ["std"] }
+# The clock: std has none on wasm32-unknown-unknown.
+js-sys = "0.3"
 
 # API keys live in the macOS Keychain; other platforms use a 0600 file.
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/app", "crates/ffi", "xtask"]
+members = ["crates/core", "crates/app", "crates/ffi", "crates/web", "xtask"]
 default-members = ["crates/core", "crates/app", "crates/ffi"]
 
 [workspace.package]
@@ -30,6 +30,13 @@ panic = "abort"
 [profile.bench]
 inherits = "release"
 strip = false
+
+# The web reader's WebAssembly (scripts/build-web.sh): whole-program optimization makes the module
+# the browser downloads smaller, at no cost in speed.
+[profile.wasm]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
 
 
 [profile.dev.package."*"]
