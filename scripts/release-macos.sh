@@ -57,7 +57,7 @@ APP="dist/Bible.app"
 BIN="$APP/Contents/MacOS/Bible"
 NAME="bible-rs-${VERSION}-universal"
 DMG="dist/$NAME.dmg"
-# bible.rasmic.xyz/download redirects to releases/latest/download/bible-rs-universal.dmg,
+# simplymybible.com/download redirects to releases/latest/download/bible-rs-universal.dmg,
 # so every release needs this unversioned copy too.
 LATEST_DMG="dist/bible-rs-universal.dmg"
 ZIP="dist/$NAME.zip"

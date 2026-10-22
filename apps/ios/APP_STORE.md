@@ -35,9 +35,9 @@ October 2026; App Store Connect confirms it's free when the record is created.
    use. Without Xcode signed in, make an App Store Connect API key with the Admin role under Users
    and Access, Integrations, Team Keys, and set `ASC_KEY_PATH`, `ASC_KEY_ID` and `ASC_ISSUER_ID`
    for the script. Keep the `.p8` file out of the repository.
-3. **The website.** The listing links to `https://bible.rasmic.xyz/privacy` and `/support`. They
-   go live when the `site/` changes reach `main` and the site deploys; check both open before
-   submitting.
+3. **The website.** The listing links to `https://simplymybible.com/privacy` and `/support`. They
+   go live when the `site/` changes reach `main`, the site deploys and the domain is attached to
+   the Vercel project; check both open before submitting.
 
 ## Each release
 
@@ -62,9 +62,9 @@ October 2026; App Store Connect confirms it's free when the record is created.
 | Subtitle | Seven translations, built in |
 | Category | Reference (primary), Books (secondary) |
 | Price | Free |
-| Support URL | https://bible.rasmic.xyz/support |
-| Marketing URL | https://bible.rasmic.xyz |
-| Privacy Policy URL | https://bible.rasmic.xyz/privacy |
+| Support URL | https://simplymybible.com/support |
+| Marketing URL | https://simplymybible.com |
+| Privacy Policy URL | https://simplymybible.com/privacy |
 | Copyright | 2026 Micky |
 | Keywords | `kjv,scripture,holy,verse,study,psalms,gospel,web,bsb,asv,devotional,notes,highlight,daily,christian` |
 
@@ -103,7 +103,7 @@ King James Version, World English Bible, Berean Standard Bible, American Standar
 PRIVATE
 No account, no ads, no analytics and no tracking. Bible never goes online, and your notes stay on your device.
 
-Bible is also on the Mac: bible.rasmic.xyz
+Bible is also on the Mac: simplymybible.com
 ```
 
 **What's New** for the first version: `The first release of Bible for iPhone and iPad.`
@@ -149,7 +149,7 @@ Add your name, phone number and email as the review contact.
 
 ## Before submitting
 
-- [ ] `/privacy` and `/support` open on bible.rasmic.xyz
+- [ ] `/privacy` and `/support` open on simplymybible.com
 - [ ] The TestFlight build works on a real iPhone and iPad, in both orientations
 - [ ] Screenshots, description, keywords, URLs and the review notes are filled in for the version
 - [ ] App Privacy, age rating, content rights and Pricing and Availability are answered

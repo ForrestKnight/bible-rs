@@ -2,9 +2,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 /**
  * adapter-vercel gives every prerendered page two routes (`/a` rewritten to `/a/`, and `/a/`
- * redirected to `/a`), and Vercel refuses more than 2,048. The reader prerenders 8,323 chapters,
- * so this folds those pairs into one pair per pattern, matching exactly the same paths: pages
- * whose paths differ in one segment only share a pattern, `/read/(kjv|web)/john/(1|…|21)`.
+ * redirected to `/a`), and Vercel refuses more than 2,048. The site prerenders about 100,000
+ * pages (chapters and verses), so this folds those pairs into one pair per pattern, matching
+ * exactly the same paths: pages whose paths differ in one segment only share a pattern,
+ * `/read/(kjv|web)/john/(1|…|21)`.
  *
  * @param {string} file the adapter's `.vercel/output/config.json`
  */
@@ -12,12 +13,15 @@ export function compactRoutes(file) {
 	const config = JSON.parse(readFileSync(file, 'utf8'));
 	/** @type {any[]} */
 	const routes = config.routes;
+	/** @type {any[]} the routes that aren't a page's pair */
+	const others = [];
 	/** @type {string[]} */
 	const paths = [];
 	let first = -1;
-	for (let i = 0; i + 1 < routes.length; i++) {
+	for (let i = 0; i < routes.length; i++) {
 		const [a, b] = [routes[i], routes[i + 1]];
 		const page =
+			b !== undefined &&
 			Object.keys(a).length === 2 &&
 			typeof a.src === 'string' &&
 			!a.src.endsWith('/') &&
@@ -26,17 +30,19 @@ export function compactRoutes(file) {
 			b.status === 308 &&
 			b.headers?.Location === a.src &&
 			Object.keys(b).length === 3;
-		if (!page) continue;
-		if (first < 0) first = i;
+		if (!page) {
+			others.push(a);
+			continue;
+		}
+		if (first < 0) first = others.length;
 		paths.push(a.src);
-		routes.splice(i, 2);
-		i--;
+		i++;
 	}
 	if (!paths.length) return;
 
 	/** @type {string[][][]} each pattern: the choices for each segment */
 	let patterns = paths.map((p) => p.slice(1).split('/').map((s) => [s]));
-	const depths = Math.max(...patterns.map((p) => p.length));
+	const depths = patterns.reduce((n, p) => Math.max(n, p.length), 0);
 	for (let pass = 0; pass < 2; pass++) {
 		for (let at = depths - 1; at >= 0; at--) patterns = merge(patterns, at);
 	}
@@ -50,7 +56,8 @@ export function compactRoutes(file) {
 			{ src: `^(/${path})/$`, status: 308, headers: { Location: '$1' } }
 		];
 	});
-	routes.splice(first, 0, ...pairs);
+	others.splice(first, 0, ...pairs);
+	config.routes = others;
 	writeFileSync(file, JSON.stringify(config, null, '\t'));
 }
 
@@ -70,7 +77,7 @@ function merge(patterns, at) {
 		}
 		const key = JSON.stringify(p.map((s, i) => (i === at ? null : s)));
 		const into = joined.get(key);
-		if (into) into[at] = [...into[at], ...p[at]];
+		if (into) into[at].push(...p[at]);
 		else joined.set(key, p.map((s) => [...s]));
 	}
 	return [...joined.values()];

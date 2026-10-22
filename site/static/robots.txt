@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://bible.rasmic.xyz/sitemap.xml
+Sitemap: https://simplymybible.com/sitemap.xml

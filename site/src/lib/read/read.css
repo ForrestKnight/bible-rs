@@ -125,6 +125,17 @@ html[data-read] :where(a) {
 	text-decoration: none;
 }
 
+/* Links standing in for buttons (ui/follow.ts) keep the button's arrow, and neither drag nor
+   offer a link's long-press menu. */
+html[data-read] :where(a.follow) {
+	cursor: default;
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-user-drag: none;
+	-webkit-touch-callout: none;
+	-webkit-tap-highlight-color: transparent;
+}
+
 html[data-read] ::selection {
 	background: var(--selection);
 }

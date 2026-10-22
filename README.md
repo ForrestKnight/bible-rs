@@ -383,7 +383,7 @@ Store Connect asks for.
 
 ## Web
 
-[bible.rasmic.xyz/read](https://bible.rasmic.xyz/read) is the Mac app in a browser: the same
+[simplymybible.com/read](https://simplymybible.com/read) is the Mac app in a browser: the same
 typesetting, themes, palette, search, study tools, pages and shortcuts, with the core compiled to
 WebAssembly. Every chapter of every bundled translation is also a static page
 (`/read/kjv/john/3`). [Importing](#import-a-translation-you-own) works as on the Mac, with the same

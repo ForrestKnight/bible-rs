@@ -4,5 +4,5 @@
 		"strict": true
 	},
 	"include": ["src", "vite.config.ts"],
-	"exclude": ["src/lib/read/wasm", "src/service-worker"]
+	"exclude": ["src/lib/read/wasm", "src/service-worker", "src/lib/topics/*.mjs"]
 }

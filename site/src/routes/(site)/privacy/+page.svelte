@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { SITE_URL } from '#lib/config.js';
+	import { SITE_NAME, SITE_URL } from '#lib/config.js';
 	import Doc from '#lib/Doc.svelte';
 
-	const title = 'Privacy policy · Bible';
+	const title = `Privacy policy | ${SITE_NAME}`;
 	const description =
 		'The Bible app collects no data: no account, no analytics, no ads, no tracking. Your highlights, notes and bookmarks stay on your device.';
 	const url = `${SITE_URL}/privacy`;

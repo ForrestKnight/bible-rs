@@ -30,9 +30,11 @@
 		flash: number | null;
 		redLetters: boolean;
 		verseNumbers: boolean;
+		/** The chapter in the address: its rows are the targets of #v16 links. */
+		anchors: boolean;
 	}
 
-	let { index, label, columns, marks, selected, flash, redLetters, verseNumbers }: Props = $props();
+	let { index, label, columns, marks, selected, flash, redLetters, verseNumbers, anchors }: Props = $props();
 
 	const rows = $derived.by(() => {
 		const numbers = new Set<number>();
@@ -65,7 +67,7 @@
 		</div>
 	{/if}
 	{#each rows as row (row.n)}
-		<div class="row" class:sel={selected.has(row.n)} data-row={row.n}>
+		<div class="row" class:sel={selected.has(row.n)} id={anchors ? `v${row.n}` : undefined} data-row={row.n}>
 			{#each row.cells as v, ci (ci)}
 				<div class="cell" data-col={ci}>
 					{#if v}

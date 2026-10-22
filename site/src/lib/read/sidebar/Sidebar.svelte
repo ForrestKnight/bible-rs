@@ -6,6 +6,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getApp } from '../app.svelte';
+	import { bookOf } from '../books';
 	import { shortcutText } from '../keyboard';
 	import { ToolbarButton } from '../ui';
 	import SearchPanel from './SearchPanel.svelte';
@@ -13,7 +14,7 @@
 	import { SourceListState } from './state.svelte';
 
 	const app = getApp();
-	const st = new SourceListState();
+	const st = new SourceListState(bookOf(app.books, app.here.chapter));
 
 	let hovered = false;
 	let mounted = $state(false);

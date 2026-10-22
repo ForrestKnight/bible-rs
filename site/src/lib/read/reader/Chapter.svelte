@@ -23,9 +23,11 @@
 		quiet: boolean;
 		redLetters: boolean;
 		justify: boolean;
+		/** The chapter in the address: its verses are the targets of #v16 links. */
+		anchors: boolean;
 	}
 
-	let { index, content, label, abbrev, marks, selected, flash, noteOpen, quiet, redLetters, justify }: Props =
+	let { index, content, label, abbrev, marks, selected, flash, noteOpen, quiet, redLetters, justify, anchors }: Props =
 		$props();
 
 	const PSALMS = 18;
@@ -127,6 +129,7 @@
 								redLetters
 							)}<span
 							class="seg"
+							id={anchors && seg.start ? `v${seg.verse}` : undefined}
 							data-v={seg.verse}
 							data-vs={seg.start ? '' : undefined}
 							>{#if seg.start && (m?.bookmark || m?.note || noteOpen === seg.verse)}<span class="markers"

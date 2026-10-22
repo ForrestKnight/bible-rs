@@ -6,10 +6,11 @@
 	import { onMount, untrack } from 'svelte';
 	import { dev } from '$app/env';
 	import { goto } from '$app/navigation';
-	import { SITE_URL } from '#lib/config.js';
 	import { ReadApp, setApp, now } from './app.svelte';
 	import { chapterPath } from './books';
 	import { chapterLabel, type ChapterContent, type TranslationInfo } from './core';
+	import Meta from './seo/Meta.svelte';
+	import { chapterTitle, type Crumb } from './seo/meta';
 	import { handleKey } from './keyboard';
 	import { dragsFiles, fromDrop } from './imports';
 	import { STUDY_KEY } from './settings';
@@ -19,6 +20,7 @@
 	import ColumnHeads from './chrome/ColumnHeads.svelte';
 	import ResultNavigator from './chrome/ResultNavigator.svelte';
 	import FocusChrome from './chrome/FocusChrome.svelte';
+	import PageLinks from './chrome/PageLinks.svelte';
 	import Sidebar from './sidebar/Sidebar.svelte';
 	import Pages from './pages/Pages.svelte';
 	import Palette from './overlays/Palette.svelte';
@@ -41,11 +43,13 @@
 			chapter: number;
 			content: ChapterContent;
 			restore: boolean;
+			/** The canonical address (/read names John 1's). */
 			path: string;
 			label: string;
 			short: string;
 			title: string;
 			description: string;
+			crumbs: Crumb[];
 		};
 	}
 
@@ -98,9 +102,8 @@
 	});
 
 	const title = $derived(
-		app.core ? `${chapterLabel(app.here.chapter)} (${app.info(s.translation)?.abbrev ?? ''})` : data.title
+		app.core ? chapterTitle(chapterLabel(app.here.chapter), app.info(s.translation)?.abbrev ?? '') : data.title
 	);
-	const canonical = $derived(`${SITE_URL}${data.path}`);
 
 	onMount(() => {
 		const d = document.documentElement;
@@ -252,17 +255,9 @@
 	});
 </script>
 
+<Meta title={data.title} tabTitle={title} description={data.description} path={data.path} crumbs={data.crumbs} />
+
 <svelte:head>
-	<title>{title} · Bible</title>
-	<meta name="description" content={data.description} />
-	<link rel="canonical" href={canonical} />
-	<meta property="og:type" content="article" />
-	<meta property="og:site_name" content="Bible" />
-	<meta property="og:title" content="{data.title} · Bible" />
-	<meta property="og:description" content={data.description} />
-	<meta property="og:url" content={canonical} />
-	<meta property="og:image" content="{SITE_URL}/og.jpg" />
-	<meta name="twitter:card" content="summary_large_image" />
 	<link rel="preload" href="/fonts/read/literata.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
 	<link rel="preload" href="/fonts/read/inter.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
 </svelte:head>
@@ -324,6 +319,7 @@
 		{#if app.share}<ShareSheet />{/if}
 		{#if app.importSheet}<ImportSheet />{/if}
 		{#if app.shortcuts}<ShortcutsOverlay />{/if}
+		<PageLinks />
 	{/if}
 	{#if app.coreError}
 		<p class="error t-ui" role="alert">The reader couldn’t start: {app.coreError}</p>

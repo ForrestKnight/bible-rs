@@ -4,6 +4,7 @@
  * /translations/<id>.bbl (imported ones read from IndexedDB) the first time they're needed. While
  * prerendering, the same code reads the module and the translations from disk (./node.ts).
  */
+import { BOOKS, chapterName } from './books';
 import { importedBytes } from './imports';
 import init, * as wasm from './wasm/bible.js';
 import wasmUrl from './wasm/bible_bg.wasm?url';
@@ -330,7 +331,11 @@ async function start(): Promise<Core> {
 	if (import.meta.env.SSR) {
 		const node = await import('./node.js');
 		wasm.initSync({ module: node.wasmBytes() });
-		return new Core(async (id) => node.translationBytes(id));
+		const c = new Core(async (id) => node.translationBytes(id));
+		const named = Array.from({ length: CHAPTERS }, (_, i) => chapterName(BOOKS, i) === chapterLabel(i));
+		if (JSON.stringify(c.books) !== JSON.stringify(BOOKS) || named.includes(false))
+			throw new Error('books.ts no longer matches the core’s books');
+		return c;
 	}
 	await init({ module_or_path: wasmUrl });
 	const c: Core = new Core(async (id) => {

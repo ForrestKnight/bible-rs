@@ -1,5 +1,5 @@
 import type { StudyKind } from '../app.svelte';
-import type { HighlightColor } from '../core';
+import type { Book, HighlightColor } from '../core';
 
 export const STUDY_KINDS: StudyKind[] = ['bookmarks', 'highlights', 'notes'];
 
@@ -22,6 +22,16 @@ export class SourceListState {
 	filter = $state('');
 	/** Bumped to focus the filter field. */
 	filterFocus = $state(0);
+
+	/** Opens on the book being read, as SourceList reveals it, so the page arrives with its chapters
+	 *  listed (and linked) rather than opening them once it has loaded. */
+	constructor(reading?: Book) {
+		if (!reading) return;
+		const t = +reading.newTestament;
+		this.testaments[t] = true;
+		this.autoOpened[t] = true;
+		this.expanded = reading.index;
+	}
 
 	toggleStudy(kind: StudyKind) {
 		const i = STUDY_KINDS.indexOf(kind);

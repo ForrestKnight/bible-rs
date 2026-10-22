@@ -5,6 +5,7 @@
  */
 import { getContext, setContext } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
+import { BOOKS, bookPath, chapterPath } from './books';
 import { Search } from './search.svelte';
 import { deleteImported, importedInfos, storeImported, type ImportResult } from './imports';
 import { importer } from './overlays/importer.svelte';
@@ -13,6 +14,7 @@ import {
 	chapterLabel,
 	chapterVerses,
 	planDays,
+	type Book,
 	type ChapterContent,
 	type ContentOptions,
 	type Core,
@@ -267,6 +269,23 @@ export class ReadApp {
 		this.here = { chapter: init.chapter, verse: 1 };
 		this.#content.set(this.#key(init.translation, init.chapter, contentOptions(defaultTypography())), init.content);
 		this.#initNames = { index: init.chapter, label: init.label, short: init.short };
+	}
+
+	/** The books: the core's, or until it loads the page's copy (books.ts). */
+	get books(): Book[] {
+		return this.core?.books ?? BOOKS;
+	}
+
+	/** A chapter's address in a translation (the one being read by default); a translation imported
+	 *  in this browser has no pages of its own, so its chapters are /read, the saved place. */
+	chapterHref(index: number, translation = this.settings.translation): string {
+		return this.info(translation)?.imported ? '/read' : chapterPath(this.books, translation, index);
+	}
+
+	/** A book's page in the translation being read (a one-chapter book's is its chapter). */
+	bookHref(book: Book): string {
+		const t = this.settings.translation;
+		return book.chapters === 1 || this.info(t)?.imported ? this.chapterHref(book.firstChapter) : bookPath(t, book);
 	}
 
 	/** A result navigator shows under the toolbar while a search has results. */

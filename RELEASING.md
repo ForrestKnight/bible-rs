@@ -88,7 +88,7 @@ Cargo package, the command-line binary and the release file names keep the name 
      dist/bible-rs-<version>-universal.zip dist/bible-rs-<version>-SHA256SUMS.txt dist/appcast.xml
    ```
 
-The website's Download button (`bible.rasmic.xyz/download`) redirects to
+The website's Download button (`simplymybible.com/download`) redirects to
 `https://github.com/michaelshimeles/bible-rs/releases/latest/download/bible-rs-universal.dmg`, and
 installed copies read
 `https://github.com/michaelshimeles/bible-rs/releases/latest/download/appcast.xml`. GitHub serves

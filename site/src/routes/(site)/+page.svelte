@@ -9,13 +9,13 @@
 	import StudyCard from '#lib/cards/StudyCard.svelte';
 	import ThemesCard from '#lib/cards/ThemesCard.svelte';
 	import TypesetCard from '#lib/cards/TypesetCard.svelte';
-	import { ARCH, MIN_MACOS, NAME, REPO_URL, SITE_URL, VERSION } from '#lib/config.js';
+	import { ARCH, MIN_MACOS, NAME, REPO_URL, SITE_NAME, SITE_URL, VERSION } from '#lib/config.js';
 	import Showcase from '#lib/demo/Showcase.svelte';
 	import { Player } from '#lib/demo/player.svelte.js';
 	import { play } from '#lib/demo/sound.js';
 	import { reducedMotion, reveal } from '#lib/motion.svelte.js';
 
-	const title = `${NAME}: a fast, native reader for the Mac`;
+	const title = `${NAME}: a fast, native reader for the Mac | ${SITE_NAME}`;
 	const description =
 		'A very fast, native Bible reader for the Mac. Beautifully typeset, searchable as you type, with highlights, notes and bookmarks kept on your computer.';
 	const url = `${SITE_URL}/`;
@@ -97,7 +97,7 @@
 	<meta name="description" content={description} />
 	<link rel="canonical" href={url} />
 	<meta property="og:type" content="website" />
-	<meta property="og:site_name" content={NAME} />
+	<meta property="og:site_name" content={SITE_NAME} />
 	<meta property="og:locale" content="en_US" />
 	<meta property="og:url" content={url} />
 	<meta property="og:title" content={title} />

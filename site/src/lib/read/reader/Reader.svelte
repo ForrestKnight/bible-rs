@@ -749,6 +749,7 @@
 					flash={flash?.chapter === index ? flash.verse : null}
 					redLetters={typo.redLetters}
 					verseNumbers={typo.verseNumbers}
+					anchors={index === app.here.chapter}
 				/>
 			{:else}
 				<Chapter
@@ -763,6 +764,7 @@
 					quiet={app.focus}
 					redLetters={typo.redLetters}
 					justify={typo.justify}
+					anchors={index === app.here.chapter}
 				/>
 			{/if}
 		{/each}

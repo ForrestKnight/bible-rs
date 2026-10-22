@@ -123,7 +123,7 @@ jobs:
             dist/appcast.xml
           if-no-files-found: error
 
-      # bible-rs-universal.dmg is the name bible.rasmic.xyz/download points at, and appcast.xml
+      # bible-rs-universal.dmg is the name simplymybible.com/download points at, and appcast.xml
       # the feed installed copies check.
       - name: Draft release
         env:

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Book } from '../core';
+	import { follow } from '../ui/follow';
 	import { dominantColor, tint, type Mark } from './marks';
 	import Ring from './Ring.svelte';
 
@@ -9,10 +10,12 @@
 		current: number;
 		/** Each chapter's (index) highlights and notes, as ring marks. */
 		activity: Map<number, Mark[]>;
+		/** A chapter's address (each chip is a link to it). */
+		href: (chapter: number) => string;
 		onpick: (chapter: number) => void;
 	}
 
-	let { book, current, activity, onpick }: Props = $props();
+	let { book, current, activity, href, onpick }: Props = $props();
 </script>
 
 <!-- The open book's chapters: 24 pt chips in sevens, the current one solid accent. A chapter with
@@ -23,12 +26,12 @@
 		{@const index = book.firstChapter + i}
 		{@const here = index === current}
 		{@const marks = activity.get(index)}
-		<button
-			type="button"
-			class={['chip', { here, marked: !!marks?.length }]}
+		<a
+			href={href(index)}
+			class={['chip', 'follow', { here, marked: !!marks?.length }]}
 			aria-current={here || undefined}
 			aria-label="{book.name} {i + 1}{marks?.length ? ', has highlights or notes' : ''}"
-			onclick={() => onpick(index)}
+			use:follow={() => onpick(index)}
 		>
 			{#if marks?.length}
 				<Ring
@@ -39,7 +42,7 @@
 				/>
 			{/if}
 			<span class="n">{i + 1}</span>
-		</button>
+		</a>
 	{/each}
 </div>
 

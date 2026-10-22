@@ -442,7 +442,36 @@ also a static page that search engines can index.
   `/read/<translation>/<book>/<chapter>`, with its title, a description taken from its first
   verses, a canonical URL and a sitemap entry. The server runs the same wasm module in Node to typeset
   the chapter with the default settings, so the page is readable before any script runs.
-  `/read` itself restores the saved place.
+  `/read` itself restores the saved place, and names John 1 as its canonical URL.
+- **The reader's places are real links that it follows itself.** Its controls were buttons, so a
+  chapter page had no `<a href>` at all. The sidebar's books and chapters (rendered on the server
+  for the book being read), the book picker and the translation menu are now links
+  (`ui/follow.ts`). A plain click still moves the reader in place; a modified click opens a new
+  tab. Previous and next chapter, the trail up to the book and translation, and the chapter in the
+  other translations had no control to turn into a link. They are a navigation that stays out of
+  sight until it has keyboard focus (`chrome/PageLinks.svelte`). The window looks and behaves as
+  before.
+- **Translations, books and verses have plain pages** (`/read/kjv`, `/read/kjv/john`,
+  `/read/kjv/john/3/16`). They are text and links in the reader's type and theme, prerendered
+  without the app or any client-side JavaScript. Every reader page carries JSON-LD (a WebPage of
+  the site, with its breadcrumb trail), and `/sitemap.xml` is an index of a file per kind of page.
+  Verse pages exist for the KJV, BSB and WEB only, and the other four translations' verses link to
+  their place in the chapter (`#v16`). All seven would nearly double the output and triple the
+  build time:
+
+  | Verse pages for | Pages | Files | Static output | Local build (M-series) |
+  |---|---|---|---|---|
+  | none (chapters only, before) | 8,327 | 16,712 | 0.6 GB | 18 s |
+  | **KJV, BSB, WEB** ✔ | 102,082 | 110,499 | 2.2 GB | about 2 min |
+  | all seven | 226,471 | 234,892 | 4.2 GB | about 6 min |
+- **Topic pages keep references, not text.** Marketing's 50 topics (`site/src/lib/topics/`) list
+  each verse by book, chapter and verse; the page takes the KJV and BSB text from the core as it's
+  prerendered, so a topic can never quote a verse differently from its verse page. A reference
+  the core doesn't have, or a title that doesn't end in the site's name, stops the build. Each verse
+  links to its verse pages, and each verse page links back to the topics that list it.
+- **The site and the apps have different names.** The apps are "Bible" (`NAME`). The website is
+  "Simply My Bible" (`SITE_NAME`, at simplymybible.com). It ends every title and is `og:site_name`
+  and the WebSite's name in the JSON-LD.
 - **Hydration never shows a wrong layout.** The first client render matches the server's.
   Saved settings are applied after mount. An inline script in `app.html` sets the theme and
   accent before the first paint. When saved settings change the typesetting (verse per line,

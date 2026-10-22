@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { SITE_URL } from '#lib/config.js';
+	import { SITE_NAME, SITE_URL } from '#lib/config.js';
 	import Doc from '#lib/Doc.svelte';
 
-	const title = 'Support · Bible';
+	const title = `Support | ${SITE_NAME}`;
 	const description = 'Help with Bible for iPhone, iPad and Mac, and how to report a problem.';
 	const url = `${SITE_URL}/support`;
 	const issues = 'https://github.com/michaelshimeles/bible-rs/issues';

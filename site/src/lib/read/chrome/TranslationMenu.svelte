@@ -1,6 +1,6 @@
 <!--
-	The toolbar's translation menu (app.rs `translation_menu`): the translations with ⌘1…⌘9, the
-	others to read side by side, and Manage translations….
+	The toolbar's translation menu (app.rs `translation_menu`): the translations with ⌘1…⌘9 (each a
+	link to this chapter in it), the others to read side by side, and Manage translations….
 -->
 <script lang="ts">
 	import { getApp } from '../app.svelte';
@@ -29,6 +29,7 @@
 			label="{t.abbrev}  {t.name}"
 			shortcut={i < 9 ? capsText(fixedCaps(['⌘', String(i + 1)])) : undefined}
 			selected={t.id === s.translation}
+			href={app.chapterHref(app.here.chapter, t.id)}
 			onclick={() => act({ type: 'setTranslation', id: t.id })}
 		/>
 	{/each}
