@@ -5,7 +5,7 @@
 
 	const title = 'Privacy policy · Bible';
 	const description =
-		'Bible collects no data: no account, no analytics, no ads, no tracking. Your highlights, notes and bookmarks stay on your device.';
+		'The Bible app collects no data: no account, no analytics, no ads, no tracking. Your highlights, notes and bookmarks stay on your device.';
 	const url = `${SITE_URL}/privacy`;
 </script>
 
@@ -15,9 +15,9 @@
 	<link rel="canonical" href={url} />
 </svelte:head>
 
-<Doc heading="Privacy policy" meta="Updated 20 October 2026. Covers Bible for iPhone, iPad and Mac.">
+<Doc heading="Privacy policy" meta="Updated 21 October 2026. Covers Bible for iPhone, iPad and Mac, and this website.">
 	<p class="lede">
-		Bible collects no data. There's no account, no analytics, no ads and no tracking. Your
+		The Bible app collects no data. There's no account, no analytics, no ads and no tracking. Your
 		highlights, notes, bookmarks, searches and reading history are never sent to the developer.
 	</p>
 
@@ -56,12 +56,16 @@
 	</p>
 
 	<h2>Children</h2>
-	<p>Bible collects nothing from anyone, children included.</p>
+	<p>The app collects nothing from anyone, children included.</p>
 
 	<h2>This website</h2>
 	<p>
-		This site sets no cookies, runs no analytics and serves its own fonts. It loads the download
-		count from GitHub, which sees your IP address when it serves it.
+		This site sets no cookies and serves its own fonts. It counts page views with Vercel Web
+		Analytics. For each view, Vercel records the page, the site that linked to it, your country,
+		region and city, and your browser, operating system and device type. In the web reader, the
+		page is the chapter it opens at. Vercel tells visits apart with a hash of the request, which it
+		discards after 24 hours, and doesn't link the views to you or your IP address. The site also
+		loads the download count from GitHub, which sees your IP address when it serves it.
 	</p>
 
 	<h2>Changes and questions</h2>

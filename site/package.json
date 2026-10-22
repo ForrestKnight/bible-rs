@@ -27,5 +27,13 @@
 	"imports": {
 		"#lib": "./src/lib/index.js",
 		"#lib/*": "./src/lib/*"
+	},
+	"dependencies": {
+		"@vercel/analytics": "^2.0.1"
+	},
+	"overrides": {
+		"@vercel/analytics": {
+			"@sveltejs/kit": "$@sveltejs/kit"
+		}
 	}
 }

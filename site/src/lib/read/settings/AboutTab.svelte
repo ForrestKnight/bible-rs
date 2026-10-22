@@ -46,7 +46,7 @@
 	{/each}
 </div>
 
-<p class="privacy">No accounts, no tracking. Your notes stay in this browser.</p>
+<p class="privacy">No accounts or cookies. The site counts page views anonymously, and your notes stay in this browser.</p>
 
 <style>
 	.hero {
