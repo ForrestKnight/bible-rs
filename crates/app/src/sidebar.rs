@@ -1,7 +1,7 @@
 //! Left sidebar: a floating source list (study collections, then the books with a chapter grid)
 //! that turns into search results while a search is active.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,7 +11,8 @@ use bible_core::search::{Query, Scope};
 use bible_core::study::{HighlightColor, StudyStore};
 use eframe::egui::text::{LayoutJob, TextFormat, TextWrapping};
 use eframe::egui::{
-    self, Align, Align2, Color32, FontId, Key, Painter, Rect, Response, ScrollArea, Sense, Ui, pos2, vec2,
+    self, Align, Align2, Color32, FontId, Key, Painter, Pos2, Rect, Response, ScrollArea, Sense, Shape,
+    Stroke, Ui, pos2, vec2,
 };
 
 use crate::actions::{Action, ExportKind, SidebarTab};
@@ -30,6 +31,12 @@ const BOOK_INDENT: f32 = 32.0;
 const CHIP: f32 = 24.0;
 const CHIP_GAP: f32 = 8.0;
 const CHIP_INDENT: f32 = 24.0;
+/// A marked chapter's ring: 2 pt wide on the chip's edge, segments 2.5 pt apart, around a 17 pt
+/// tinted disc. Past [`RING_MAX_SEGMENTS`] marked verses the segments merge by colour.
+const RING_WIDTH: f32 = 2.0;
+const RING_GAP: f32 = 2.5;
+const RING_DISC: f32 = 8.5;
+const RING_MAX_SEGMENTS: usize = 12;
 /// An open collection lists its most recent items, then "Show all".
 const RECENT_ITEMS: usize = 5;
 
@@ -99,8 +106,8 @@ pub struct Sidebar {
     scroll_to_selected: bool,
     /// The book last revealed (testament opened, scrolled into view) in the source list.
     revealed: Option<BookId>,
-    /// Chapters with highlights or notes, keyed by the study store's generation.
-    activity: (u64, HashSet<ChapterIdx>),
+    /// Highlights and notes by chapter and by book, keyed by the study store's generation.
+    activity: (u64, Activity),
     /// For a search that found nothing: a spelling that finds verses (query, count, first verse).
     suggestion: Option<(String, usize, u32)>,
 }
@@ -133,7 +140,7 @@ impl Sidebar {
             selected: 0,
             scroll_to_selected: false,
             revealed: None,
-            activity: (0, HashSet::new()),
+            activity: (0, Activity::default()),
             suggestion: None,
         }
     }
@@ -277,10 +284,7 @@ impl Sidebar {
             self.expanded = Some(current_book);
         }
         if self.activity.0 != study.generation() {
-            let mut set = HashSet::new();
-            set.extend(study.highlights().into_iter().map(|(v, _)| v.chapter_idx()));
-            set.extend(study.notes().into_iter().map(|(v, _)| v.chapter_idx()));
-            self.activity = (study.generation(), set);
+            self.activity = (study.generation(), Activity::new(study));
         }
         let book_name =
             |b: BookId| meta.as_ref().map(|m| m.book_short(b).to_string()).unwrap_or_else(|| b.name().into());
@@ -475,7 +479,8 @@ impl Sidebar {
                         for b in books {
                             let name = book_name(b);
                             let here = b == current_book && reading;
-                            let resp = row(
+                            let marked = self.activity.1.books.get(&b);
+                            let mut resp = row(
                                 ui,
                                 p,
                                 &Row {
@@ -483,9 +488,13 @@ impl Sidebar {
                                     indent: BOOK_INDENT - ROW_PAD,
                                     count: here.then(|| b.chapters().to_string()),
                                     selected: here,
+                                    marks: marked.map(|m| &m.marks[..]),
                                     ..Row::default()
                                 },
                             );
+                            if let Some(m) = marked {
+                                resp = resp.on_hover_text(m.summary());
+                            }
                             if here && reveal && !self.filtering {
                                 resp.scroll_to_me_animation(None, egui::style::ScrollAnimation::none());
                             }
@@ -501,7 +510,7 @@ impl Sidebar {
                                 }
                             }
                             if self.expanded == Some(b) && b.chapters() > 1 {
-                                chapter_grid(ui, p, b, env.location.0, &self.activity.1, actions);
+                                chapter_grid(ui, p, b, env.location.0, &self.activity.1.chapters, actions);
                             }
                         }
                     }
@@ -1048,6 +1057,8 @@ struct Row<'a> {
     /// A disclosure chevron: `Some(open)`.
     disclosure: Option<bool>,
     selected: bool,
+    /// A book's highlights and notes, as a small ring in the icon lane.
+    marks: Option<&'a [Option<HighlightColor>]>,
 }
 
 fn row(ui: &mut Ui, p: &Palette, r: &Row<'_>) -> Response {
@@ -1067,6 +1078,9 @@ fn row(ui: &mut Ui, p: &Palette, r: &Row<'_>) -> Response {
             r.icon_color.unwrap_or(p.accent),
         );
         x += ICON_LANE + GAP;
+    } else if let Some(marks) = r.marks.filter(|m| !m.is_empty()) {
+        let lane = pos2(rect.left() + ROW_PAD + ICON_LANE / 2.0, cy);
+        paint_ring(painter, lane, p, &BOOK_RING, marks);
     }
     let (font, color) =
         if r.selected { (text::UI_STRONG.font(), p.accent) } else { (text::UI.font(), p.ink) };
@@ -1289,14 +1303,160 @@ fn section(ui: &mut Ui, p: &Palette, label: &str, first: bool) {
     );
 }
 
-/// The open book's chapters: 24 pt chips, the current one solid accent; a dot marks chapters
-/// with highlights or notes.
+/// A chapter's marked verses: each one's highlight colour, or `None` for a note on a verse with
+/// no highlight. Sorted by colour, so like colours sit together on the ring.
+type Marks = Vec<Option<HighlightColor>>;
+
+fn color_rank(c: Option<HighlightColor>) -> usize {
+    c.and_then(|c| HighlightColor::ALL.iter().position(|x| *x == c)).unwrap_or(HighlightColor::ALL.len())
+}
+
+/// A book's marked verses, and how many highlights and notes it holds.
+#[derive(Default)]
+struct BookMarks {
+    marks: Marks,
+    highlights: usize,
+    notes: usize,
+}
+
+impl BookMarks {
+    fn summary(&self) -> String {
+        let plural = |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+        match (self.highlights, self.notes) {
+            (h, 0) => plural(h, "highlight"),
+            (0, n) => plural(n, "note"),
+            (h, n) => format!("{} · {}", plural(h, "highlight"), plural(n, "note")),
+        }
+    }
+}
+
+/// Every chapter and book with highlights or notes, and its marks: one per verse, so a
+/// highlighted verse with a note counts once.
+#[derive(Default)]
+struct Activity {
+    chapters: HashMap<ChapterIdx, Marks>,
+    books: HashMap<BookId, BookMarks>,
+}
+
+impl Activity {
+    fn new(study: &StudyStore) -> Self {
+        let mut verses: BTreeMap<VerseRef, Option<HighlightColor>> =
+            study.highlights().into_iter().map(|(v, c)| (v, Some(c))).collect();
+        let notes = study.notes();
+        for (v, _) in &notes {
+            verses.entry(*v).or_insert(None);
+        }
+        let mut out = Activity::default();
+        for (v, c) in verses {
+            out.chapters.entry(v.chapter_idx()).or_default().push(c);
+            let book = out.books.entry(v.chapter_idx().book()).or_default();
+            book.marks.push(c);
+            book.highlights += usize::from(c.is_some());
+        }
+        for (v, _) in &notes {
+            out.books.entry(v.chapter_idx().book()).or_default().notes += 1;
+        }
+        let marks = out.chapters.values_mut().chain(out.books.values_mut().map(|b| &mut b.marks));
+        for m in marks {
+            m.sort_by_key(|c| color_rank(*c));
+        }
+        out
+    }
+}
+
+/// The ring's segments as (colour, weight): one per marked verse, or past `cap` one per colour,
+/// weighted by its count.
+fn ring_segments(marks: &[Option<HighlightColor>], cap: usize) -> Vec<(Option<HighlightColor>, f32)> {
+    if marks.len() <= cap {
+        return marks.iter().map(|c| (*c, 1.0)).collect();
+    }
+    let mut out: Vec<(Option<HighlightColor>, f32)> = Vec::new();
+    for c in marks {
+        match out.last_mut() {
+            Some((last, n)) if last == c => *n += 1.0,
+            _ => out.push((*c, 1.0)),
+        }
+    }
+    out
+}
+
+/// The colour a chapter's number is tinted with: its most used highlight colour (ties go to the
+/// earlier colour), or `None` when it only has notes.
+fn dominant_color(marks: &[Option<HighlightColor>]) -> Option<HighlightColor> {
+    let mut best: Option<(HighlightColor, usize)> = None;
+    for c in HighlightColor::ALL {
+        let n = marks.iter().filter(|m| **m == Some(c)).count();
+        if n > 0 && best.is_none_or(|(_, b)| n > b) {
+            best = Some((c, n));
+        }
+    }
+    best.map(|(c, _)| c)
+}
+
+/// A ring's size: its outer radius, stroke width, the gap between segments (points) and how many
+/// segments it shows before merging them by colour.
+struct RingSize {
+    radius: f32,
+    width: f32,
+    gap: f32,
+    cap: usize,
+}
+
+/// On a chapter chip's edge.
+const CHIP_RING: RingSize =
+    RingSize { radius: CHIP / 2.0, width: RING_WIDTH, gap: RING_GAP, cap: RING_MAX_SEGMENTS };
+/// In a book row's icon lane.
+const BOOK_RING: RingSize = RingSize { radius: 6.5, width: 2.0, gap: 1.75, cap: 8 };
+
+/// A segmented ring, clockwise from the top: one segment per mark in its highlight's swatch
+/// (notes without a highlight in the accent), with clear gaps between.
+fn paint_ring(
+    painter: &Painter,
+    center: Pos2,
+    p: &Palette,
+    size: &RingSize,
+    marks: &[Option<HighlightColor>],
+) {
+    use std::f32::consts::{FRAC_PI_2, TAU};
+    let color = |c: Option<HighlightColor>| c.map_or(p.accent, |c| p.swatch(c));
+    let r = size.radius - size.width / 2.0;
+    let mut segs = ring_segments(marks, size.cap);
+    if let [(c, _)] = segs[..] {
+        painter.circle_stroke(center, r, Stroke::new(size.width, color(c)));
+        return;
+    }
+    // Merged colours keep a visible sliver however few verses they hold.
+    let floor = segs.iter().map(|s| s.1).sum::<f32>() / size.cap as f32;
+    for s in &mut segs {
+        s.1 = s.1.max(floor);
+    }
+    let total: f32 = segs.iter().map(|s| s.1).sum();
+    let gap = size.gap / r;
+    let usable = TAU - gap * segs.len() as f32;
+    let mut a = -FRAC_PI_2 + gap / 2.0;
+    for (c, w) in segs {
+        let sweep = usable * w / total;
+        let steps = ((sweep * r / 1.5).ceil() as usize).max(2);
+        let points = (0..=steps)
+            .map(|i| {
+                let t = a + sweep * i as f32 / steps as f32;
+                center + r * vec2(t.cos(), t.sin())
+            })
+            .collect();
+        painter.add(Shape::line(points, Stroke::new(size.width, color(c))));
+        a += sweep + gap;
+    }
+}
+
+/// The open book's chapters: 24 pt chips, the current one solid accent. A chapter with
+/// highlights or notes gets a segmented ring (one segment per marked verse, in its colour) and
+/// its number on a disc tinted with its main highlight colour.
 fn chapter_grid(
     ui: &mut Ui,
     p: &Palette,
     book: BookId,
     current: ChapterIdx,
-    activity: &HashSet<ChapterIdx>,
+    activity: &HashMap<ChapterIdx, Marks>,
     actions: &mut Vec<Action>,
 ) {
     let n = book.chapters() as usize;
@@ -1316,20 +1476,29 @@ fn chapter_grid(
         let idx = ChapterIdx::new(book, (i + 1) as u8).unwrap();
         let resp = ui.interact(chip, ui.id().with(("chapter", book.0, i)), Sense::click());
         let here = idx == current;
+        let marks = activity.get(&idx).filter(|m| !m.is_empty());
+        let painter = ui.painter();
+        if let Some(fill) = widgets::hover_fill(ui, &resp, p, false).filter(|_| !here) {
+            painter.circle_filled(chip.center(), CHIP / 2.0, fill);
+        }
+        let disc = if marks.is_some() { RING_DISC } else { CHIP / 2.0 };
         if here {
-            ui.painter().circle_filled(chip.center(), CHIP / 2.0, p.accent);
-        } else if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
-            ui.painter().circle_filled(chip.center(), CHIP / 2.0, fill);
+            painter.circle_filled(chip.center(), disc, p.accent);
+        } else if let Some(m) = marks {
+            let tint = dominant_color(m).map_or(p.accent_soft, |c| p.highlight(c));
+            painter.circle_filled(chip.center(), disc, tint);
+        }
+        if let Some(m) = marks {
+            paint_ring(painter, chip.center(), p, &CHIP_RING, m);
         }
         let (font, color) = if here {
             (theme::ui_semibold(text::SMALL.size), p.on_accent)
+        } else if marks.is_some() {
+            (theme::ui_semibold(text::SMALL.size), p.ink)
         } else {
             (text::SMALL.font(), p.ink_2)
         };
-        ui.painter().text(chip.center(), Align2::CENTER_CENTER, (i + 1).to_string(), font, color);
-        if !here && activity.contains(&idx) {
-            ui.painter().circle_filled(pos2(chip.center().x, chip.bottom() + 1.0), 2.0, p.accent);
-        }
+        painter.text(chip.center(), Align2::CENTER_CENTER, (i + 1).to_string(), font, color);
         if resp.clicked() {
             actions.push(Action::Jump { chapter: idx, verse: None, flash: false });
         }
@@ -1542,4 +1711,36 @@ fn select_field(ui: &mut Ui, p: &Palette, r: Rect, value: &str, id: &str) -> Res
         )
     });
     resp
+}
+
+#[cfg(test)]
+mod ring_tests {
+    use super::*;
+    use HighlightColor::*;
+
+    #[test]
+    fn one_segment_per_mark_until_the_cap() {
+        let marks = vec![Some(Yellow); 5];
+        assert_eq!(ring_segments(&marks, RING_MAX_SEGMENTS).len(), 5);
+        let marks = vec![Some(Yellow); RING_MAX_SEGMENTS];
+        assert_eq!(ring_segments(&marks, RING_MAX_SEGMENTS).len(), RING_MAX_SEGMENTS);
+    }
+
+    #[test]
+    fn past_the_cap_segments_merge_by_colour() {
+        let mut marks = vec![Some(Yellow); 10];
+        marks.extend([Some(Blue); 4]);
+        marks.push(None);
+        assert_eq!(
+            ring_segments(&marks, RING_MAX_SEGMENTS),
+            vec![(Some(Yellow), 10.0), (Some(Blue), 4.0), (None, 1.0)]
+        );
+    }
+
+    #[test]
+    fn dominant_colour_is_the_most_used_highlight() {
+        assert_eq!(dominant_color(&[Some(Blue), Some(Green), Some(Blue), None]), Some(Blue));
+        assert_eq!(dominant_color(&[Some(Pink), Some(Green)]), Some(Green));
+        assert_eq!(dominant_color(&[None, None]), None);
+    }
 }

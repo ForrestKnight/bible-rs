@@ -4,6 +4,7 @@
 	import type { Book } from '../core';
 	import { Icon, type IconName } from '../ui';
 	import ChapterGrid from './ChapterGrid.svelte';
+	import { activity as marksActivity, summary } from './marks';
 	import Row from './Row.svelte';
 	import StudyItems from './StudyItems.svelte';
 	import { STUDY_KINDS, type SourceListState } from './state.svelte';
@@ -36,10 +37,8 @@
 		}))
 	);
 
-	/** Chapters with highlights or notes (a dot on their chips). */
-	const activity = $derived(
-		new Set([...app.studyItems('highlights'), ...app.studyItems('notes')].map((i) => i.chapterIndex))
-	);
+	/** Highlights and notes by chapter and by book (rings on chapter chips and book rows). */
+	const activity = $derived(marksActivity(app.studyItems('highlights'), app.studyItems('notes')));
 
 	/** Where the reader is, then where it came from: three chapters. */
 	const recent = $derived.by(() => {
@@ -231,23 +230,32 @@
 			{#if open}
 				{#each group.books as b (b.index)}
 					{@const here = b.index === currentBook && reading}
+					{@const marked = activity.books.get(b.index)}
 					{#if here}
 						<Row
 							bind:el={currentRow}
 							label={b.name}
 							indent={24}
 							count={b.chapters}
+							marks={marked?.marks}
+							title={marked && summary(marked)}
 							selected
 							onclick={() => pickBook(b)}
 						/>
 					{:else}
-						<Row label={b.name} indent={24} onclick={() => pickBook(b)} />
+						<Row
+							label={b.name}
+							indent={24}
+							marks={marked?.marks}
+							title={marked && summary(marked)}
+							onclick={() => pickBook(b)}
+						/>
 					{/if}
 					{#if st.expanded === b.index && b.chapters > 1}
 						<ChapterGrid
 							book={b}
 							current={app.here.chapter}
-							{activity}
+							activity={activity.chapters}
 							onpick={(chapter) => app.dispatch({ type: 'jump', chapter })}
 						/>
 					{/if}
