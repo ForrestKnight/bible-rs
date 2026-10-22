@@ -125,6 +125,11 @@ pub struct Run {
     /// Letters set in small capitals: the rest of LORD after its L, and of other words printed in
     /// capitals. The text is already upper case.
     pub small_caps: bool,
+    /// Where the run's text starts in its verse's text, in UTF-16 code units (as JavaScript and
+    /// Swift count), to place highlights and selections in it; 0 for numbers and headings. A space
+    /// the layout adds (between verses, or for a line break in a verse set as one paragraph) ends
+    /// a run: it isn't in the verse's text.
+    pub offset: u32,
 }
 
 impl ChapterContent {
@@ -218,7 +223,7 @@ pub fn chapter(t: &Translation, c: ChapterIdx, opts: ContentOptions) -> ChapterC
                 // A space from the previous verse in the same block.
                 if p.runs.last().is_some_and(|r| !r.text.ends_with([' ', '\u{a0}', '\n'])) {
                     let verse = p.runs.last().map_or(0, |r| r.verse);
-                    push(&mut p.runs, plain(" ", verse));
+                    push_space(&mut p.runs, verse);
                 }
                 if opts.verse_numbers {
                     let label = if v.number_end > v.number {
@@ -239,7 +244,14 @@ pub fn chapter(t: &Translation, c: ChapterIdx, opts: ContentOptions) -> ChapterC
             let next = marks.get(mi).map_or(v.text.len(), |m| (m.offset as usize).min(v.text.len()));
             if next > cursor {
                 let p = b.ensure(kind);
-                styled_runs(&mut p.runs, &v.text[cursor..next], v.number, cursor, &styles);
+                styled_runs(
+                    &mut p.runs,
+                    &v.text[cursor..next],
+                    v.number,
+                    cursor,
+                    utf16(&v.text[..cursor]),
+                    &styles,
+                );
                 cursor = next;
             }
             if mi >= marks.len() && cursor >= v.text.len() {
@@ -283,15 +295,15 @@ pub fn verse(t: &Translation, v: &VerseView<'_>) -> VerseContent {
     for m in v.marks.iter().filter(|m| m.kind.breaks_line() && m.offset > 0) {
         let at = (m.offset as usize).min(v.text.len());
         if at > cursor {
-            styled_runs(&mut runs, &v.text[cursor..at], v.number, cursor, &styles);
+            styled_runs(&mut runs, &v.text[cursor..at], v.number, cursor, utf16(&v.text[..cursor]), &styles);
             cursor = at;
             if !runs.last().is_some_and(|r| r.text.ends_with(' ')) && !v.text[at..].starts_with(' ') {
-                push(&mut runs, plain(" ", v.number));
+                push_space(&mut runs, v.number);
             }
         }
     }
     if cursor < v.text.len() {
-        styled_runs(&mut runs, &v.text[cursor..], v.number, cursor, &styles);
+        styled_runs(&mut runs, &v.text[cursor..], v.number, cursor, utf16(&v.text[..cursor]), &styles);
     }
     let titles: Vec<&str> = v
         .marks
@@ -382,7 +394,7 @@ impl Builder {
         };
         self.flush();
         let mut runs = Vec::new();
-        styled_runs(&mut runs, text, 0, 0, &|_| 0);
+        styled_runs(&mut runs, text, 0, 0, 0, &|_| 0);
         if runs.is_empty() {
             return;
         }
@@ -416,10 +428,15 @@ fn plain(text: &str, verse: u8) -> Run {
         italic: false,
         bold: false,
         small_caps: false,
+        offset: 0,
     }
 }
 
-/// Appends `run`, extending the last run when it looks the same.
+fn utf16(text: &str) -> u32 {
+    text.encode_utf16().count() as u32
+}
+
+/// Appends `run`, extending the last run when it looks the same and its text follows on.
 fn push(runs: &mut Vec<Run>, run: Run) {
     if run.text.is_empty() {
         return;
@@ -429,6 +446,7 @@ fn push(runs: &mut Vec<Run>, run: Run) {
         && !run.number
         && (last.verse, last.red, last.italic, last.bold, last.small_caps)
             == (run.verse, run.red, run.italic, run.bold, run.small_caps)
+        && last.offset + utf16(&last.text) == run.offset
     {
         last.text.push_str(&run.text);
         return;
@@ -436,11 +454,27 @@ fn push(runs: &mut Vec<Run>, run: Run) {
     runs.push(run);
 }
 
-/// Appends `text` (which starts `base` bytes into its verse) as runs of uniform style. The divine
-/// name and words in capitals keep each word's first letter and set the rest in small capitals.
-fn styled_runs(runs: &mut Vec<Run>, text: &str, verse: u8, base: usize, styles_at: &dyn Fn(usize) -> u8) {
+/// Appends a space the layout adds after verse `verse`'s text so far: the end of its last run.
+fn push_space(runs: &mut Vec<Run>, verse: u8) {
+    let offset =
+        runs.last().filter(|r| r.verse == verse && !r.number).map_or(0, |r| r.offset + utf16(&r.text));
+    push(runs, Run { offset, ..plain(" ", verse) });
+}
+
+/// Appends `text` (which starts `base` bytes, `base16` UTF-16 units, into its verse) as runs of
+/// uniform style. The divine name and words in capitals keep each word's first letter and set the
+/// rest in small capitals.
+fn styled_runs(
+    runs: &mut Vec<Run>,
+    text: &str,
+    verse: u8,
+    base: usize,
+    base16: u32,
+    styles_at: &dyn Fn(usize) -> u8,
+) {
     let caps = caps_words(text);
     let small = Style::DivineName.bit() | Style::SmallCaps.bit();
+    let at = |i: usize| base16 + utf16(&text[..i]);
     let mut emit = |s: usize, e: usize, st: u8| {
         if s >= e {
             return;
@@ -449,6 +483,7 @@ fn styled_runs(runs: &mut Vec<Run>, text: &str, verse: u8, base: usize, styles_a
             red: st & Style::WordsOfJesus.bit() != 0,
             italic: st & (Style::Added.bit() | Style::Italic.bit() | Style::Selah.bit()) != 0,
             bold: st & Style::Bold.bit() != 0,
+            offset: at(s),
             ..plain("", verse)
         };
         if st & small == 0 {
@@ -458,20 +493,29 @@ fn styled_runs(runs: &mut Vec<Run>, text: &str, verse: u8, base: usize, styles_a
         let mut word_start = true;
         let mut buf = String::new();
         let mut buf_small = false;
-        for c in text[s..e].chars() {
+        let mut buf_at = s;
+        for (i, c) in text[s..e].char_indices() {
             let is_small = c.is_alphabetic() && !word_start;
             if is_small != buf_small {
-                push(runs, Run { text: std::mem::take(&mut buf), small_caps: buf_small, ..run.clone() });
+                let offset = at(buf_at);
+                push(
+                    runs,
+                    Run { text: std::mem::take(&mut buf), small_caps: buf_small, offset, ..run.clone() },
+                );
                 buf_small = is_small;
+                buf_at = s + i;
             }
+            // Upper case only where it is as long, so the run still counts as its verse's text.
             let mut up = c.to_uppercase();
             match (is_small, up.len()) {
-                (true, 1) => buf.push(up.next().expect("one char")),
+                (true, 1) if up.clone().next().is_some_and(|u| u.len_utf16() == c.len_utf16()) => {
+                    buf.push(up.next().expect("one char"))
+                }
                 _ => buf.push(c),
             }
             word_start = !c.is_alphabetic();
         }
-        push(runs, Run { text: buf, small_caps: buf_small, ..run });
+        push(runs, Run { text: buf, small_caps: buf_small, offset: at(buf_at), ..run });
     };
     let mut run_start = 0usize;
     let mut run_style = None;
@@ -492,5 +536,57 @@ fn styled_runs(runs: &mut Vec<Run>, text: &str, verse: u8, base: usize, styles_a
     }
     if let Some(st) = run_style {
         emit(run_start, text.len(), st);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::books::BookId;
+
+    /// Each run of verse text is its verse's text from the run's offset, as a highlight needs, give
+    /// or take a space the layout added at its end and small capitals' case.
+    fn check_offsets(t: &Translation, c: ChapterIdx, runs: &[&Run]) -> usize {
+        let mut checked = 0;
+        for r in runs.iter().filter(|r| r.verse > 0 && !r.number) {
+            let v = t.verses_in(c).find(|v| v.number == r.verse).unwrap();
+            let text: Vec<u16> = v.text.encode_utf16().collect();
+            let run: Vec<u16> = r.text.encode_utf16().collect();
+            let start = r.offset as usize;
+            let len = run.len().min(text.len() - start);
+            let want = String::from_utf16(&text[start..start + len]).unwrap();
+            let got = String::from_utf16(&run[..len]).unwrap();
+            assert_eq!(got.to_uppercase(), want.to_uppercase(), "verse {} run {:?}", r.verse, r.text);
+            assert!(
+                run[len..].iter().all(|u| *u == b' ' as u16),
+                "only an added space after the text: {:?}",
+                r.text
+            );
+            checked += 1;
+        }
+        checked
+    }
+
+    #[test]
+    fn runs_know_where_they_are_in_their_verse() {
+        let kjv = crate::bundled::load("kjv").unwrap();
+        for (book, n) in [(BookId(42), 3), (BookId::PSALMS, 23), (BookId::PSALMS, 119), (BookId(39), 5)] {
+            let c = ChapterIdx::new(book, n).unwrap();
+            for opts in
+                [ContentOptions::default(), ContentOptions { verse_per_line: true, ..Default::default() }]
+            {
+                let content = chapter(&kjv, c, opts);
+                let runs: Vec<&Run> = content.blocks.iter().flat_map(|b| &b.runs).collect();
+                assert!(check_offsets(&kjv, c, &runs) > 10);
+            }
+            for v in kjv.verses_in(c) {
+                let content = verse(&kjv, &v);
+                let runs: Vec<&Run> = content.runs.iter().collect();
+                check_offsets(&kjv, c, &runs);
+                // A whole verse's runs, minus added spaces, are its text.
+                let joined: usize = runs.iter().map(|r| r.text.encode_utf16().count()).sum();
+                assert!(joined >= v.text.encode_utf16().count());
+            }
+        }
     }
 }

@@ -88,6 +88,7 @@ fn plain() -> Run {
         italic: false,
         bold: false,
         small_caps: false,
+        offset: 0,
     }
 }
 

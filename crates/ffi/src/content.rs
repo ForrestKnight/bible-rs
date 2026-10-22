@@ -101,4 +101,7 @@ pub struct Run {
     /// Letters set in small capitals: the rest of LORD after its L, and of other words printed in
     /// capitals. The text is already upper case.
     pub small_caps: bool,
+    /// Where the run's text starts in its verse's text, in UTF-16 code units; 0 for numbers and
+    /// headings.
+    pub offset: u32,
 }

@@ -268,6 +268,27 @@ impl VerseView<'_> {
         out.push_str(&self.text[last..]);
         out
     }
+
+    /// Chars `range` of the verse's text, a line break inside it made a space as in
+    /// [`plain_text`](Self::plain_text).
+    pub fn plain_slice(&self, range: std::ops::Range<usize>) -> String {
+        let breaks: Vec<usize> = self
+            .marks
+            .iter()
+            .filter(|m| m.kind.breaks_line() && m.offset > 0)
+            .filter_map(|m| self.text.get(..m.offset as usize).map(|t| t.chars().count()))
+            .collect();
+        let mut out = String::new();
+        for (i, c) in
+            self.text.chars().enumerate().skip(range.start).take(range.end.saturating_sub(range.start))
+        {
+            if i > range.start && breaks.contains(&i) && !out.ends_with(' ') && c != ' ' {
+                out.push(' ');
+            }
+            out.push(c);
+        }
+        out
+    }
 }
 
 impl Translation {

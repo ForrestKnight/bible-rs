@@ -422,11 +422,12 @@ impl Bible {
     pub fn study_items(&self, kind: StudyKind, translation: String) -> Vec<StudyItem> {
         let t = self.local(&translation).ok();
         let study = self.study();
+        let text = |r| t.as_ref().and_then(|t| t.find(r)).map(|v| v.plain_text()).unwrap_or_default();
         let item = |r: bible_core::VerseRef, highlight, body: &str, created, updated| StudyItem {
             verse: r.into(),
             chapter_index: r.chapter_idx().0,
             reference: r.to_string(),
-            text: t.as_ref().and_then(|t| t.find(r)).map(|v| v.plain_text()).unwrap_or_default(),
+            text: text(r),
             highlight,
             body: body.to_string(),
             created,
@@ -438,10 +439,17 @@ impl Bible {
                 .into_iter()
                 .map(|(r, b)| item(r, None, &b.label, b.created, b.created))
                 .collect(),
+            // Part of a verse shows the words it covers.
             StudyKind::Highlights => study
                 .highlights_dated()
                 .into_iter()
-                .map(|(r, c, at)| item(r, Some(c.into()), "", at, at))
+                .map(|(r, h)| {
+                    let mut it = item(r, Some(h.color.into()), "", h.created, h.created);
+                    if !h.is_whole() {
+                        it.text = h.excerpt(&it.text);
+                    }
+                    it
+                })
                 .collect(),
             StudyKind::Notes => study
                 .notes()

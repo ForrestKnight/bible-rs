@@ -6,6 +6,7 @@ pub mod bundled;
 pub mod content;
 pub mod copy;
 pub mod format;
+pub mod highlight;
 #[cfg(feature = "import")]
 pub mod import;
 #[cfg(feature = "native")]
