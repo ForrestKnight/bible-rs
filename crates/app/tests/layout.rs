@@ -203,3 +203,52 @@ fn publisher_notices_follow_the_text_as_links() {
         assert!(first.left() > 0.0, "it starts after the verse-number lane");
     });
 }
+
+/// Each block's text runs are its verses' text, glyph for glyph, so a highlight of part of a verse
+/// lands on its words, and a point in the text maps back to the right char.
+#[test]
+fn text_runs_are_the_verses_text() {
+    let kjv = bible_core::bundled::load("kjv").unwrap();
+    let web = bible_core::bundled::load("web").unwrap();
+    let per_line = Typography { mode: Mode::VersePerLine, ..Typography::default() };
+    let mut layouts = Vec::new();
+    for (book, n) in [(BookId(42), 3), (BookId::PSALMS, 23), (BookId::PSALMS, 119)] {
+        let c = ChapterIdx::new(book, n).unwrap();
+        layouts.push((c, chapter(&kjv, &Typography::default(), c)));
+        layouts.push((c, chapter(&kjv, &per_line, c)));
+        let cols =
+            vec![("KJV".to_string(), ColumnText::Ready(&kjv)), ("WEB".to_string(), ColumnText::Ready(&web))];
+        let parallel = with_fonts(|ctx| {
+            let typo = Typography::default();
+            let cx = Ctx::new(&typo, Theme::Light, 400.0, 32.0);
+            ctx.fonts_mut(|f| layout::layout_parallel(f, &cx, &cols, c))
+        });
+        layouts.push((c, parallel));
+    }
+    let mut runs = 0;
+    for (c, l) in &layouts {
+        for b in &l.blocks {
+            let t = if b.column == 0 { &kjv } else { &web };
+            let glyphs: Vec<char> = b.galley.job.text.chars().collect();
+            for r in &b.runs {
+                let v = t.verses_in(*c).find(|v| v.index == r.verse).unwrap();
+                let want: String = v.text.chars().skip(r.offset).take(r.len).collect();
+                let got: String = glyphs[r.at..r.at + r.len].iter().collect();
+                // LORD's smaller capitals are set upper case.
+                assert_eq!(got.to_uppercase(), want.to_uppercase(), "{} {}", c.display(), v.number);
+                assert_eq!(b.text_pos(r.at), Some((r.verse, r.offset)));
+                assert_eq!(b.text_pos(r.at + r.len), Some((r.verse, r.offset + r.len)));
+                assert_eq!(b.galley_range(r.verse, r.offset..r.offset + r.len), Some(r.at..r.at + r.len));
+                assert_eq!(b.galley_char(r.verse, r.offset), Some(r.at));
+                runs += 1;
+            }
+        }
+    }
+    assert!(runs > 500, "{runs}");
+    // A verse number maps to the start of its verse's text.
+    let (_, l) = &layouts[0];
+    let b = l.blocks.iter().find(|b| b.verses.len() > 1).unwrap();
+    let (start, vi, _) = b.verses[1];
+    let first = b.runs.iter().find(|r| r.verse == vi).unwrap();
+    assert_eq!(b.text_pos(start + 1), Some((vi, first.offset)), "inside the number");
+}

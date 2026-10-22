@@ -3,7 +3,8 @@
 //! Layout depends only on the text, the typography settings and the column width — never on
 //! highlights, selection or search hits. Those are painted underneath the text from glyph
 //! geometry (see [`Block::char_rects`]), so clicking a verse or highlighting it never forces a
-//! relayout.
+//! relayout. Each block records where its verses' text lies in it ([`TextRun`]), so a highlight
+//! of part of a verse, counted in the verse's text, finds its glyphs.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -72,12 +73,26 @@ impl Default for Typography {
     }
 }
 
+/// Where a stretch of a verse's text is in a block: `len` chars from galley char `at` are the
+/// verse's text from char `offset` on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextRun {
+    pub at: usize,
+    /// Global verse index.
+    pub verse: u32,
+    pub offset: usize,
+    pub len: usize,
+}
+
 /// A run of text placed in a chapter (relative to the chapter's top-left corner).
 pub struct Block {
     pub pos: Vec2,
     pub galley: Arc<Galley>,
     /// `(first char, global verse index, verse number)` — chars from `first char` on belong to it.
     pub verses: Vec<(usize, u32, u8)>,
+    /// The verses' text in the galley, in order. Verse numbers, psalm titles and the spaces the
+    /// layout adds between verses or for line breaks aren't in any.
+    pub runs: Vec<TextRun>,
     /// A label painted in the left gutter (verse-per-line numbers).
     pub gutter: Option<(Arc<Galley>, Vec2)>,
     /// Which column (parallel view) this block belongs to.
@@ -123,6 +138,49 @@ impl Block {
             end -= 1;
         }
         range.start + start..range.start + end
+    }
+
+    /// The galley chars showing chars `range` of a verse's text, when the block has any of them.
+    pub fn galley_range(&self, verse: u32, range: Range<usize>) -> Option<Range<usize>> {
+        let mut out: Option<Range<usize>> = None;
+        for r in self.runs.iter().filter(|r| r.verse == verse) {
+            let s = range.start.max(r.offset);
+            let e = range.end.min(r.offset + r.len);
+            if s < e {
+                let g = r.at + (s - r.offset)..r.at + (e - r.offset);
+                out = Some(out.map_or(g.clone(), |o| o.start.min(g.start)..o.end.max(g.end)));
+            }
+        }
+        out
+    }
+
+    /// The verse (global index) and the char of its text at galley char `ch`. A position in a
+    /// verse number or an added space goes to the nearest verse text: the start of the verse that
+    /// follows, or the end of the one before.
+    pub fn text_pos(&self, ch: usize) -> Option<(u32, usize)> {
+        let i = self.runs.partition_point(|r| r.at + r.len < ch);
+        let r = match (self.runs.get(i), i.checked_sub(1).and_then(|k| self.runs.get(k))) {
+            (Some(r), _) if r.at <= ch => r,
+            // Before a run: the end of the previous verse's run if this is its trailing space,
+            // else the start of the next run.
+            (Some(next), Some(prev)) if prev.verse == next.verse || ch > prev.at + prev.len + 1 => {
+                return Some((next.verse, next.offset));
+            }
+            (Some(next), None) => return Some((next.verse, next.offset)),
+            (_, Some(prev)) => return Some((prev.verse, prev.offset + prev.len)),
+            (None, None) => return None,
+        };
+        Some((r.verse, r.offset + (ch - r.at).min(r.len)))
+    }
+
+    /// The galley char at char `offset` of a verse's text, if the block has it: where a run starts
+    /// rather than where the one before it ends, at a line break between them.
+    pub fn galley_char(&self, verse: u32, offset: usize) -> Option<usize> {
+        let runs = || self.runs.iter().filter(|r| r.verse == verse);
+        let r = runs()
+            .find(|r| (r.offset..r.offset + r.len).contains(&offset))
+            .or_else(|| runs().find(|r| r.offset + r.len == offset))?;
+        Some(r.at + offset - r.offset)
     }
 
     /// Baselines and horizontal extents (block-relative) covering a char range, one per row.
@@ -469,6 +527,7 @@ struct Pending {
     job: LayoutJob,
     chars: usize,
     verses: Vec<(usize, u32, u8)>,
+    runs: Vec<TextRun>,
     kind: Kind,
     gutter: Option<u8>,
 }
@@ -524,7 +583,8 @@ impl Builder<'_, '_> {
             },
             ..Default::default()
         };
-        self.pending = Some(Pending { job, chars: 0, verses: Vec::new(), kind, gutter: None });
+        self.pending =
+            Some(Pending { job, chars: 0, verses: Vec::new(), runs: Vec::new(), kind, gutter: None });
     }
 
     fn ensure(&mut self, kind: Kind) -> &mut Pending {
@@ -586,7 +646,7 @@ impl Builder<'_, '_> {
             (g, gp)
         });
         self.y += galley.size().y;
-        self.blocks.push(Block { pos, galley, verses: p.verses, gutter, column: self.column });
+        self.blocks.push(Block { pos, galley, verses: p.verses, runs: p.runs, gutter, column: self.column });
         self.after_heading = false;
     }
 
@@ -907,7 +967,14 @@ pub fn layout_chapter(
                     p.verses.push((p.chars, v.index, v.number));
                 }
                 push_styled(&mut p.job, cx, seg, &styles, cursor);
-                p.chars += seg.chars().count();
+                let len = seg.chars().count();
+                p.runs.push(TextRun {
+                    at: p.chars,
+                    verse: v.index,
+                    offset: v.text[..cursor].chars().count(),
+                    len,
+                });
+                p.chars += len;
                 cursor = next;
             }
             if mi >= marks.len() && cursor >= v.text.len() {
@@ -1045,10 +1112,18 @@ pub fn layout_parallel(
             // Each verse flows as one paragraph in its column; poetry's line breaks become spaces.
             let styles = style_mask(&v);
             let mut cursor = 0usize;
+            let mut runs = Vec::new();
+            let mut push = |job: &mut LayoutJob, cursor: usize, end: usize| {
+                let at = job.text.chars().count();
+                let seg = &v.text[cursor..end];
+                push_styled(job, cx, seg, &styles, cursor);
+                let (offset, len) = (v.text[..cursor].chars().count(), seg.chars().count());
+                runs.push(TextRun { at, verse: v.index, offset, len });
+            };
             for m in v.marks.iter().filter(|m| m.kind.breaks_line() && m.offset > 0) {
                 let at = (m.offset as usize).min(v.text.len());
                 if at > cursor {
-                    push_styled(&mut job, cx, &v.text[cursor..at], &styles, cursor);
+                    push(&mut job, cursor, at);
                     cursor = at;
                     if !job.text.ends_with(' ') && !v.text[at..].starts_with(' ') {
                         append(&mut job, " ", cx.body(0));
@@ -1056,7 +1131,7 @@ pub fn layout_parallel(
                 }
             }
             if cursor < v.text.len() {
-                push_styled(&mut job, cx, &v.text[cursor..], &styles, cursor);
+                push(&mut job, cursor, v.text.len());
             }
             let g = b.fonts.layout_job(job);
             row_h = row_h.max(g.size().y);
@@ -1070,6 +1145,7 @@ pub fn layout_parallel(
                 pos: vec2(col_x(ci), row_top + cx.body_shift),
                 galley: g,
                 verses: vec![(0, v.index, v.number)],
+                runs,
                 gutter,
                 column: ci,
             });

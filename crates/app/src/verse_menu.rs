@@ -72,12 +72,15 @@ impl VerseMenu {
     }
 
     /// Returns `true` when the menu should close.
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         p: &Palette,
         study: &StudyStore,
         refs: &[VerseRef],
+        // The colour all of the selection has, if one: its swatch is checked, and clears.
+        current: Option<HighlightColor>,
         settings: &crate::app::Settings,
         actions: &mut Vec<Action>,
     ) -> bool {
@@ -130,8 +133,6 @@ impl VerseMenu {
             self.pos.x.min(screen.right() - WIDTH - 8.0).max(screen.left() + 8.0),
             self.pos.y.min(screen.bottom() - height - 8.0).max(screen.top() + 8.0),
         );
-        let current =
-            refs.iter().map(|v| study.highlight(*v)).reduce(|a, b| if a == b { a } else { None }).flatten();
         let mut close = false;
         let area = egui::Area::new(egui::Id::new("verse-menu")).order(Order::Foreground).fixed_pos(pos).show(
             ctx,

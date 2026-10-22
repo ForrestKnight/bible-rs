@@ -5,6 +5,9 @@
 //! scrolling from Genesis to Revelation costs the same per frame as scrolling one psalm.
 //! Layouts are cached per chapter and invalidated when typography, width, theme or the set of
 //! columns changes; a verse anchor keeps the reading position stable across those changes.
+//!
+//! Clicking a verse selects it, shift-click extends the selection to whole verses; dragging across
+//! the text chooses words, within one chapter, for a highlight of just those words.
 
 pub mod layout;
 
@@ -15,8 +18,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use bible_core::books::{CHAPTER_COUNT, ChapterIdx, VerseRef};
 use bible_core::library::{Chapter, Library};
-use bible_core::study::StudyStore;
-use eframe::egui::{self, Color32, CornerRadius, CursorIcon, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
+use bible_core::study::{StudyStore, TextSpan};
+use eframe::egui::{self, CornerRadius, CursorIcon, Id, Pos2, Rect, Sense, Stroke, Ui, Vec2, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 
 use self::layout::{ChapterLayout, ColumnText, Ctx, Typography};
@@ -49,6 +52,47 @@ pub struct Env<'a> {
     pub resizing: bool,
 }
 
+/// A place in the text: before char `offset` of a verse's text, in one of the parallel columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextPos {
+    pub verse: VerseRef,
+    pub offset: usize,
+    pub column: usize,
+}
+
+/// Words chosen by dragging across them, from where the drag began to where it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextSelection {
+    pub anchor: TextPos,
+    pub head: TextPos,
+}
+
+impl TextSelection {
+    fn ordered(&self) -> (TextPos, TextPos) {
+        let key = |p: &TextPos| (p.verse, p.offset);
+        if key(&self.head) < key(&self.anchor) { (self.head, self.anchor) } else { (self.anchor, self.head) }
+    }
+
+    pub fn span(&self) -> TextSpan {
+        let (a, b) = self.ordered();
+        TextSpan { first: a.verse, start: a.offset, last: b.verse, end: b.offset }
+    }
+
+    /// The parallel column whose text it is in.
+    pub fn column(&self) -> usize {
+        self.anchor.column
+    }
+
+    fn verses(&self) -> (VerseRef, VerseRef) {
+        let (a, b) = self.ordered();
+        (a.verse, b.verse)
+    }
+
+    fn is_empty(&self) -> bool {
+        (self.anchor.verse, self.anchor.offset) == (self.head.verse, self.head.offset)
+    }
+}
+
 struct Cached {
     layout: Arc<ChapterLayout>,
     /// Laid out while some column was still loading; redo when online text arrives.
@@ -66,6 +110,12 @@ pub struct Reader {
     em: f32,
     /// Inclusive verse range.
     pub selection: Option<(VerseRef, VerseRef)>,
+    /// Words chosen in the selected verses; it goes when `selection` is set to anything else.
+    text_selection: Option<TextSelection>,
+    /// A drag choosing words is under way.
+    dragging_text: bool,
+    /// Where each chapter painted this frame has its top-left corner, to find text under a point.
+    painted: Vec<(ChapterIdx, Vec2)>,
     flash: Option<(VerseRef, f64)>,
     pending_jump: Option<(ChapterIdx, u8, bool)>,
     /// A jump to a verse of a chapter still loading (online text): made again when the text
@@ -107,6 +157,9 @@ impl Reader {
             resize_frames: 0,
             em: 19.0,
             selection: None,
+            text_selection: None,
+            dragging_text: false,
+            painted: Vec::new(),
             flash: None,
             pending_jump: None,
             deferred_jump: None,
@@ -158,7 +211,20 @@ impl Reader {
         (a.verse..=b.verse).map(|v| VerseRef::new(a.book, a.chapter, v)).collect()
     }
 
+    /// The words chosen, and the parallel column they are in, when words rather than whole verses
+    /// are selected.
+    pub fn text_span(&self) -> Option<(TextSpan, usize)> {
+        let t = self.text_selection.filter(|t| !t.is_empty() && self.selection == Some(t.verses()))?;
+        Some((t.span(), t.column()))
+    }
+
+    fn select_text(&mut self, t: TextSelection) {
+        self.text_selection = Some(t);
+        self.selection = Some(t.verses());
+    }
+
     fn select(&mut self, v: VerseRef, extend: bool) {
+        self.text_selection = None;
         match (self.selection, extend) {
             (Some((a, _)), true) if a.book == v.book && a.chapter == v.chapter => {
                 self.selection = Some(if v < a { (v, a) } else { (a, v) });
@@ -169,6 +235,7 @@ impl Reader {
     }
 
     pub fn set_selection(&mut self, v: Option<VerseRef>) {
+        self.text_selection = None;
         self.selection = v.map(|v| (v, v));
     }
 
@@ -192,7 +259,7 @@ impl Reader {
             target = Some(v.reference());
         }
         if let Some(r) = target {
-            self.selection = Some((r, r));
+            self.set_selection(Some(r));
             self.ensure_visible(r);
         }
     }
@@ -340,6 +407,12 @@ impl Reader {
         self.top_pad = env.toolbar + layout::PAGE_TOP;
         self.marker_rect = None;
         self.selection_rect = None;
+        self.painted.clear();
+        // Chosen words stay only while their verses are the selection.
+        if self.text_selection.is_some_and(|t| self.selection != Some(t.verses())) {
+            self.text_selection = None;
+            self.dragging_text = false;
+        }
         let id = Id::new("reader");
         // Text runs under the toolbar, but clicks there belong to the toolbar (and the window).
         let below_toolbar = Rect::from_min_max(pos2(rect.left(), rect.top() + env.toolbar), rect.max);
@@ -473,6 +546,7 @@ impl Reader {
             self.flash = None;
         }
         let selected: Vec<VerseRef> = self.selected_refs();
+        let words = self.text_selection.map(|t| (t.span(), t.column()));
         let mut y = rect.top() + self.top_pad - self.anchor.offset;
         let mut c = Some(self.anchor.chapter);
         let mut hit: Option<VerseRef> = None;
@@ -489,6 +563,9 @@ impl Reader {
             }
             let l = self.chapter_layout(ui, env, &geom, ch);
             let origin = vec2(geom.x0, y);
+            self.painted.push((ch, origin));
+            // Each column's verse texts, fetched when a highlight or the chosen words need them.
+            let mut texts: Vec<Option<Option<Arc<bible_core::Translation>>>> = vec![None; env.columns.len()];
             for (pos, g) in &l.labels {
                 let at = (origin + *pos).to_pos2();
                 if at.y < rect.bottom() && at.y + g.size().y > rect.top() {
@@ -518,6 +595,7 @@ impl Reader {
                 // Parallel: a selected verse is marked as a whole row across the columns.
                 let parallel = env.columns.len() > 1;
                 if parallel
+                    && words.is_none()
                     && block.column == 0
                     && let Some((_, _, number)) = block.verses.first()
                     && selected.contains(&VerseRef::new(ch.book(), ch.chapter(), *number))
@@ -539,42 +617,65 @@ impl Reader {
                     painter.rect_filled(band, CornerRadius::same(10), p.selection);
                     self.selection_rect = Some(self.selection_rect.map_or(band, |s| s.union(band)));
                 }
-                // Underlays: highlights, selection, flash.
-                for (k, (start, _vi, number)) in block.verses.iter().enumerate() {
+                // Underlays: highlights, then the selection, then the flash. The design's highlight
+                // is the verse text's own 28 pt line box (at 20 pt), rounded 4 pt: from 1.13 em
+                // above the baseline to 0.27 em below, leaving the verse number and the space
+                // before the next verse unmarked.
+                let (above, below) = (self.em * 1.1345, self.em * 0.2655);
+                let bands = |chars: std::ops::Range<usize>| -> Vec<Rect> {
+                    block
+                        .char_runs(chars)
+                        .into_iter()
+                        .map(|(x0, x1, baseline)| {
+                            Rect::from_min_max(
+                                pos2(bo.x + x0, bo.y + baseline - above),
+                                pos2(bo.x + x1, bo.y + baseline + below),
+                            )
+                        })
+                        .collect()
+                };
+                let radius = CornerRadius::same(4);
+                for (k, (start, vi, number)) in block.verses.iter().enumerate() {
                     let end = block.verses.get(k + 1).map_or(usize::MAX, |(s, _, _)| *s);
+                    let end = end.min(block.galley.job.text.chars().count());
+                    let whole = block.text_chars(*start..end);
                     let vref = VerseRef::new(ch.book(), ch.chapter(), *number);
-                    let mut fills: Vec<Color32> = Vec::new();
-                    if let Some(hc) = env.study.highlight(vref) {
-                        fills.push(p.highlight(hc));
+                    if let Some(color) = env.study.highlight(vref) {
+                        let t = column_text(&mut texts, env, ch, block.column);
+                        match t.as_ref().and_then(|t| t.find(vref)) {
+                            // Whole verses and parts of them, placed in this column's text.
+                            Some(v) => {
+                                for (range, c) in env.study.highlight_ranges(vref, v.text) {
+                                    for r in block.galley_range(*vi, range).map(bands).unwrap_or_default() {
+                                        painter.rect_filled(r, radius, p.highlight(c));
+                                    }
+                                }
+                            }
+                            None => {
+                                for r in bands(whole.clone()) {
+                                    painter.rect_filled(r, radius, p.highlight(color));
+                                }
+                            }
+                        }
                     }
-                    let is_selected = selected.contains(&vref);
-                    if is_selected && !parallel {
-                        fills.push(p.selection);
+                    let chosen = match words {
+                        Some((span, column)) => {
+                            (block.column == column && span.first <= vref && vref <= span.last)
+                                .then(|| block.galley_range(*vi, span.range_of(vref)))
+                                .flatten()
+                        }
+                        None => (!parallel && selected.contains(&vref)).then(|| whole.clone()),
+                    };
+                    for r in chosen.map(bands).unwrap_or_default() {
+                        painter.rect_filled(r, radius, p.selection);
+                        self.selection_rect = Some(self.selection_rect.map_or(r, |s| s.union(r)));
                     }
                     if let (Some((fv, _)), Some(a)) = (self.flash, flash_alpha)
                         && fv == vref
                         && a > 0.0
                     {
-                        fills.push(p.accent_soft.gamma_multiply(a));
-                    }
-                    if fills.is_empty() {
-                        continue;
-                    }
-                    // The design's highlight is the verse text's own 28 pt line box (at 20 pt),
-                    // rounded 4 pt: from 1.13 em above the baseline to 0.27 em below, leaving the
-                    // verse number and the space before the next verse unmarked.
-                    let (above, below) = (self.em * 1.1345, self.em * 0.2655);
-                    let end = end.min(block.galley.job.text.chars().count());
-                    for (x0, x1, baseline) in block.char_runs(block.text_chars(*start..end)) {
-                        let r = Rect::from_min_max(
-                            pos2(bo.x + x0, bo.y + baseline - above),
-                            pos2(bo.x + x1, bo.y + baseline + below),
-                        );
-                        for f in &fills {
-                            painter.rect_filled(r, CornerRadius::same(4), *f);
-                        }
-                        if is_selected && !parallel {
-                            self.selection_rect = Some(self.selection_rect.map_or(r, |s| s.union(r)));
+                        for r in bands(whole) {
+                            painter.rect_filled(r, radius, p.accent_soft.gamma_multiply(a));
                         }
                     }
                 }
@@ -679,30 +780,72 @@ impl Reader {
         }
 
         // Interaction.
-        if marker_hit.is_some() || hit.is_some() {
+        if self.dragging_text {
+            ui.ctx().set_cursor_icon(CursorIcon::Text);
+        } else if marker_hit.is_some() || hit.is_some() {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         }
+        // Dragging across the text chooses words, from where the press was.
+        if resp.drag_started_by(egui::PointerButton::Primary)
+            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
+            && let Some(at) = self.text_pos_at(origin, None)
+        {
+            self.select_text(TextSelection { anchor: at, head: at });
+            self.dragging_text = true;
+        }
+        if self.dragging_text {
+            if resp.dragged()
+                && let (Some(pt), Some(t)) = (resp.interact_pointer_pos(), self.text_selection)
+            {
+                let within = (t.anchor.verse.chapter_idx(), t.anchor.column);
+                if let Some(head) = self.text_pos_at(pt, Some(within)) {
+                    self.select_text(TextSelection { head, ..t });
+                }
+                // Near the top or bottom edge the text scrolls, to choose more of it.
+                let (top, bottom) = (rect.top() + env.toolbar + self.em, rect.bottom() - self.em);
+                let push = if pt.y < top { pt.y - top } else { (pt.y - bottom).max(0.0) };
+                if push != 0.0 {
+                    self.scroll_by(push.clamp(-60.0, 60.0) * 0.25);
+                    ui.ctx().request_repaint();
+                }
+            } else {
+                self.dragging_text = false;
+                // A drag that ends where it began chooses nothing.
+                if self.text_selection.is_some_and(|t| t.is_empty()) {
+                    self.text_selection = None;
+                    self.selection = None;
+                }
+            }
+        }
         if resp.clicked() {
+            let shift = ui.input(|i| i.modifiers.shift);
+            let extend = self.text_selection.filter(|_| shift).and_then(|t| {
+                let pt = resp.interact_pointer_pos()?;
+                let head = self.text_pos_at(pt, Some((t.anchor.verse.chapter_idx(), t.anchor.column)))?;
+                Some(TextSelection { head, ..t })
+            });
             if let Some(v) = marker_hit {
                 actions.push(Action::EditNote(v));
+            } else if let Some(t) = extend {
+                // Shift-click carries chosen words on to the click.
+                self.select_text(t);
             } else if let Some(v) = hit {
-                let shift = ui.input(|i| i.modifiers.shift);
                 self.select(v, shift);
             } else {
-                self.selection = None;
+                self.set_selection(None);
             }
         }
         if resp.double_clicked()
             && let Some(v) = hit
         {
-            self.selection = Some((v, v));
+            self.set_selection(Some(v));
             actions.push(Action::EditNote(v));
         }
         if resp.secondary_clicked()
             && let Some(v) = hit
         {
             if !selected.contains(&v) {
-                self.selection = Some((v, v));
+                self.set_selection(Some(v));
             }
             if let Some(pos) = resp.interact_pointer_pos() {
                 actions.push(Action::OpenVerseMenu(pos));
@@ -710,6 +853,57 @@ impl Reader {
         }
 
         self.paint_scrollbar(ui, &bar, &bar_resp, p, env);
+    }
+
+    /// The place in the text at `pt`: in a block of verse text under it. While words are being
+    /// chosen (`within` a chapter and column), the nearest place in that chapter's column: the
+    /// start of a block above the point, the end of one below it.
+    fn text_pos_at(&self, pt: Pos2, within: Option<(ChapterIdx, usize)>) -> Option<TextPos> {
+        let mut best: Option<(f32, TextPos)> = None;
+        for (ch, origin) in &self.painted {
+            if within.is_some_and(|(c, _)| c != *ch) {
+                continue;
+            }
+            let Some(cached) = self.cache.get(ch) else { continue };
+            for block in &cached.layout.blocks {
+                if block.runs.is_empty() || within.is_some_and(|(_, col)| col != block.column) {
+                    continue;
+                }
+                let br = block.rect().translate(*origin);
+                if within.is_none() && !br.expand2(vec2(8.0, 2.0)).contains(pt) {
+                    continue;
+                }
+                let dist = (br.top() - pt.y).max(pt.y - br.bottom()).max(0.0);
+                if best.as_ref().is_some_and(|(d, _)| *d <= dist) {
+                    continue;
+                }
+                let char = if pt.y < br.top() {
+                    0
+                } else if pt.y > br.bottom() {
+                    block.galley.job.text.chars().count()
+                } else {
+                    block.galley.cursor_from_pos(pt - (*origin + block.pos).to_pos2()).index.0
+                };
+                let Some((vi, offset)) = block.text_pos(char) else { continue };
+                let Some((_, _, number)) = block.verses.iter().find(|(_, v, _)| *v == vi) else { continue };
+                let verse = VerseRef::new(ch.book(), ch.chapter(), *number);
+                best = Some((dist, TextPos { verse, offset, column: block.column }));
+            }
+        }
+        best.map(|(_, p)| p)
+    }
+
+    /// Where a place in the text is on screen this frame (the middle of the line, at the place's
+    /// left edge), if it is painted.
+    pub fn point_at(&self, at: TextPos) -> Option<Pos2> {
+        let (_, origin) = self.painted.iter().find(|(c, _)| *c == at.verse.chapter_idx())?;
+        let layout = &self.cache.get(&at.verse.chapter_idx())?.layout;
+        layout.blocks.iter().filter(|b| b.column == at.column).find_map(|b| {
+            let (_, vi, _) = b.verses.iter().find(|(_, _, n)| *n == at.verse.verse)?;
+            let ch = b.galley_char(*vi, at.offset)?;
+            let r = b.galley.pos_from_cursor(eframe::epaint::text::cursor::CCursor::new(ch));
+            Some((*origin + b.pos).to_pos2() + vec2(r.min.x + 0.5, r.center().y))
+        })
     }
 
     /// Keeps the anchor inside its chapter, moving to neighbours as needed.
@@ -812,6 +1006,23 @@ impl Reader {
             });
         }
     }
+}
+
+/// The text of column `column` for chapter `ch`, fetched once per chapter painted.
+fn column_text(
+    texts: &mut [Option<Option<Arc<bible_core::Translation>>>],
+    env: &Env<'_>,
+    ch: ChapterIdx,
+    column: usize,
+) -> Option<Arc<bible_core::Translation>> {
+    let slot = texts.get_mut(column)?;
+    if slot.is_none() {
+        *slot = Some(match env.columns.get(column).map(|id| env.library.chapter(id, ch)) {
+            Some(Chapter::Ready(t)) => Some(t),
+            _ => None,
+        });
+    }
+    slot.clone().flatten()
 }
 
 /// Column placement for the current window width. The columns start on a whole pixel, so text
