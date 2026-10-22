@@ -556,10 +556,9 @@ impl BibleApp {
         }
     }
 
-    /// Column `column`'s text of chapter `c`: where chosen words are counted.
-    fn column_text(&self, column: usize, c: ChapterIdx) -> Option<Arc<bible_core::Translation>> {
-        let id = self.columns().get(column).cloned()?;
-        match self.library.chapter(&id, c) {
+    /// Translation `id`'s text of chapter `c`: where chosen words are counted.
+    fn chapter_text(&self, id: &str, c: ChapterIdx) -> Option<Arc<bible_core::Translation>> {
+        match self.library.chapter(id, c) {
             Chapter::Ready(t) => Some(t),
             _ => None,
         }
@@ -567,11 +566,14 @@ impl BibleApp {
 
     /// The colour all of the selection has (the chosen words, else the selected verses whole).
     fn selection_color(&self) -> Option<HighlightColor> {
-        let (span, column) = self.reader.text_span().or_else(|| {
-            let refs = self.reader.selected_refs();
-            Some((TextSpan::verses(*refs.first()?, *refs.last()?), 0))
-        })?;
-        let t = self.column_text(column, span.first.chapter_idx());
+        let (span, id) = match self.reader.text_span() {
+            Some((span, id)) => (span, id.to_string()),
+            None => {
+                let refs = self.reader.selected_refs();
+                (TextSpan::verses(*refs.first()?, *refs.last()?), self.settings.translation.clone())
+            }
+        };
+        let t = self.chapter_text(&id, span.first.chapter_idx());
         self.study.span_color(&span, |r| t.as_ref().and_then(|t| t.find(r)).map(|v| v.text.to_string()))
     }
 
@@ -682,8 +684,8 @@ impl BibleApp {
             }
             Action::Highlight(color) => {
                 // Chosen words: just those, placed in the text they were chosen in.
-                if let Some((span, column)) = self.reader.text_span() {
-                    let t = self.column_text(column, span.first.chapter_idx());
+                if let Some((span, id)) = self.reader.text_span() {
+                    let t = self.chapter_text(id, span.first.chapter_idx());
                     let text = |r: VerseRef| t.as_ref().and_then(|t| t.find(r)).map(|v| v.text.to_string());
                     if let Err(e) = self.study.highlight_span(&span, color, text) {
                         self.toast(ctx, format!("Couldn't save highlight: {e:#}"));
@@ -736,8 +738,8 @@ impl BibleApp {
                 }
             }
             Action::CopyText => {
-                if let Some((span, column)) = self.reader.text_span() {
-                    let t = self.column_text(column, span.first.chapter_idx());
+                if let Some((span, id)) = self.reader.text_span() {
+                    let t = self.chapter_text(id, span.first.chapter_idx());
                     if let Some(text) = t.and_then(|t| bible_core::copy::span_text(&t, &span)) {
                         ctx.copy_text(text);
                         self.toast(ctx, "Copied");
@@ -766,8 +768,8 @@ impl BibleApp {
                 }
             }
             Action::Copy => {
-                if let Some((span, column)) = self.reader.text_span() {
-                    let t = self.column_text(column, span.first.chapter_idx());
+                if let Some((span, id)) = self.reader.text_span() {
+                    let t = self.chapter_text(id, span.first.chapter_idx());
                     if let Some(text) = t.and_then(|t| bible_core::copy::format_span(&t, &span)) {
                         ctx.copy_text(text);
                         self.toast(ctx, "Copied with reference");

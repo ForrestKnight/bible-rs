@@ -150,11 +150,14 @@ part of a verse is placed in another text where its words are (ignoring spacing,
 nearest its offset). John 3:16's "God so loved the world" lands on the same words in the KJV and
 the WEB. When the other translation words it differently, the highlight **falls back to the whole
 verse**, so it never disappears. Hiding it was the other choice; a highlight that vanishes on
-switching translation looks like lost data. When several fall back at once, the newest is on top.
+switching translation looks like lost data. When several fall back at once, the one coloured most
+recently is on top.
 
 **Overlaps.** Colouring over a highlight replaces it where they overlap, like a highlighter over a
 highlighter: the newest colour is on top, and the rest of the older one stays. Neighbours of one
-colour with only spaces between them join, keeping the earlier date. Clearing part of a highlight
+colour with only spaces between them join, keeping the earlier date. Each highlight keeps when it
+was made (what lists show) apart from when it was last coloured (what decides the top colour), so
+recolouring an old highlight puts it on top without moving it in the lists. Clearing part of a highlight
 leaves the rest. Edits are made against the text being read, so a verse that's edited is stored
 again in that text's offsets, exactly as it was shown. A highlight that had fallen back to the whole
 verse there becomes whole-verse.
@@ -162,20 +165,23 @@ verse there becomes whole-verse.
 **Choosing words.** On the Mac and the web, clicking a verse selects it and shift-click extends to
 whole verses, as before. Dragging across text chooses words within one chapter, and shift-click
 carries that choice on. Keys 1 to 6, 0 and the verse menu act on the chosen words when there are
-some, and copying copies just them. The web uses the browser's own selection, so a touch screen gets
+some, and copying copies just them. Chosen words belong to the translation they were counted in:
+switching translation lets go of them and leaves their verses selected. The web uses the browser's
+own selection, so a touch screen gets
 a long press and its handles, plus a bar of swatches under the selection, since it has no number
 keys or right-click.
 
 **Migration.** The SQLite file's `user_version` goes from 0 to 1. The highlights table gains
-`char_start`, `char_end` and `quote`, and `char_start` joins its key. The old rows are copied
-across as whole-verse highlights with their colour and date. JSON exports add `start`, `end` and
-`quote` only for parts of verses, so older exports (and the web app's saved snapshots) import as
+`char_start`, `char_end`, `quote` and `edited`, and `char_start` joins its key. The old rows are
+copied across as whole-verse highlights with their colour and date. JSON exports add `start`,
+`end` and `quote` only for parts of verses, and `edited` only when it differs from `created`, so older exports (and the web app's saved snapshots) import as
 whole verses, and an older app reading a newer export sees whole verses. An older app opening a
 migrated file still reads its highlights but can't save new ones.
 
 **The phone.** The iPhone app shares the store, so it migrates the same way and keeps every
 highlight, but it still draws and edits whole verses: part of a verse shows there as the whole
-verse in its colour. Choosing words needs hand-drawn selection handles over its custom text
+verse in its colour. Its Highlights list has a row per highlight, and removing a row removes only
+that one. Choosing words needs hand-drawn selection handles over its custom text
 drawing, so it's left for later.
 
 ## macOS integration

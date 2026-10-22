@@ -156,6 +156,14 @@ const TOAST_MS = 4000;
 const BACKUPS_KEY = 'bible.read.backups';
 const BACKUPS_KEPT = 10;
 
+/** Words chosen in the reader: the stretch, the parallel column, and the translation they were
+ *  counted in (they go when that column shows another). */
+export interface Words {
+	span: TextSpan;
+	column: number;
+	translation: string;
+}
+
 export const refEq = (a: VerseRef, b: VerseRef) =>
 	a.book === b.book && a.chapter === b.chapter && a.verse === b.verse;
 export const refCmp = (a: VerseRef, b: VerseRef) =>
@@ -192,12 +200,12 @@ export class ReadApp {
 	selection = $state.raw<[VerseRef, VerseRef] | null>(null);
 	/** Words chosen in the reader (a text selection) and their parallel column; the verses they
 	 *  touch are the selection, and they go when it changes to anything else. */
-	words = $state.raw<{ span: TextSpan; column: number } | null>(null);
+	words = $state.raw<Words | null>(null);
 	/** The reader was last pressed by touch (or a pen): the highlight bar shows for its selection. */
 	touch = $state(false);
 	/** Chosen words kept while the pointer is pressed outside the text (a menu, the highlight bar),
 	 *  which may take the page's selection away. */
-	heldWords: { span: TextSpan; column: number } | null = null;
+	heldWords: Words | null = null;
 	history = $state<{ back: Loc[]; forward: Loc[] }>({ back: [], forward: [] });
 	page = $state<Page>('reader');
 	/** The translation selected on the Translations page (an import selects what it added). */
@@ -446,15 +454,17 @@ export class ReadApp {
 		return out;
 	}
 
-	/** The chosen words, while their verses are the selection. */
-	wordSpan(): { span: TextSpan; column: number } | null {
+	/** The chosen words, while their verses are the selection and their column shows the
+	 *  translation they were counted in. */
+	wordSpan(): Words | null {
 		const w = this.words;
 		const sel = this.selection;
-		return w && sel && refEq(sel[0], w.span.first) && refEq(sel[1], w.span.last) ? w : null;
+		if (!w || !sel || this.columns()[w.column] !== w.translation) return null;
+		return refEq(sel[0], w.span.first) && refEq(sel[1], w.span.last) ? w : null;
 	}
 
 	/** Chooses words (`null` lets go of them, and of their verses). */
-	selectWords(words: { span: TextSpan; column: number } | null) {
+	selectWords(words: Words | null) {
 		if (words) {
 			this.words = words;
 			this.selection = [words.span.first, words.span.last];
@@ -470,7 +480,7 @@ export class ReadApp {
 		const refs = this.selectedRefs();
 		const w = this.wordSpan();
 		const span = w?.span ?? (refs.length ? { first: refs[0], start: 0, last: refs[refs.length - 1], end: 0xffffffff } : null);
-		const id = this.columns()[w?.column ?? 0];
+		const id = w?.translation ?? this.settings.translation;
 		if (!span || !this.core?.has(id)) return null;
 		return (this.core.bible.spanColor(id, span) as HighlightColor | undefined) ?? null;
 	}
@@ -881,8 +891,7 @@ export class ReadApp {
 				// Chosen words: just those, placed in the text they were chosen in.
 				const w = this.wordSpan();
 				if (w) {
-					const id = this.columns()[w.column] ?? s.translation;
-					this.study((c) => c.bible.highlightSpan(id, w.span, a.color), "Couldn't save highlight");
+					this.study((c) => c.bible.highlightSpan(w.translation, w.span, a.color), "Couldn't save highlight");
 					break;
 				}
 				const refs = this.selectedRefs();
@@ -966,7 +975,7 @@ export class ReadApp {
 			case 'copyText': {
 				const w = this.wordSpan();
 				if (w) {
-					const text = this.core?.copySpan(this.columns()[w.column] ?? s.translation, w.span, 'plain');
+					const text = this.core?.copySpan(w.translation, w.span, 'plain');
 					if (text) void this.#copy(text, 'Copied');
 					break;
 				}
@@ -978,7 +987,7 @@ export class ReadApp {
 			case 'copy': {
 				const w = this.wordSpan();
 				if (w) {
-					const text = this.core?.copySpan(this.columns()[w.column] ?? s.translation, w.span, 'reference');
+					const text = this.core?.copySpan(w.translation, w.span, 'reference');
 					if (text) void this.#copy(text, 'Copied with reference');
 					break;
 				}

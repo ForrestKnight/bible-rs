@@ -11,7 +11,7 @@ struct StudyView: View {
     var body: some View {
         NavigationStack {
             List {
-                ForEach(items, id: \.verse) { item in
+                ForEach(items, id: \.rowID) { item in
                     Button {
                         store.go(to: Int(item.chapterIndex), verse: Int(item.verse.verse), flash: true)
                         dismiss()
@@ -85,10 +85,16 @@ struct StudyView: View {
     private func remove(_ item: StudyItem) {
         switch kind {
         case .bookmarks: store.setBookmark(item.verse, false)
-        case .highlights: store.setHighlight(item.verse, nil)
+        case .highlights: store.removeHighlight(item.verse, item.start)
         case .notes: store.setNote(item.verse, "")
         }
     }
+}
+
+private extension StudyItem {
+    /// A verse can hold several highlights (parts of it, made on the Mac or the web): each is a
+    /// row of its own, told apart by where it starts.
+    var rowID: String { "\(verse.book).\(verse.chapter).\(verse.verse).\(start)" }
 }
 
 private struct StudyRow: View {

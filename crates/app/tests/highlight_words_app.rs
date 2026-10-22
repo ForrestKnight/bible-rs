@@ -112,7 +112,7 @@ fn dragging_chooses_words_to_highlight() {
     drag(&mut h, p, q);
     assert_eq!(
         h.state().reader.text_span(),
-        Some((TextSpan { first: v(16), start: a, last: v(16), end: b }, 0))
+        Some((TextSpan { first: v(16), start: a, last: v(16), end: b }, "kjv"))
     );
     assert_eq!(h.state().reader.selection, Some((v(16), v(16))), "the verse is selected with its words");
     assert_eq!(copied(&mut h, Key::C, Modifiers::COMMAND).as_deref(), Some(words), "⌘C copies the words");
@@ -145,7 +145,7 @@ fn dragging_chooses_words_to_highlight() {
     click(&mut h, p, Modifiers::SHIFT);
     assert_eq!(
         h.state().reader.text_span(),
-        Some((TextSpan { first: v(16), start: s, last: v(16), end: e }, 0))
+        Some((TextSpan { first: v(16), start: s, last: v(16), end: e }, "kjv"))
     );
     key(&mut h, Key::Num0);
     assert_eq!(
@@ -176,6 +176,16 @@ fn dragging_chooses_words_to_highlight() {
         assert_eq!(shown(&h, n), vec![(text(n), HighlightColor::Blue)], "verse {n}");
         assert!(h.state().study.highlight_parts(v(n))[0].is_whole());
     }
+    // Words chosen in one translation go when the reader switches to another; the verse stays.
+    let (p, q) = (at(&h, 16, a), at(&h, 16, b));
+    drag(&mut h, p, q);
+    assert!(h.state().reader.text_span().is_some());
+    h.state_mut().settings.translation = "web".into();
+    h.run_steps(3);
+    assert_eq!((h.state().reader.text_span(), h.state().reader.selection), (None, Some((v(16), v(16)))));
+    h.state_mut().settings.translation = "kjv".into();
+    h.run_steps(3);
+
     // Escape lets go of the selection.
     key(&mut h, Key::Escape);
     assert_eq!(h.state().reader.selection, None);

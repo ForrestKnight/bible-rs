@@ -7,7 +7,7 @@
 -->
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
-	import { getApp, refCmp, type ReaderHandle } from '../app.svelte';
+	import { getApp, refCmp, type ReaderHandle, type Words } from '../app.svelte';
 	import { CHAPTERS, chapterLabel, type TextSpan, type VerseRef } from '../core';
 	import Chapter from './Chapter.svelte';
 	import Parallel, { type Column } from './Parallel.svelte';
@@ -546,7 +546,7 @@
 	}
 
 	/** The words the page's text selection covers, held to the chapter and column it starts in. */
-	function wordsSelected(): { span: TextSpan; column: number } | null {
+	function wordsSelected(): Words | null {
 		const sel = getSelection();
 		if (!sel || sel.isCollapsed || !sel.rangeCount || !column) return null;
 		const range = sel.getRangeAt(0);
@@ -559,7 +559,8 @@
 		if (!b || b.verse < a.verse || (b.verse === a.verse && b.offset <= a.offset)) return null;
 		return {
 			span: { first: app.refAt(a.chapter, a.verse), start: a.offset, last: app.refAt(a.chapter, b.verse), end: b.offset },
-			column: a.column
+			column: a.column,
+			translation: cols[a.column]
 		};
 	}
 
@@ -569,7 +570,7 @@
 	function onselectionchange() {
 		const w = wordsSelected();
 		const cur = app.wordSpan();
-		if (w && !(cur && cur.column === w.column && sameSpan(cur.span, w.span))) app.selectWords(w);
+		if (w && !(cur && cur.translation === w.translation && sameSpan(cur.span, w.span))) app.selectWords(w);
 		// A press outside the text (a menu, the highlight bar, the toolbar) keeps the words, as it
 		// keeps selected verses: they're selected again. One in the text lets go of them.
 		else if (!w && cur && app.heldWords && !typing()) void tick().then(reselect);

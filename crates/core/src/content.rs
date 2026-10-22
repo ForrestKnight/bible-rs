@@ -126,10 +126,11 @@ pub struct Run {
     /// capitals. The text is already upper case.
     pub small_caps: bool,
     /// Where the run's text starts in its verse's text, in UTF-16 code units (as JavaScript and
-    /// Swift count), to place highlights and selections in it; 0 for numbers and headings. A space
-    /// the layout adds (between verses, or for a line break in a verse set as one paragraph) ends
-    /// a run: it isn't in the verse's text.
+    /// Swift count), to place highlights and selections in it; 0 for numbers and headings.
     pub offset: u32,
+    /// A space the layout adds (between verses, or for a line break in a verse set as one
+    /// paragraph). It isn't in the verse's text: `offset` is where it falls between two chars.
+    pub added: bool,
 }
 
 impl ChapterContent {
@@ -429,6 +430,7 @@ fn plain(text: &str, verse: u8) -> Run {
         bold: false,
         small_caps: false,
         offset: 0,
+        added: false,
     }
 }
 
@@ -444,6 +446,8 @@ fn push(runs: &mut Vec<Run>, run: Run) {
     if let Some(last) = runs.last_mut()
         && !last.number
         && !run.number
+        && !last.added
+        && !run.added
         && (last.verse, last.red, last.italic, last.bold, last.small_caps)
             == (run.verse, run.red, run.italic, run.bold, run.small_caps)
         && last.offset + utf16(&last.text) == run.offset
@@ -454,11 +458,14 @@ fn push(runs: &mut Vec<Run>, run: Run) {
     runs.push(run);
 }
 
-/// Appends a space the layout adds after verse `verse`'s text so far: the end of its last run.
+/// Appends a space the layout adds after verse `verse`'s text so far, as a run of its own at the
+/// end of that text.
 fn push_space(runs: &mut Vec<Run>, verse: u8) {
-    let offset =
-        runs.last().filter(|r| r.verse == verse && !r.number).map_or(0, |r| r.offset + utf16(&r.text));
-    push(runs, Run { offset, ..plain(" ", verse) });
+    let offset = runs
+        .last()
+        .filter(|r| r.verse == verse && !r.number && !r.added)
+        .map_or(0, |r| r.offset + utf16(&r.text));
+    push(runs, Run { offset, added: true, ..plain(" ", verse) });
 }
 
 /// Appends `text` (which starts `base` bytes, `base16` UTF-16 units, into its verse) as runs of
@@ -549,6 +556,10 @@ mod tests {
     fn check_offsets(t: &Translation, c: ChapterIdx, runs: &[&Run]) -> usize {
         let mut checked = 0;
         for r in runs.iter().filter(|r| r.verse > 0 && !r.number) {
+            if r.added {
+                assert_eq!(r.text, " ");
+                continue;
+            }
             let v = t.verses_in(c).find(|v| v.number == r.verse).unwrap();
             let text: Vec<u16> = v.text.encode_utf16().collect();
             let run: Vec<u16> = r.text.encode_utf16().collect();
@@ -557,11 +568,7 @@ mod tests {
             let want = String::from_utf16(&text[start..start + len]).unwrap();
             let got = String::from_utf16(&run[..len]).unwrap();
             assert_eq!(got.to_uppercase(), want.to_uppercase(), "verse {} run {:?}", r.verse, r.text);
-            assert!(
-                run[len..].iter().all(|u| *u == b' ' as u16),
-                "only an added space after the text: {:?}",
-                r.text
-            );
+            assert_eq!(len, run.len(), "all of a run is its verse's text: {:?}", r.text);
             checked += 1;
         }
         checked

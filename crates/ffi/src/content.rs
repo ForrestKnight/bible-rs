@@ -104,4 +104,6 @@ pub struct Run {
     /// Where the run's text starts in its verse's text, in UTF-16 code units; 0 for numbers and
     /// headings.
     pub offset: u32,
+    /// A space the layout adds, not in the verse's text.
+    pub added: bool,
 }

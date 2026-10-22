@@ -11,8 +11,9 @@
 //! text doesn't have them (another translation's wording), it falls back to the whole verse, so a
 //! highlight never disappears. Whole-verse highlights need neither and fit every translation.
 //!
-//! Colouring over a highlight replaces it where they overlap (the newest is on top, as with a
-//! highlighter), neighbours of one colour join, and clearing part of a highlight leaves the rest.
+//! Colouring over a highlight replaces it where they overlap (the most recently coloured is on top,
+//! as with a highlighter), neighbours of one colour join, and clearing part of a highlight leaves
+//! the rest.
 //! Edits are made against the text being read: a verse that is edited is stored again in that
 //! text's offsets, as it was shown.
 
@@ -31,14 +32,17 @@ pub struct Highlight {
     pub end: Option<u32>,
     /// For part of a verse: the words it covered when made, to find them again in another text.
     pub quote: Option<String>,
-    /// Unix seconds.
+    /// When it was first made (Unix seconds): what lists show and sort by.
     pub created: i64,
+    /// When it was last coloured: where highlights overlap (placed in another translation), the
+    /// most recently coloured is on top.
+    pub edited: i64,
 }
 
 impl Highlight {
     /// The whole verse in `color`.
     pub fn whole(color: HighlightColor, created: i64) -> Self {
-        Highlight { color, start: 0, end: None, quote: None, created }
+        Highlight { color, start: 0, end: None, quote: None, created, edited: created }
     }
 
     pub fn is_whole(&self) -> bool {
@@ -139,6 +143,7 @@ struct Piece {
     range: Range<usize>,
     color: HighlightColor,
     created: i64,
+    edited: i64,
 }
 
 /// `range` without the whitespace at either end.
@@ -153,10 +158,11 @@ fn trim(chars: &[char], range: Range<usize>) -> Range<usize> {
     s..e
 }
 
-/// The highlights placed in `chars`, layered (the newest on top where they overlap) and joined.
+/// The highlights placed in `chars`, layered (the most recently coloured on top where they
+/// overlap) and joined.
 fn layer(parts: &[Highlight], chars: &[char]) -> Vec<Piece> {
     let mut order: Vec<&Highlight> = parts.iter().collect();
-    order.sort_by_key(|h| h.created);
+    order.sort_by_key(|h| h.edited);
     let mut pieces: Vec<Piece> = Vec::new();
     for h in order {
         let range = trim(chars, h.place(chars));
@@ -164,7 +170,7 @@ fn layer(parts: &[Highlight], chars: &[char]) -> Vec<Piece> {
             continue;
         }
         pieces = cut(pieces, chars, &range);
-        pieces.push(Piece { range, color: h.color, created: h.created });
+        pieces.push(Piece { range, color: h.color, created: h.created, edited: h.edited });
     }
     join(&mut pieces, chars);
     pieces
@@ -199,6 +205,7 @@ fn join(pieces: &mut Vec<Piece>, chars: &[char]) {
         {
             last.range.end = last.range.end.max(p.range.end);
             last.created = last.created.min(p.created);
+            last.edited = last.edited.max(p.edited);
             continue;
         }
         out.push(p);
@@ -232,7 +239,7 @@ pub fn paint(
     let created = before.iter().find(|p| p.range == range).map_or(now, |p| p.created);
     let mut pieces = cut(before, &chars, &range);
     if let Some(color) = color {
-        pieces.push(Piece { range, color, created });
+        pieces.push(Piece { range, color, created, edited: now });
     }
     join(&mut pieces, &chars);
     let full = trim(&chars, 0..chars.len());
@@ -240,7 +247,7 @@ pub fn paint(
         .into_iter()
         .map(|p| {
             if p.range.start <= full.start && p.range.end >= full.end {
-                return Highlight::whole(p.color, p.created);
+                return Highlight { edited: p.edited, ..Highlight::whole(p.color, p.created) };
             }
             Highlight {
                 color: p.color,
@@ -248,6 +255,7 @@ pub fn paint(
                 end: (p.range.end < full.end).then_some(p.range.end as u32),
                 quote: Some(chars[p.range.clone()].iter().collect()),
                 created: p.created,
+                edited: p.edited,
             }
         })
         .collect()
@@ -374,9 +382,9 @@ mod tests {
         // A whole-verse colour replaces everything.
         let d = paint(&c, KJV, 0..usize::MAX, Some(Green), 40);
         assert_eq!(d, vec![Highlight::whole(Green, 40)]);
-        // Recolouring exactly what's covered keeps the date.
+        // Recolouring exactly what's covered keeps the date it was made.
         let e = paint(&d, KJV, 0..usize::MAX, Some(Blue), 50);
-        assert_eq!(e, vec![Highlight::whole(Blue, 40)]);
+        assert_eq!(e, vec![Highlight { edited: 50, ..Highlight::whole(Blue, 40) }]);
         assert_eq!(paint(&e, KJV, 0..usize::MAX, None, 60), Vec::new());
     }
 
@@ -410,6 +418,19 @@ mod tests {
     }
 
     #[test]
+    fn the_last_colouring_is_on_top_in_another_translation() {
+        // Both fall back to the whole verse in the WEB; recolouring the older one puts it on top
+        // there, though it keeps the date it was made.
+        let a = paint(&[], KJV, at(KJV, "only begotten"), Some(Yellow), 10);
+        let b = paint(&a, KJV, at(KJV, "everlasting"), Some(Green), 20);
+        assert_eq!(shown(&b, WEB), vec![(WEB.into(), Green)]);
+        let c = paint(&b, KJV, at(KJV, "only begotten"), Some(Blue), 30);
+        assert_eq!(shown(&c, WEB), vec![(WEB.into(), Blue)]);
+        let blue = c.iter().find(|h| h.color == Blue).unwrap();
+        assert_eq!((blue.created, blue.edited), (10, 30));
+    }
+
+    #[test]
     fn editing_in_another_translation_keeps_what_was_shown() {
         // A KJV highlight the WEB shows whole; colouring a word in the WEB keeps the rest shown.
         let kjv = paint(&[], KJV, at(KJV, "everlasting"), Some(Green), 10);
@@ -424,7 +445,8 @@ mod tests {
     fn a_quote_found_twice_takes_the_nearest() {
         let text = "the one, the two, the three";
         // "the" is at 0, 9 and 18; the offsets point at 9.
-        let h = Highlight { color: Yellow, start: 9, end: Some(12), quote: Some("the".into()), created: 1 };
+        let h =
+            Highlight { start: 9, end: Some(12), quote: Some("the".into()), ..Highlight::whole(Yellow, 1) };
         assert_eq!(h.range_in(text), 9..12);
         let moved = Highlight { start: 15, end: Some(18), ..h };
         assert_eq!(moved.range_in(text), 18..21);
@@ -442,7 +464,7 @@ mod tests {
 
     #[test]
     fn offsets_without_words_are_trusted_within_the_text() {
-        let h = Highlight { color: Yellow, start: 4, end: Some(400), quote: None, created: 1 };
+        let h = Highlight { start: 4, end: Some(400), ..Highlight::whole(Yellow, 1) };
         assert_eq!(h.range_in("For God"), 4..7);
         let past = Highlight { start: 40, ..h };
         assert_eq!(past.range_in("For God"), 0..7, "nothing left: the whole verse");

@@ -286,6 +286,11 @@ final class Store {
         study { try bible.setHighlight(verse: ref, color: color) }
     }
 
+    /// Removes one of a verse's highlights (a study item's `start`), leaving its others.
+    func removeHighlight(_ ref: VerseRef, _ start: UInt32) {
+        study { try bible.removeHighlight(verse: ref, start: start) }
+    }
+
     func setBookmark(_ ref: VerseRef, _ on: Bool) {
         study { try bible.setBookmark(verse: ref, on: on) }
     }

@@ -89,6 +89,8 @@ export interface Run {
 	smallCaps: boolean;
 	/** Where the run's text starts in its verse's text (UTF-16), to place highlights and selections. */
 	offset: number;
+	/** A space the layout adds: not in the verse's text, `offset` is where it falls. */
+	added: boolean;
 }
 
 export interface Block {

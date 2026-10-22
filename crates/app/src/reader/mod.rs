@@ -112,6 +112,8 @@ pub struct Reader {
     pub selection: Option<(VerseRef, VerseRef)>,
     /// Words chosen in the selected verses; it goes when `selection` is set to anything else.
     text_selection: Option<TextSelection>,
+    /// The translation the chosen words were counted in: they go when their column shows another.
+    words_in: String,
     /// A drag choosing words is under way.
     dragging_text: bool,
     /// Where each chapter painted this frame has its top-left corner, to find text under a point.
@@ -158,6 +160,7 @@ impl Reader {
             em: 19.0,
             selection: None,
             text_selection: None,
+            words_in: String::new(),
             dragging_text: false,
             painted: Vec::new(),
             flash: None,
@@ -211,11 +214,11 @@ impl Reader {
         (a.verse..=b.verse).map(|v| VerseRef::new(a.book, a.chapter, v)).collect()
     }
 
-    /// The words chosen, and the parallel column they are in, when words rather than whole verses
-    /// are selected.
-    pub fn text_span(&self) -> Option<(TextSpan, usize)> {
+    /// The words chosen, and the translation whose text they were counted in, when words rather
+    /// than whole verses are selected.
+    pub fn text_span(&self) -> Option<(TextSpan, &str)> {
         let t = self.text_selection.filter(|t| !t.is_empty() && self.selection == Some(t.verses()))?;
-        Some((t.span(), t.column()))
+        Some((t.span(), &self.words_in))
     }
 
     fn select_text(&mut self, t: TextSelection) {
@@ -409,8 +412,11 @@ impl Reader {
         self.marker_rect = None;
         self.selection_rect = None;
         self.painted.clear();
-        // Chosen words stay only while their verses are the selection.
-        if self.text_selection.is_some_and(|t| self.selection != Some(t.verses())) {
+        // Chosen words stay only while their verses are the selection and their column shows the
+        // translation they were counted in (the verses stay selected).
+        if self.text_selection.is_some_and(|t| {
+            self.selection != Some(t.verses()) || env.columns.get(t.column()) != Some(&self.words_in)
+        }) {
             self.text_selection = None;
             self.dragging_text = false;
         }
@@ -791,6 +797,7 @@ impl Reader {
             && let Some(origin) = ui.input(|i| i.pointer.press_origin())
             && let Some(at) = self.text_pos_at(origin, None)
         {
+            self.words_in = env.columns.get(at.column).cloned().unwrap_or_default();
             self.select_text(TextSelection { anchor: at, head: at });
             self.dragging_text = true;
         }

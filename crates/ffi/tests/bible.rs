@@ -89,6 +89,7 @@ fn plain() -> Run {
         bold: false,
         small_caps: false,
         offset: 0,
+        added: false,
     }
 }
 
@@ -281,5 +282,34 @@ fn unknown_translations_and_chapters_fail_softly() {
     assert_eq!(c.book_name, "John");
     let last = bible.chapter("kjv".into(), u16::MAX, ContentOptions::default());
     assert_eq!((last.book, last.chapter), (65, 22));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Highlights of parts of a verse (made on the Mac or the web, or imported) list one row each on
+/// the phone, told apart by where they start, and one can be removed alone.
+#[test]
+fn a_verse_with_several_highlights_lists_each() {
+    let dir = std::env::temp_dir().join(format!("bible-ffi-parts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    {
+        use bible_core::study::{HighlightColor as Colour, StudyStore, TextSpan};
+        let kjv = bible_core::bundled::load("kjv").unwrap();
+        let v = bible_core::VerseRef::new(bible_core::BookId(42), 3, 16);
+        let text = |r: bible_core::VerseRef| kjv.find(r).map(|v| v.text.to_string());
+        let mut s = StudyStore::open(&dir.join("study.sqlite")).unwrap();
+        s.highlight_span(&TextSpan { first: v, start: 4, last: v, end: 26 }, Some(Colour::Yellow), text)
+            .unwrap();
+        s.highlight_span(&TextSpan { first: v, start: 96, last: v, end: 113 }, Some(Colour::Green), text)
+            .unwrap();
+    }
+    let bible = Bible::new(dir.to_string_lossy().into()).unwrap();
+    let items = bible.study_items(StudyKind::Highlights, "kjv".into());
+    let rows: Vec<(u32, &str)> = items.iter().map(|i| (i.start, i.text.as_str())).collect();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.contains(&(4, "…God so loved the world…")), "{rows:?}");
+    assert!(rows.contains(&(96, "…should not perish…")), "{rows:?}");
+    bible.remove_highlight(JOHN_3_16, 96).unwrap();
+    let left = bible.study_items(StudyKind::Highlights, "kjv".into());
+    assert_eq!((left.len(), left[0].start, left[0].highlight), (1, 4, Some(HighlightColor::Yellow)));
     let _ = std::fs::remove_dir_all(dir);
 }

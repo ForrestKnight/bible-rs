@@ -99,7 +99,7 @@ const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS highlights(
     book TEXT NOT NULL, chapter INTEGER NOT NULL, verse INTEGER NOT NULL,
     char_start INTEGER NOT NULL DEFAULT 0, char_end INTEGER, quote TEXT,
-    color INTEGER NOT NULL, created INTEGER NOT NULL,
+    color INTEGER NOT NULL, created INTEGER NOT NULL, edited INTEGER,
     PRIMARY KEY(book, chapter, verse, char_start));
 CREATE TABLE IF NOT EXISTS notes(
     book TEXT NOT NULL, chapter INTEGER NOT NULL, verse INTEGER NOT NULL,
@@ -190,8 +190,9 @@ fn query<T>(
 /// Brings a file made by an older version up to date, recording its version in `user_version`.
 ///
 /// Version 1 (2026-10): a verse holds several highlights, each over part of it or all of it. The
-/// highlights table gains char offsets and the words covered, and the start offset joins its key.
-/// Every highlight before was a whole verse, and stays one.
+/// highlights table gains char offsets, the words covered and when each was last coloured (empty:
+/// when it was made), and the start offset joins its key. Every highlight before was a whole
+/// verse, and stays one.
 #[cfg(feature = "native")]
 fn migrate(conn: &Connection) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -209,8 +210,8 @@ fn migrate(conn: &Connection) -> Result<()> {
         tx.execute_batch(&format!(
             "ALTER TABLE highlights RENAME TO highlights_v0;
              {SCHEMA}
-             INSERT INTO highlights(book, chapter, verse, char_start, char_end, quote, color, created)
-                 SELECT book, chapter, verse, 0, NULL, NULL, color, created FROM highlights_v0;
+             INSERT INTO highlights(book, chapter, verse, char_start, char_end, quote, color, created, edited)
+                 SELECT book, chapter, verse, 0, NULL, NULL, color, created, NULL FROM highlights_v0;
              DROP TABLE highlights_v0;"
         ))
         .context("upgrading the highlights table")?;
@@ -277,16 +278,18 @@ impl StudyStore {
         };
         let highlights = query(
             conn,
-            "SELECT book, chapter, verse, char_start, char_end, quote, color, created FROM highlights
-             ORDER BY book, chapter, verse, char_start",
+            "SELECT book, chapter, verse, char_start, char_end, quote, color, created, edited
+             FROM highlights ORDER BY book, chapter, verse, char_start",
             |r| {
                 let (start, end, quote, created) = (r.get(3)?, r.get(4)?, r.get(5)?, r.get(7)?);
+                let edited = r.get::<_, Option<i64>>(8)?.unwrap_or(created);
                 let h = HighlightColor::from_i64(r.get(6)?).map(|color| Highlight {
                     color,
                     start,
                     end,
                     quote,
                     created,
+                    edited,
                 });
                 Ok((verse(r)?, h))
             },
@@ -437,8 +440,9 @@ impl StudyStore {
     pub fn set_highlight(&mut self, v: VerseRef, color: Option<HighlightColor>) -> Result<()> {
         let parts = match color {
             Some(c) => {
-                let created = self.highlight_parts(v).iter().map(|h| h.created).min().unwrap_or_else(now);
-                vec![Highlight::whole(c, created)]
+                let t = now();
+                let created = self.highlight_parts(v).iter().map(|h| h.created).min().unwrap_or(t);
+                vec![Highlight { edited: t, ..Highlight::whole(c, created) }]
             }
             None => Vec::new(),
         };
@@ -493,9 +497,19 @@ impl StudyStore {
             )?;
             for h in &parts {
                 self.exec(
-                    "INSERT INTO highlights(book, chapter, verse, char_start, char_end, quote, color, created)
-                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![code, v.chapter, v.verse, h.start, h.end, h.quote, h.color.to_i64(), h.created],
+                    "INSERT INTO highlights(book, chapter, verse, char_start, char_end, quote, color, created, edited)
+                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![
+                        code,
+                        v.chapter,
+                        v.verse,
+                        h.start,
+                        h.end,
+                        h.quote,
+                        h.color.to_i64(),
+                        h.created,
+                        (h.edited != h.created).then_some(h.edited)
+                    ],
                 )?;
             }
         }
@@ -772,6 +786,7 @@ impl StudyStore {
                     start: h.start,
                     end: h.end,
                     quote: h.quote.clone(),
+                    edited: (h.edited != h.created).then(|| rfc3339(h.edited)),
                 })
                 .collect(),
             notes: self
@@ -933,12 +948,14 @@ impl StudyStore {
         // A verse's highlights in the export replace the ones it has.
         let mut by_verse: BTreeMap<VerseRef, Vec<Highlight>> = BTreeMap::new();
         for (v, h) in &highlights {
+            let created = date(&h.created);
             by_verse.entry(*v).or_default().push(Highlight {
                 color: h.color,
                 start: h.start,
                 end: h.end,
                 quote: h.quote.clone().filter(|_| h.start > 0 || h.end.is_some()),
-                created: date(&h.created),
+                created,
+                edited: h.edited.as_deref().and_then(parse_rfc3339).unwrap_or(created),
             });
         }
         self.transaction(|s| {
@@ -1080,6 +1097,9 @@ struct ExportHighlight {
     /// The words covered, to place them in another translation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quote: Option<String>,
+    /// When it was last coloured, if after it was made.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    edited: Option<String>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -1444,11 +1464,11 @@ mod tests {
         assert_eq!(shown(&s, jn3(16)), vec![("the world,".into(), HighlightColor::Yellow)]);
         assert_eq!(s.counts().0, 2);
         // Whole verses over parts replace them; removing one highlight leaves the verse's others.
+        let made = s.highlight_parts(jn3(16))[0].created;
         s.set_highlight(jn3(16), Some(HighlightColor::Green)).unwrap();
-        assert_eq!(
-            s.highlight_parts(jn3(16)),
-            &[Highlight::whole(HighlightColor::Green, s.highlight_parts(jn3(16))[0].created)]
-        );
+        let parts = s.highlight_parts(jn3(16));
+        assert!(parts.len() == 1 && parts[0].is_whole() && parts[0].color == HighlightColor::Green);
+        assert_eq!(parts[0].created, made, "a verse already highlighted keeps when it was first highlighted");
         s.highlight_span(
             &TextSpan { first: jn3(18), start: 0, last: jn3(18), end: 7 },
             Some(HighlightColor::Blue),
@@ -1509,6 +1529,29 @@ mod tests {
         let mut c = StudyStore::open_in_memory().unwrap();
         c.import_json(&json).unwrap();
         assert_eq!(shown(&c, jn3(16)), vec![("God so loved the world".into(), HighlightColor::Pink)]);
+    }
+
+    /// When a highlight was last coloured travels with it, through JSON and the file.
+    #[test]
+    fn colouring_times_persist() {
+        let json = r#"{"app":"bible-rs","format":1,"exported_at":"2026-10-16T12:00:00Z","translation":"KJV",
+            "highlights":[{"reference":"John 3:16","book":"JHN","chapter":3,"verse":16,"color":"blue",
+              "created":"2026-10-14T12:00:00Z","edited":"2026-10-15T12:00:00Z"}]}"#;
+        let dir = std::env::temp_dir().join(format!("bible-rs-edited-{}", std::process::id()));
+        let path = dir.join("study.sqlite");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut a = StudyStore::open(&path).unwrap();
+        a.import_json(json).unwrap();
+        let h = a.highlight_parts(jn3(16))[0].clone();
+        assert_eq!((h.created, h.edited), (1_791_979_200, 1_792_065_600));
+        let out = a.export_json("KJV", |_| None).unwrap();
+        assert!(out.contains("\"edited\": \"2026-10-15T12:00:00Z\""), "{out}");
+        drop(a);
+        assert_eq!(StudyStore::open(&path).unwrap().highlight_parts(jn3(16)), std::slice::from_ref(&h));
+        let mut b = StudyStore::new();
+        b.import_json(&out).unwrap();
+        assert_eq!(b.highlight_parts(jn3(16)), &[h]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Exports made before parts of verses could be highlighted.

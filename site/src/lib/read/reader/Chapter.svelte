@@ -79,7 +79,8 @@
 {#snippet run(r: Run)}{@const c = runClass(r, redLetters)}{#if c}<span class={c}>{r.text}</span
 		>{:else}{r.text}{/if}{/snippet}
 
-{#snippet piece(p: Piece)}<span class={p.cls || undefined} data-o={p.offset}>{p.text}</span>{/snippet}
+{#snippet piece(p: Piece)}<span class={p.cls || undefined} data-o={p.added ? undefined : p.offset}>{p.text}</span
+	>{/snippet}
 
 <!-- Parts of the verse in other colours wash only their words. -->
 {#snippet text(ws: Wash[])}{#each ws as w, i (i)}{#if w.color && ws.length > 1}<span
