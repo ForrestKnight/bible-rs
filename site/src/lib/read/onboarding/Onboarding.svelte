@@ -4,7 +4,7 @@
 	is), and the theme cards preview the others.
 -->
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { getApp } from '../app.svelte';
 	import { shortcutText } from '../keyboard';
@@ -28,8 +28,13 @@
 	const app = getApp();
 	const s = $derived(app.settings);
 	const dark = new MediaQuery('prefers-color-scheme: dark');
+	/** The styles' phone breakpoint, the same as Shell's. */
+	const phone = new MediaQuery('max-width: 699px');
+	/** A touch screen probably has no keyboard, so the theme step names the menu instead of the shortcut. */
+	const touch = new MediaQuery('pointer: coarse');
 	let step = $state(app.demo.onboarding === '2' ? 1 : 0);
 	let samples = $state<Samples | null>(null);
+	let stage = $state<HTMLElement>();
 
 	onMount(() => {
 		void fetch('/read/onboarding.json')
@@ -43,6 +48,14 @@
 	}
 
 	const next = () => (step === 0 ? (step = 1) : finish());
+
+	// Each step opens at its top, not where the other was scrolled to.
+	$effect(() => {
+		void step;
+		untrack(() => {
+			if (stage) stage.scrollTop = 0;
+		});
+	});
 
 	function keydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) {
@@ -64,7 +77,10 @@
 	const bodySize = $derived(Math.round(15 * k));
 	const pitch = $derived(Math.round(24 * k) + 2);
 	const box = $derived(Math.round(20 * k));
-	const rows = $derived(Math.max(1, Math.floor((288 - 24 - bodyTop + 2) / pitch)));
+	// A phone shows one shorter preview, of the theme in use, with a tile per theme below it.
+	const previewHeight = $derived(phone.current ? 220 : 288);
+	const shown = $derived(s.themeSystem ? (dark.current ? 'dark' : 'light') : s.theme);
+	const rows = $derived(Math.max(1, Math.floor((previewHeight - 24 - bodyTop + 2) / pitch)));
 </script>
 
 <svelte:window onkeydown={keydown} />
@@ -75,12 +91,12 @@
 			{#if i > 0}<li class="rule" aria-hidden="true"></li>{/if}
 			<li class={['step', { current: i === step, done: i < step }]} aria-current={i === step ? 'step' : undefined}>
 				<span class="dot">{#if i < step}<Icon name="check" size={10} heavy />{:else}{i + 1}{/if}</span>
-				{name}
+				<span class="step-name">{name}</span>
 			</li>
 		{/each}
 	</ol>
 
-	<div class="stage">
+	<div class="stage" bind:this={stage}>
 		{#if step === 0}
 			<div class="welcome">
 				<AppIcon size={64} />
@@ -113,13 +129,15 @@
 		{:else}
 			<div class="appearance">
 				<h1 class="display small">How should it read?</h1>
-				<p class="lede">You can switch any time with {shortcutText('theme', s.shortcuts)}.</p>
+				<p class="lede">
+					{#if touch.current}You can change it any time in Text & Layout.{:else}You can switch any time with {shortcutText('theme', s.shortcuts)}.{/if}
+				</p>
 				<div class="themes" role="radiogroup" aria-label="Theme">
 					{#each THEMES as [theme, label] (theme)}
 						{@const on = s.theme === theme && !s.themeSystem}
 						<div class="theme">
 							<button
-								class={['preview', { on }]}
+								class={['preview', { on, shown: theme === shown }]}
 								data-theme-preview={theme}
 								role="radio"
 								aria-checked={on}
@@ -128,6 +146,7 @@
 									s.themeSystem = false;
 									app.dispatch({ type: 'setTheme', theme });
 								}}
+								style:--height="{previewHeight}px"
 								style:--title-size="{titleSize}px"
 								style:--title-line="{titleLine}px"
 								style:--body-top="{bodyTop}px"
@@ -142,7 +161,7 @@
 									<span class="psalm"><CapsText text={samples.psalm.text} /></span>
 								{/if}
 							</button>
-							<div class={['pick', { on }]}>
+							<div class={['pick', { on }]} data-theme-preview={phone.current ? theme : undefined}>
 								<Radio
 									name="onboarding-theme"
 									checked={on}
@@ -198,7 +217,7 @@
 
 	.steps {
 		position: absolute;
-		top: 16px;
+		top: max(16px, env(safe-area-inset-top));
 		left: 50%;
 		display: flex;
 		align-items: center;
@@ -246,9 +265,11 @@
 		background: var(--separator);
 	}
 
+	/* Starts below the steps, so scrolled content never passes under them. */
 	.stage {
 		flex: 1;
 		min-height: 0;
+		margin-top: calc(max(16px, env(safe-area-inset-top)) + 20px);
 		overflow-y: auto;
 	}
 
@@ -257,14 +278,16 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
+		padding-inline: 24px;
 	}
 
+	/* The stage starts 36 down, so the content sits 68 and 76 from the top. */
 	.welcome {
-		padding-top: 68px;
+		padding-top: 32px;
 	}
 
 	.appearance {
-		padding-top: 76px;
+		padding-top: 40px;
 	}
 
 	.display {
@@ -285,6 +308,7 @@
 		margin-top: 12px;
 		color: var(--ink-2);
 		font: 400 15px/24px var(--font-ui);
+		text-align: center;
 	}
 
 	.appearance .lede {
@@ -329,10 +353,12 @@
 		text-align: left;
 	}
 
-	.card:hover {
-		box-shadow:
-			0 0 0 0.5px var(--ink-3),
-			0 1px 4px rgb(0 0 0 / 0.04);
+	@media (hover: hover) {
+		.card:hover {
+			box-shadow:
+				0 0 0 0.5px var(--ink-3),
+				0 1px 4px rgb(0 0 0 / 0.04);
+		}
 	}
 
 	.card.on {
@@ -410,7 +436,7 @@
 	.preview {
 		position: relative;
 		width: 244px;
-		height: 288px;
+		height: var(--height);
 		overflow: hidden;
 		border-radius: 14px;
 		background: var(--paper);
@@ -421,10 +447,12 @@
 		text-align: left;
 	}
 
-	.preview:hover {
-		box-shadow:
-			0 0 0 0.5px var(--ink-3),
-			0 4px 32px rgb(0 0 0 / 0.06);
+	@media (hover: hover) {
+		.preview:hover {
+			box-shadow:
+				0 0 0 0.5px var(--ink-3),
+				0 4px 32px rgb(0 0 0 / 0.06);
+		}
 	}
 
 	.preview.on {
@@ -530,8 +558,8 @@
 		flex: none;
 		align-items: center;
 		justify-content: space-between;
-		height: 72px;
-		padding: 0 32px;
+		height: calc(72px + env(safe-area-inset-bottom));
+		padding: 0 max(32px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(32px, env(safe-area-inset-left));
 		box-shadow: inset 0 1px var(--separator);
 	}
 
@@ -541,5 +569,219 @@
 		gap: 8px;
 		color: var(--ink-2);
 		font: var(--type-small);
+	}
+
+	/* Too narrow for the 832 pt row. Cards go in two columns and the previews share the width. */
+	@media (max-width: 879px) {
+		.choose {
+			width: 548px;
+			max-width: 100%;
+		}
+
+		.cards {
+			grid-template-columns: repeat(2, 266px);
+		}
+
+		.themes {
+			gap: 16px;
+			width: 100%;
+			max-width: 780px;
+		}
+
+		.theme {
+			flex: 1;
+			min-width: 0;
+		}
+
+		.preview {
+			width: 100%;
+		}
+
+		.size {
+			max-width: 100%;
+		}
+
+		.slider {
+			flex: 0 1 280px;
+			min-width: 0;
+		}
+	}
+
+	/* Phones get one column. Cards span it, and one preview sits above a tile per theme. */
+	@media (max-width: 699px) {
+		.steps {
+			gap: 8px;
+		}
+
+		.rule {
+			width: 20px;
+		}
+
+		.welcome,
+		.appearance {
+			padding: 24px 20px;
+		}
+
+		.display {
+			font-size: 34px;
+			line-height: 42px;
+		}
+
+		.display.small {
+			font-size: 28px;
+			line-height: 36px;
+		}
+
+		.choose {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 2px;
+			width: 100%;
+			max-width: 480px;
+		}
+
+		.cards {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 12px;
+			width: 100%;
+			max-width: 480px;
+			margin-top: 16px;
+		}
+
+		.themes {
+			display: grid;
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+			gap: 16px 8px;
+			max-width: 480px;
+		}
+
+		.theme {
+			display: contents;
+		}
+
+		.preview {
+			grid-area: 1 / 1 / 2 / -1;
+		}
+
+		.preview:not(.shown) {
+			display: none;
+		}
+
+		/* Each tile uses its theme's paper, like the Text & Layout popover. */
+		.pick {
+			grid-row: 2;
+			height: 44px;
+			margin-top: 0;
+			border-radius: 10px;
+			background: var(--paper);
+			box-shadow: inset 0 0 0 1px var(--separator);
+		}
+
+		.pick.on {
+			box-shadow: inset 0 0 0 2px var(--accent);
+		}
+
+		.pick :global(.radio) {
+			justify-content: center;
+			width: 100%;
+		}
+
+		.size {
+			display: grid;
+			grid-template:
+				'label label value' auto
+				'a slider big' 44px
+				'system system system' auto
+				/ auto minmax(0, 1fr) auto;
+			align-items: center;
+			column-gap: 12px;
+			width: 100%;
+			max-width: 480px;
+			height: auto;
+			margin-top: 24px;
+		}
+
+		.size-label {
+			grid-area: label;
+			margin: 0;
+		}
+
+		.a {
+			grid-area: a;
+		}
+
+		.a.big {
+			grid-area: big;
+		}
+
+		.slider {
+			grid-area: slider;
+			width: auto;
+			margin: 0;
+		}
+
+		.value {
+			grid-area: value;
+			width: auto;
+			margin: 0;
+			text-align: right;
+		}
+
+		.sep {
+			display: none;
+		}
+
+		.size > :global(.checkbox) {
+			grid-area: system;
+		}
+
+		.footer {
+			gap: 16px;
+			height: auto;
+			min-height: calc(72px + env(safe-area-inset-bottom));
+			padding: 12px max(20px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom))
+				max(20px, env(safe-area-inset-left));
+		}
+	}
+
+	/* At 320 pt only the current step shows its name. Screen readers still read the others. */
+	@media (max-width: 359px) {
+		.step:not(.current) .step-name {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			overflow: hidden;
+			clip-path: inset(50%);
+		}
+	}
+
+	/* Every control gets a 44 pt hit area on touch screens. */
+	@media (pointer: coarse) {
+		.pick {
+			height: 44px;
+			margin-top: 0;
+		}
+
+		.pick :global(.radio) {
+			min-height: 44px;
+			padding: 0 12px;
+		}
+
+		.size :global(.checkbox) {
+			min-height: 44px;
+		}
+
+		/* The input grows to 44 pt around its 24 pt box, so the track doesn't move. */
+		.size .slider :global(input[type='range']) {
+			inset: -10px 0;
+			height: 44px;
+		}
+
+		.footer :global(.button) {
+			height: 44px;
+			padding: 0 20px;
+			border-radius: 22px;
+			font-size: 15px;
+		}
 	}
 </style>
