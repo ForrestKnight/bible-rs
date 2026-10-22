@@ -1,7 +1,7 @@
 //! Left sidebar: a floating source list (study collections, then the books with a chapter grid)
 //! that turns into search results while a search is active.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -32,7 +32,7 @@ const CHIP: f32 = 24.0;
 const CHIP_GAP: f32 = 8.0;
 const CHIP_INDENT: f32 = 24.0;
 /// A marked chapter's ring: 2 pt wide on the chip's edge, segments 2.5 pt apart, around a 17 pt
-/// tinted disc. Past [`RING_MAX_SEGMENTS`] marked verses the segments merge by colour.
+/// tinted disc. Past [`RING_MAX_SEGMENTS`] marks the segments merge by colour.
 const RING_WIDTH: f32 = 2.0;
 const RING_GAP: f32 = 2.5;
 const RING_DISC: f32 = 8.5;
@@ -1303,15 +1303,15 @@ fn section(ui: &mut Ui, p: &Palette, label: &str, first: bool) {
     );
 }
 
-/// A chapter's marked verses: each one's highlight colour, or `None` for a note on a verse with
-/// no highlight. Sorted by colour, so like colours sit together on the ring.
+/// A chapter's marks: each highlight's colour, or `None` for a note on a verse with no
+/// highlight. Sorted by colour, so like colours sit together on the ring.
 type Marks = Vec<Option<HighlightColor>>;
 
 fn color_rank(c: Option<HighlightColor>) -> usize {
     c.and_then(|c| HighlightColor::ALL.iter().position(|x| *x == c)).unwrap_or(HighlightColor::ALL.len())
 }
 
-/// A book's marked verses, and how many highlights and notes it holds.
+/// A book's marks, and how many highlights and notes it holds.
 #[derive(Default)]
 struct BookMarks {
     marks: Marks,
@@ -1330,8 +1330,9 @@ impl BookMarks {
     }
 }
 
-/// Every chapter and book with highlights or notes, and its marks: one per verse, so a
-/// highlighted verse with a note counts once.
+/// Every chapter and book with highlights or notes, and its marks: one per highlight (a verse
+/// can hold several, over different words), and one per note on a verse with no highlight, so a
+/// note on a highlighted verse doesn't count twice.
 #[derive(Default)]
 struct Activity {
     chapters: HashMap<ChapterIdx, Marks>,
@@ -1340,18 +1341,24 @@ struct Activity {
 
 impl Activity {
     fn new(study: &StudyStore) -> Self {
-        let mut verses: BTreeMap<VerseRef, Option<HighlightColor>> =
-            study.highlights().into_iter().map(|(v, c)| (v, Some(c))).collect();
+        let highlights = study.highlights();
+        let highlighted: HashSet<VerseRef> = highlights.iter().map(|(v, _)| *v).collect();
+        let mut out = Activity::default();
+        let mut mark = |v: VerseRef, c: Option<HighlightColor>| {
+            out.chapters.entry(v.chapter_idx()).or_default().push(c);
+            out.books.entry(v.chapter_idx().book()).or_default().marks.push(c);
+        };
+        for (v, h) in &highlights {
+            mark(*v, Some(h.color));
+        }
         let notes = study.notes();
         for (v, _) in &notes {
-            verses.entry(*v).or_insert(None);
+            if !highlighted.contains(v) {
+                mark(*v, None);
+            }
         }
-        let mut out = Activity::default();
-        for (v, c) in verses {
-            out.chapters.entry(v.chapter_idx()).or_default().push(c);
-            let book = out.books.entry(v.chapter_idx().book()).or_default();
-            book.marks.push(c);
-            book.highlights += usize::from(c.is_some());
+        for (v, _) in &highlights {
+            out.books.entry(v.chapter_idx().book()).or_default().highlights += 1;
         }
         for (v, _) in &notes {
             out.books.entry(v.chapter_idx().book()).or_default().notes += 1;
@@ -1364,7 +1371,7 @@ impl Activity {
     }
 }
 
-/// The ring's segments as (colour, weight): one per marked verse, or past `cap` one per colour,
+/// The ring's segments as (colour, weight): one per mark, or past `cap` one per colour,
 /// weighted by its count.
 fn ring_segments(marks: &[Option<HighlightColor>], cap: usize) -> Vec<(Option<HighlightColor>, f32)> {
     if marks.len() <= cap {
@@ -1449,7 +1456,7 @@ fn paint_ring(
 }
 
 /// The open book's chapters: 24 pt chips, the current one solid accent. A chapter with
-/// highlights or notes gets a segmented ring (one segment per marked verse, in its colour) and
+/// highlights or notes gets a segmented ring (one segment per highlight or note, in its colour) and
 /// its number on a disc tinted with its main highlight colour.
 fn chapter_grid(
     ui: &mut Ui,

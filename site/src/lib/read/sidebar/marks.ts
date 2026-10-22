@@ -1,9 +1,9 @@
 import { HIGHLIGHT_COLORS, type HighlightColor, type StudyItem } from '../core';
 
-/** A marked verse: its highlight colour, or `null` for a note on a verse with no highlight. */
+/** A mark on a ring: a highlight's colour, or `null` for a note on a verse with no highlight. */
 export type Mark = HighlightColor | null;
 
-/** A book's marked verses, and how many highlights and notes it holds. */
+/** A book's marks, and how many highlights and notes it holds. */
 export interface BookMarks {
 	marks: Mark[];
 	highlights: number;
@@ -19,27 +19,32 @@ export interface Activity {
 
 const rank = (m: Mark) => (m === null ? HIGHLIGHT_COLORS.length : HIGHLIGHT_COLORS.indexOf(m));
 
-/** Every chapter and book with highlights or notes, and its marks: one per verse (a highlighted
- *  verse with a note counts once), sorted by colour so like colours sit together on the ring. */
+/** Every chapter and book with highlights or notes, and its marks: one per highlight (a verse
+ *  can hold several, over different words), and one per note on a verse with no highlight, so a
+ *  note on a highlighted verse doesn't count twice. Sorted by colour, so like colours sit
+ *  together on the ring. */
 export function activity(highlights: StudyItem[], notes: StudyItem[]): Activity {
-	const verses = new Map<string, { item: StudyItem; mark: Mark }>();
-	for (const h of highlights) verses.set(key(h), { item: h, mark: h.highlight });
-	for (const n of notes) if (!verses.has(key(n))) verses.set(key(n), { item: n, mark: n.highlight });
 	const out: Activity = { chapters: new Map(), books: new Map() };
 	const book = (b: number) => {
 		let m = out.books.get(b);
 		if (!m) out.books.set(b, (m = { marks: [], highlights: 0, notes: 0 }));
 		return m;
 	};
-	for (const { item, mark } of verses.values()) {
-		const chapter = out.chapters.get(item.chapterIndex) ?? [];
-		chapter.push(mark);
-		out.chapters.set(item.chapterIndex, chapter);
-		const b = book(item.verse.book);
-		b.marks.push(mark);
-		if (mark !== null) b.highlights++;
+	const mark = (i: StudyItem, m: Mark) => {
+		const chapter = out.chapters.get(i.chapterIndex) ?? [];
+		chapter.push(m);
+		out.chapters.set(i.chapterIndex, chapter);
+		book(i.verse.book).marks.push(m);
+	};
+	const highlighted = new Set(highlights.map(key));
+	for (const h of highlights) {
+		mark(h, h.highlight);
+		book(h.verse.book).highlights++;
 	}
-	for (const n of notes) book(n.verse.book).notes++;
+	for (const n of notes) {
+		if (!highlighted.has(key(n))) mark(n, null);
+		book(n.verse.book).notes++;
+	}
 	for (const m of out.chapters.values()) m.sort((a, b) => rank(a) - rank(b));
 	for (const b of out.books.values()) b.marks.sort((x, y) => rank(x) - rank(y));
 	return out;
@@ -57,7 +62,7 @@ export function summary(b: BookMarks): string {
 	return `${plural(b.highlights, 'highlight')} · ${plural(b.notes, 'note')}`;
 }
 
-/** The ring's segments as [mark, weight]: one per marked verse, or past `cap` one per colour,
+/** The ring's segments as [mark, weight]: one per mark, or past `cap` one per colour,
  *  weighted by its count. `marks` must be sorted by colour. */
 export function ringSegments(marks: Mark[], cap: number): [Mark, number][] {
 	if (marks.length <= cap) return marks.map((m) => [m, 1]);

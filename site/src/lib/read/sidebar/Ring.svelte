@@ -22,7 +22,7 @@
 	const arcs = $derived(ringArcs(marks, c, r, gap, cap));
 </script>
 
-<!-- A segmented ring: one segment per marked verse in its highlight's swatch (notes without a
+<!-- A segmented ring: one segment per mark in its highlight's swatch (notes without a
      highlight in the accent), clockwise from the top, with clear gaps between. -->
 <svg class="ring" width={size} height={size} viewBox="0 0 {size} {size}" aria-hidden="true">
 	{#if fill}<circle cx={c} cy={c} r={disc} {fill} />{/if}

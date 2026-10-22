@@ -7,7 +7,7 @@
 		book: Book;
 		/** The chapter being read (a chapter index), lit when it's in this book. */
 		current: number;
-		/** Each chapter's (index) marked verses. */
+		/** Each chapter's (index) highlights and notes, as ring marks. */
 		activity: Map<number, Mark[]>;
 		onpick: (chapter: number) => void;
 	}
@@ -16,7 +16,7 @@
 </script>
 
 <!-- The open book's chapters: 24 pt chips in sevens, the current one solid accent. A chapter with
-     highlights or notes gets a segmented ring (one segment per marked verse, in its colour) and
+     highlights or notes gets a segmented ring (one segment per highlight or note, in its colour) and
      its number on a disc tinted with its main highlight colour. -->
 <div class="grid" role="group" aria-label="{book.name} chapters">
 	{#each { length: book.chapters }, i (i)}
@@ -27,9 +27,7 @@
 			type="button"
 			class={['chip', { here, marked: !!marks?.length }]}
 			aria-current={here || undefined}
-			aria-label="{book.name} {i + 1}{marks?.length
-				? `, ${marks.length} marked verse${marks.length === 1 ? '' : 's'}`
-				: ''}"
+			aria-label="{book.name} {i + 1}{marks?.length ? ', has highlights or notes' : ''}"
 			onclick={() => onpick(index)}
 		>
 			{#if marks?.length}
