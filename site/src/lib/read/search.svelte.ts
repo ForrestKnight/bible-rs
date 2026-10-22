@@ -48,7 +48,7 @@ export class Search {
 	/** What the results depend on; a change runs the search again and selects the first hit. */
 	readonly key = $derived.by(() => {
 		const s = this.app.settings;
-		const search = JSON.stringify([s.translation, this.query.trim(), this.scope, s.wholeWords, this.currentFirst, this.#generation]);
+		const search = JSON.stringify([this.app.textTranslation(), this.query.trim(), this.scope, s.wholeWords, this.currentFirst, this.#generation]);
 		if (this.#preferred.search !== search) {
 			this.#preferred = { search, book: this.currentFirst ? untrack(() => this.app.hereRef().book) : -1 };
 		}
@@ -58,7 +58,7 @@ export class Search {
 	/** The count, the books and the first hits, or null with no search (or no text yet). */
 	readonly results = $derived.by((): SearchPage | null => {
 		const app = this.app;
-		const id = app.settings.translation;
+		const id = app.textTranslation();
 		const key = this.key;
 		if (!this.searching || !app.core || !app.loaded.has(id)) return null;
 		const started = performance.now();
@@ -93,7 +93,7 @@ export class Search {
 		let hits = this.#pages.get(n + 1);
 		if (!hits) {
 			const s = app.settings;
-			hits = app.core.search(s.translation, this.query, this.scope, s.wholeWords, this.#first(), FIRST + n * PAGE, PAGE).hits;
+			hits = app.core.search(app.textTranslation(), this.query, this.scope, s.wholeWords, this.#first(), FIRST + n * PAGE, PAGE).hits;
 			this.#pages.set(n + 1, hits);
 		}
 		return hits[i - FIRST - n * PAGE] ?? null;

@@ -34,7 +34,7 @@
 	const results = $derived(search.results);
 	const books = $derived(app.core?.books ?? []);
 	const here = $derived(app.hereRef().book);
-	const abbrev = $derived(app.info(app.settings.translation)?.abbrev ?? '');
+	const abbrev = $derived(app.info(app.textTranslation())?.abbrev ?? '');
 	const scope = $derived(search.scope);
 	const segment = $derived(
 		typeof scope === 'number' ? (books[scope]?.newTestament ? 'nt' : 'ot') : (scope as 'all' | 'ot' | 'nt')
@@ -121,7 +121,7 @@
 	const suggestion = $derived.by(() => {
 		const s = results?.total === 0 ? results.suggestion : null;
 		if (!s || !app.core) return null;
-		const first = app.core.search(app.settings.translation, s.query, scope, app.settings.wholeWords, null, 0, 1)
+		const first = app.core.search(app.textTranslation(), s.query, scope, app.settings.wholeWords, null, 0, 1)
 			.hits[0];
 		const reference = first?.reference ?? '';
 		const detail = s.total === 1 ? `1 verse · ${reference}` : `${group(s.total)} verses · first ${reference}`;

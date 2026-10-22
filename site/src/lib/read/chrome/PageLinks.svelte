@@ -3,7 +3,8 @@
 	trail up to its book and translation, the chapters either side, and the chapter in the other
 	translations. They're for screen readers and search engines, so they stay out of sight until one
 	has keyboard focus, then show as a bar along the window's foot. The reader follows the chapter
-	links itself (ui/follow.ts); the trail goes to the book's and the translation's pages.
+	links itself (ui/follow.ts); the trail goes to the book's and the translation's pages, which an
+	imported or a live translation doesn't have.
 -->
 <script lang="ts">
 	import { getApp } from '../app.svelte';
@@ -16,14 +17,14 @@
 	const id = $derived(app.settings.translation);
 	const book = $derived(bookOf(app.books, here));
 	const others = $derived(app.translations.filter((t) => !t.imported && t.id !== id));
-	const imported = $derived(!!app.info(id)?.imported);
+	const paged = $derived(!app.info(id)?.imported && !app.isLive(id));
 	const name = (index: number) => chapterName(app.books, index);
 </script>
 
 <nav class="links" aria-label="Chapter navigation">
 	<ol class="trail">
 		<li><a href="/" data-sveltekit-reload>Home</a></li>
-		{#if !imported}
+		{#if paged}
 			<li><a href={translationPath(id)} data-sveltekit-reload>{app.info(id)?.abbrev ?? id}</a></li>
 			<li><a href={bookPath(id, book)} data-sveltekit-reload>{book.name}</a></li>
 		{/if}

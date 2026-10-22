@@ -9,6 +9,8 @@ import { BOOKS, bookPath, chapterPath } from './books';
 import { Search } from './search.svelte';
 import { deleteImported, importedInfos, storeImported, type ImportResult } from './imports';
 import { importer } from './overlays/importer.svelte';
+import { LiveChapter, LiveError } from './live.svelte';
+import { NLT_ID, NLT_INFO } from './nlt';
 import {
 	core as startCore,
 	chapterLabel,
@@ -150,6 +152,9 @@ export interface ReaderHandle {
 	markerRect(v: VerseRef): DOMRect | null;
 }
 
+/** Translations read live from their publisher, a chapter at a time (the NLT: nlt.ts). */
+const LIVE: TranslationInfo[] = [NLT_INFO];
+
 /** Sessions shorter than this aren't history (reading.rs). */
 const MIN_SECONDS = 8;
 const MAX_GAP = 120;
@@ -191,6 +196,10 @@ export class ReadApp {
 	coreError = $state<string | null>(null);
 	/** Every translation in the library (the bundled ones, from the page's data). */
 	translations = $state.raw<TranslationInfo[]>([]);
+	/** The live translation's one chapter. */
+	readonly liveChapter = new LiveChapter();
+	/** The translation read before a live one (see `fallback`). */
+	#before = $state(DEFAULT_TRANSLATION);
 	/** Translations decoded and ready. */
 	readonly loaded = new SvelteSet<string>();
 	/** The defaults until the saved settings are adopted after hydration (`adopt`). */
@@ -266,6 +275,7 @@ export class ReadApp {
 	}) {
 		this.translations = init.translations;
 		this.settings.translation = init.translation;
+		this.#before = init.translation;
 		this.here = { chapter: init.chapter, verse: 1 };
 		this.#content.set(this.#key(init.translation, init.chapter, contentOptions(defaultTypography())), init.content);
 		this.#initNames = { index: init.chapter, label: init.label, short: init.short };
@@ -282,10 +292,13 @@ export class ReadApp {
 		return this.info(translation)?.imported ? '/read' : chapterPath(this.books, translation, index);
 	}
 
-	/** A book's page in the translation being read (a one-chapter book's is its chapter). */
+	/** A book's page in the translation being read (a one-chapter book's is its chapter, and so is
+	 *  any book's in a live translation, which has no book pages). */
 	bookHref(book: Book): string {
 		const t = this.settings.translation;
-		return book.chapters === 1 || this.info(t)?.imported ? this.chapterHref(book.firstChapter) : bookPath(t, book);
+		return book.chapters === 1 || this.info(t)?.imported || this.isLive(t)
+			? this.chapterHref(book.firstChapter)
+			: bookPath(t, book);
 	}
 
 	/** A result navigator shows under the toolbar while a search has results. */
@@ -316,7 +329,7 @@ export class ReadApp {
 		const saved = loadSettings();
 		if (urlTranslation) saved.translation = urlTranslation;
 		else if (!this.info(saved.translation)) saved.translation = this.settings.translation;
-		saved.parallel = saved.parallel.filter((id) => this.info(id));
+		saved.parallel = saved.parallel.filter((id) => this.info(id) && !this.isLive(id));
 		this.settings = saved;
 		this.onboarding = !saved.onboarded && !urlTranslation;
 	}
@@ -339,10 +352,12 @@ export class ReadApp {
 		}
 	}
 
-	/** Loads a translation if it isn't yet. */
+	/** Loads a translation if it isn't yet (a live one: the chapter being read). */
 	async ensure(id: string): Promise<boolean> {
 		const core = this.core;
-		if (!core || !this.translations.some((t) => t.id === id)) return false;
+		if (!core || !this.info(id)) return false;
+		// A live translation is fetched only while it's the one being read.
+		if (this.isLive(id)) return this.settings.translation === id && this.#readLive(id);
 		if (this.loaded.has(id)) return true;
 		try {
 			await core.load(id);
@@ -354,6 +369,41 @@ export class ReadApp {
 			this.toastNow(
 				offline ? `Couldn't load ${abbrev}: you're offline` : `Couldn't load ${abbrev}: ${e instanceof Error ? e.message : e}`,
 				() => void this.ensure(id)
+			);
+			return false;
+		}
+	}
+
+	/**
+	 * Reads the chapter being read in a live translation, which then holds just that chapter. If it
+	 * can't be read (offline, too many requests, an error), the reader goes back to the translation
+	 * read before, with a toast to try again.
+	 */
+	async #readLive(id: string): Promise<boolean> {
+		const core = this.core!;
+		const index = this.here.chapter;
+		if (this.liveChapter.held === index && this.loaded.has(id)) return true;
+		this.loaded.delete(id);
+		this.#forget(id);
+		void this.ensure(this.fallback());
+		try {
+			if (!(await this.liveChapter.read(core, index))) return false;
+			this.loaded.add(id);
+			return true;
+		} catch (e) {
+			if (this.settings.translation !== id) return false;
+			const abbrev = this.info(id)?.abbrev ?? id.toUpperCase();
+			const fallback = this.fallback();
+			const back = this.info(fallback)?.abbrev ?? fallback.toUpperCase();
+			const why =
+				e instanceof LiveError && e.kind === 'busy'
+					? `too many requests, try again in ${e.retryAfter < 90 ? `${e.retryAfter} s` : `${Math.ceil(e.retryAfter / 60)} min`}`
+					: e instanceof Error
+						? e.message
+						: String(e);
+			this.dispatch({ type: 'setTranslation', id: fallback });
+			this.toastNow(`Couldn't load ${abbrev} (${why}). Showing ${back}`, () =>
+				this.dispatch({ type: 'setTranslation', id })
 			);
 			return false;
 		}
@@ -401,6 +451,12 @@ export class ReadApp {
 		this.toastNow(`Removed ${info.abbrev}`);
 	}
 
+	#dropLive(id: string) {
+		if (this.core) this.liveChapter.drop(this.core);
+		this.loaded.delete(id);
+		this.#forget(id);
+	}
+
 	/** Drops a translation's chapters from the caches (an import removed, or replaced under its id). */
 	#forget(id: string) {
 		for (const cache of [this.#content, this.#verses]) {
@@ -411,7 +467,39 @@ export class ReadApp {
 	// ---------------------------------------------------------------- reading
 
 	info(id: string): TranslationInfo | undefined {
-		return this.translations.find((t) => t.id === id);
+		return this.translations.find((t) => t.id === id) ?? this.live.find((t) => t.id === id);
+	}
+
+	/**
+	 * The live translations the translation menu offers; they aren't in the library. Imports can't
+	 * take their ids (`takenIds`), but one imported before the NLT came to the web may have its id:
+	 * then that import is read instead.
+	 */
+	get live(): TranslationInfo[] {
+		return LIVE.filter((l) => !this.translations.some((t) => t.id === l.id));
+	}
+
+	isLive(id: string): boolean {
+		return this.live.some((t) => t.id === id);
+	}
+
+	/** The ids a new import mustn't take: the library's and the live translations'. */
+	takenIds(): string[] {
+		return [...this.translations, ...LIVE].map((t) => t.id);
+	}
+
+	/** What the reader goes back to when a live translation can't be read: the translation read
+	 *  before it, while it's still in the library, else the default. */
+	fallback(): string {
+		const id = this.#before;
+		return this.info(id) && !this.isLive(id) ? id : DEFAULT_TRANSLATION;
+	}
+
+	/** The translation search, the study lists and exports take their text from: the one being read,
+	 *  or while that's a live one (which holds one chapter, and isn't to be stored), the fallback. */
+	textTranslation(): string {
+		const id = this.settings.translation;
+		return this.isLive(id) ? this.fallback() : id;
 	}
 
 	/** The translations shown: the reading one, then up to three parallel columns. */
@@ -441,7 +529,7 @@ export class ReadApp {
 	/** A chapter's blocks, or null while its translation loads. */
 	content(id: string, index: number): ChapterContent | null {
 		const o = this.contentOptions();
-		const ready = this.loaded.has(id);
+		const ready = this.loaded.has(id) && this.#holds(id, index);
 		const key = this.#key(id, index, o);
 		const cached = this.#content.get(key);
 		if (cached) return cached;
@@ -453,7 +541,7 @@ export class ReadApp {
 
 	/** A chapter's verses as paragraphs (parallel columns, compare, share). */
 	verses(id: string, index: number): VerseContent[] | null {
-		if (!this.loaded.has(id) || !this.core) return null;
+		if (!this.loaded.has(id) || !this.#holds(id, index) || !this.core) return null;
 		const key = `${id}:${index}`;
 		let v = this.#verses.get(key);
 		if (!v) {
@@ -461,6 +549,11 @@ export class ReadApp {
 			this.#verses.set(key, v);
 		}
 		return v;
+	}
+
+	/** Whether a translation has a chapter in the page (a live one holds just one). */
+	#holds(id: string, index: number): boolean {
+		return !this.isLive(id) || this.liveChapter.held === index;
 	}
 
 	selectedRefs(): VerseRef[] {
@@ -614,8 +707,9 @@ export class ReadApp {
 
 	studyItems(kind: StudyKind): StudyItem[] {
 		void this.studyGen;
-		if (!this.core || !this.loaded.has(this.settings.translation)) return [];
-		return this.core.bible.studyItems(kind, this.settings.translation);
+		const id = this.textTranslation();
+		if (!this.core || !this.loaded.has(id)) return [];
+		return this.core.bible.studyItems(kind, id);
 	}
 
 	counts(): Counts {
@@ -719,7 +813,7 @@ export class ReadApp {
 	exportStudy(kind: 'json' | 'markdown') {
 		const core = this.core;
 		if (!core) return;
-		const body = core.bible.exportStudy(kind, this.settings.translation, this.settings.exportInclude);
+		const body = core.bible.exportStudy(kind, this.textTranslation(), this.settings.exportInclude);
 		download(`bible-notes.${kind === 'json' ? 'json' : 'md'}`, body, kind === 'json' ? 'application/json' : 'text/markdown');
 		this.toastNow(`Exported bible-notes.${kind === 'json' ? 'json' : 'md'}`);
 	}
@@ -865,8 +959,12 @@ export class ReadApp {
 				break;
 			case 'setTranslation':
 				if (this.info(a.id)) {
+					const before = s.translation;
+					if (!this.isLive(before)) this.#before = before;
 					s.translation = a.id;
 					s.parallel = s.parallel.filter((p) => p !== a.id);
+					// A live translation's chapter goes when the reader leaves it.
+					if (this.isLive(before) && before !== a.id) this.#dropLive(before);
 					void this.ensure(a.id);
 					this.search.invalidate();
 				}
@@ -908,9 +1006,11 @@ export class ReadApp {
 				s.parallel = s.parallel.filter((p) => p !== a.id);
 				break;
 			case 'highlight': {
-				// Chosen words: just those, placed in the text they were chosen in.
+				// Chosen words: just those, placed in the text they were chosen in. A highlight of part
+				// of a verse keeps the words it covers, so in a live translation, whose text isn't to be
+				// stored, the verses are highlighted whole.
 				const w = this.wordSpan();
-				if (w) {
+				if (w && !this.isLive(w.translation)) {
 					this.study((c) => c.bible.highlightSpan(w.translation, w.span, a.color), "Couldn't save highlight");
 					break;
 				}

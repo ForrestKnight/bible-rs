@@ -16,6 +16,7 @@
 </script>
 
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import type { HighlightColor, VerseMarks } from '../core';
 	import { washes, type Piece, type Wash } from './segments';
 
@@ -32,9 +33,11 @@
 		verseNumbers: boolean;
 		/** The chapter in the address: its rows are the targets of #v16 links. */
 		anchors: boolean;
+		/** Under the rows (a live translation's credit line). */
+		footer?: Snippet;
 	}
 
-	let { index, label, columns, marks, selected, flash, redLetters, verseNumbers, anchors }: Props = $props();
+	let { index, label, columns, marks, selected, flash, redLetters, verseNumbers, anchors, footer }: Props = $props();
 
 	const rows = $derived.by(() => {
 		const numbers = new Set<number>();
@@ -85,6 +88,7 @@
 			{/each}
 		</div>
 	{/each}
+	{@render footer?.()}
 </section>
 
 <style>

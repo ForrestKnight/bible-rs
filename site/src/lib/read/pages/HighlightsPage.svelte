@@ -36,7 +36,7 @@
 		if (all.length === 1) return '1 highlight';
 		return `${all.length} highlights in ${books.length} ${books.length === 1 ? 'book' : 'books'}`;
 	});
-	const abbrev = $derived(app.info(app.settings.translation)?.abbrev ?? '');
+	const abbrev = $derived(app.info(app.textTranslation())?.abbrev ?? '');
 
 	const scoped = $derived.by(() => {
 		const q = app.pageQuery.trim().toLowerCase();

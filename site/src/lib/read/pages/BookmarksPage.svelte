@@ -20,7 +20,7 @@
 		if (all.length === 1) return '1 verse';
 		return `${all.length} verses in ${books} ${books === 1 ? 'book' : 'books'}`;
 	});
-	const abbrev = $derived(app.info(app.settings.translation)?.abbrev ?? '');
+	const abbrev = $derived(app.info(app.textTranslation())?.abbrev ?? '');
 
 	const rows = $derived.by(() => {
 		const q = app.pageQuery.trim().toLowerCase();

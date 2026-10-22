@@ -34,7 +34,7 @@
 
 	const firstVerse = (p: (typeof passages)[number]) =>
 		app
-			.verses(app.settings.translation, p.chapterIndex)
+			.verses(app.textTranslation(), p.chapterIndex)
 			?.find((v) => !p.verses || v.number >= p.verses[0])
 			?.runs.map((r) => r.text)
 			.join('')
@@ -54,7 +54,7 @@
 	const draft = $derived(typed && verse && sameVerse(typed.verse, verse) ? typed.text : saved);
 	let editor = $state<HTMLTextAreaElement>();
 	const quote = $derived(
-		verse ? (app.core?.verse(app.settings.translation, verse)?.runs.map((r) => r.text).join('').trim() ?? '') : ''
+		verse ? (app.core?.verse(app.textTranslation(), verse)?.runs.map((r) => r.text).join('').trim() ?? '') : ''
 	);
 
 	/** Ticks a reading off (or back on). Every day read finishes the plan; un-ticking one resumes it. */
@@ -142,7 +142,7 @@
 				<div class="reflection-top">
 					<Icon name="note" size={16} heavy />
 					<span class="reflection-ref">{app.label(verse)}</span>
-					<span class="abbrev">{app.info(app.settings.translation)?.abbrev}</span>
+					<span class="abbrev">{app.info(app.textTranslation())?.abbrev}</span>
 					<span class="when">{note ? ago(note.updated) : 'Today'}</span>
 				</div>
 				<p class="quote"><CapsText text={quote} /></p>

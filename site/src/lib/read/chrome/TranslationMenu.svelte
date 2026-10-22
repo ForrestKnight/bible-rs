@@ -1,11 +1,12 @@
 <!--
 	The toolbar's translation menu (app.rs `translation_menu`): the translations with ⌘1…⌘9 (each a
-	link to this chapter in it), the others to read side by side, and Manage translations….
+	link to this chapter in it), then the NLT, read live (../nlt.ts), the others to read side by side,
+	and Manage translations….
 -->
 <script lang="ts">
 	import { getApp } from '../app.svelte';
 	import { capsText, fixedCaps } from '../keyboard';
-	import { Menu, MenuCheck, MenuHeader, MenuItem, MenuSeparator } from '../ui';
+	import { Badge, Menu, MenuCheck, MenuHeader, MenuItem, MenuSeparator } from '../ui';
 
 	interface Props {
 		anchor: HTMLElement;
@@ -32,6 +33,16 @@
 			href={app.chapterHref(app.here.chapter, t.id)}
 			onclick={() => act({ type: 'setTranslation', id: t.id })}
 		/>
+	{/each}
+	{#each app.live as t (t.id)}
+		<MenuItem
+			label="{t.abbrev}  {t.name}"
+			selected={t.id === s.translation}
+			href={app.chapterHref(app.here.chapter, t.id)}
+			onclick={() => act({ type: 'setTranslation', id: t.id })}
+		>
+			{#snippet trailing()}<Badge label="Live" />{/snippet}
+		</MenuItem>
 	{/each}
 	<MenuSeparator />
 	<MenuHeader label="Parallel view" />

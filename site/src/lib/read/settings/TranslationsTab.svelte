@@ -1,7 +1,7 @@
 <!--
 	Settings › Translations (settings_ui.rs `translations`): the default and parallel set, what's
-	installed, and importing a translation you own. The Mac's online translations aren't offered
-	on the web (DECISIONS.md).
+	installed, and importing a translation you own. Of the Mac's online translations the web has
+	only the NLT, read live from the translation menu (../nlt.ts, DECISIONS.md).
 -->
 <script lang="ts">
 	import { getApp } from '../app.svelte';

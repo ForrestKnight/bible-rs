@@ -1,7 +1,8 @@
 <!--
 	Translations (pages/translations.rs): the library as a list with filter tabs and a sort order,
 	beside an inspector for the one selected — its sample verse, facts and actions. The Mac's online
-	translations and API keys aren't offered on the web (DECISIONS.md).
+	translations and API keys aren't offered on the web; the NLT, read live, is in the translation
+	menu only (../nlt.ts, DECISIONS.md).
 -->
 <script lang="ts">
 	import { getApp } from '../app.svelte';
@@ -65,7 +66,7 @@
 		return out;
 	});
 
-	const selectedId = $derived(app.translationPick ?? app.settings.translation);
+	const selectedId = $derived(app.translationPick ?? app.textTranslation());
 	const selected = $derived(all.find((t) => t.id === selectedId));
 
 	$effect(() => {

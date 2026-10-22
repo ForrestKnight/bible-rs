@@ -82,7 +82,7 @@
 		if (!core) return [];
 		const q = query.trim();
 		const s = app.settings;
-		const id = s.translation;
+		const id = app.textTranslation();
 		const abbrev = app.info(id)?.abbrev ?? '';
 		const loaded = app.loaded.has(id);
 		const name = (book: number) => core.books[book]?.name ?? '';

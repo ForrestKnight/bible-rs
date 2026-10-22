@@ -6,8 +6,9 @@ import { self } from '$app/service-worker';
  * The reader works offline. Its scripts, wasm and fonts are cached when the worker installs (from
  * the reader only, see Shell.svelte); translations and reader pages the first time they load, and
  * the importers' module the first time a translation is imported. Each deploy starts a fresh
- * cache, since a page refers to its own build's scripts. The object pages' 3D viewer isn't cached:
- * the reader never uses it.
+ * cache, since a page refers to its own build's scripts. Nothing from /api (the NLT, read live) is
+ * kept: Tyndale's terms allow no more than a chapter at a time (src/lib/read/nlt.ts). The object
+ * pages' 3D viewer isn't cached either: the reader never uses it.
  */
 const CACHE = `read-${version}`;
 /** The viewer's files, which vite.config.ts names as it builds the worker (none in development). */

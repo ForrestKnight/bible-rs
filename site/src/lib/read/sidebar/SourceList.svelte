@@ -28,7 +28,7 @@
 	const currentBook = $derived(books.findLast((b) => b.firstChapter <= app.here.chapter)?.index ?? -1);
 	const counts = $derived(app.counts());
 	const activePlans = $derived(app.plans().filter((p) => p.finished === null).length);
-	const abbrev = $derived(app.info(app.settings.translation)?.abbrev ?? '');
+	const abbrev = $derived(app.info(app.textTranslation())?.abbrev ?? '');
 	const filter = $derived(st.filter.trim().toLowerCase());
 	const testaments = $derived(
 		(['Old Testament', 'New Testament'] as const).map((label, t) => ({

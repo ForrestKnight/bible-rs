@@ -22,6 +22,8 @@
 		onclick: (e: MouseEvent) => void;
 		/** Something drawn before the label instead of an icon (a swatch). */
 		lead?: Snippet;
+		/** Something drawn at the trailing edge (a badge). */
+		trailing?: Snippet;
 	}
 
 	let {
@@ -34,7 +36,8 @@
 		selected,
 		href,
 		onclick,
-		lead
+		lead,
+		trailing
 	}: Props = $props();
 
 	const role = $derived(checked === undefined && selected === undefined ? 'menuitem' : 'menuitemradio');
@@ -77,6 +80,7 @@
 	{/if}
 	<span class="label">{label}</span>
 	{#if shortcut}<span class="shortcut">{shortcut}</span>{/if}
+	{@render trailing?.()}
 {/snippet}
 
 <style>

@@ -9,6 +9,7 @@
 	import { ReadApp, setApp, now } from './app.svelte';
 	import { chapterPath } from './books';
 	import { chapterLabel, type ChapterContent, type TranslationInfo } from './core';
+	import { NLT_ID } from './nlt';
 	import Meta from './seo/Meta.svelte';
 	import { chapterTitle, type Crumb } from './seo/meta';
 	import { handleKey } from './keyboard';
@@ -116,7 +117,7 @@
 		const onNarrow = () => (phone = narrow.matches);
 		narrow.addEventListener('change', onNarrow);
 
-		app.adopt(data.restore ? null : data.translation);
+		app.adopt(data.restore ? null : addressed(data.translation));
 		requestAnimationFrame(() => (booted = true));
 		void boot();
 
@@ -141,7 +142,9 @@
 					'controllerchange',
 					() => {
 						const ids = new Set([...app.loaded, ...app.columns()]);
-						const cache = [...ids].filter((id) => !app.info(id)?.imported).map((id) => `/translations/${id}.bbl`);
+						const cache = [...ids]
+							.filter((id) => !app.info(id)?.imported && !app.isLive(id))
+							.map((id) => `/translations/${id}.bbl`);
 						sw.controller?.postMessage({ cache });
 					},
 					{ once: true }
@@ -212,12 +215,14 @@
 	});
 
 	// The address follows the chapter being read. A translation imported in this browser has no
-	// pages of its own: /read, which opens at the saved place.
+	// pages of its own: /read, which opens at the saved place. A live one's address shows the KJV's
+	// page until the reader has fetched the chapter (hooks.ts).
 	$effect(() => {
 		if (!booted || !app.core) return;
-		const path = app.core.bundled.includes(s.translation)
-			? chapterPath(app.core.books, s.translation, app.here.chapter)
-			: '/read';
+		const path =
+			app.core.bundled.includes(s.translation) || app.isLive(s.translation)
+				? chapterPath(app.core.books, s.translation, app.here.chapter)
+				: '/read';
 		const t = setTimeout(() => {
 			if (location.pathname !== path) void goto(path, { shallow: true, replace: true });
 		}, 400);
@@ -242,10 +247,22 @@
 		if (picked) await importer.choose(picked);
 	}
 
+	// A live translation follows the reader from chapter to chapter, one at a time.
+	$effect(() => {
+		void app.here.chapter;
+		if (app.core && app.isLive(s.translation)) untrack(() => void app.ensure(s.translation));
+	});
+
+	/** The translation an address names: an NLT chapter's page carries the KJV's data (hooks.ts). */
+	function addressed(translation: string): string {
+		return location.pathname.startsWith(`/read/${NLT_ID}/`) ? NLT_ID : translation;
+	}
+
 	// Following a link to another chapter (a real navigation) goes there.
 	let shown = { translation: untrack(() => data.translation), chapter: untrack(() => data.chapter) };
 	$effect(() => {
-		const { translation, chapter, restore } = data;
+		const { chapter, restore } = data;
+		const translation = addressed(data.translation);
 		untrack(() => {
 			if (restore || (translation === shown.translation && chapter === shown.chapter)) return;
 			shown = { translation, chapter };
@@ -255,7 +272,14 @@
 	});
 </script>
 
-<Meta title={data.title} tabTitle={title} description={data.description} path={data.path} crumbs={data.crumbs} />
+<Meta
+	title={data.title}
+	tabTitle={title}
+	description={data.description}
+	path={data.path}
+	crumbs={data.crumbs}
+	noindex={app.isLive(s.translation)}
+/>
 
 <svelte:head>
 	<link rel="preload" href="/fonts/read/literata.woff2" as="font" type="font/woff2" crossorigin="anonymous" />

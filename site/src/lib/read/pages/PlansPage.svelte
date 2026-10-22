@@ -46,7 +46,7 @@
 	});
 
 	$effect(() => {
-		void app.ensure(app.settings.translation);
+		void app.ensure(app.textTranslation());
 	});
 
 	function start(id: string) {

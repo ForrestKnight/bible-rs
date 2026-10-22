@@ -60,6 +60,12 @@ export class Bible {
      */
     importStudy(json: string): any;
     /**
+     * Keeps one chapter of the NLT, read from the HTML Tyndale's API returned (through the site's
+     * `/api/nlt`), in place of any chapter of it kept before: Tyndale's terms allow quoting up to
+     * 500 verses and never a whole book, so the page holds one chapter at a time and stores none.
+     */
+    loadNlt(index: number, html: string): any;
+    /**
      * Decodes a `.bbl` file (≈10 ms for a whole Bible) and keeps it under its id, which is
      * returned with its metadata.
      */
@@ -142,6 +148,10 @@ export class Bible {
      * Bookmarks a verse or removes its bookmark; returns whether it's bookmarked now.
      */
     toggleBookmark(verse: any): boolean;
+    /**
+     * Lets a translation go (the NLT's chapter, once the reader moves on).
+     */
+    unload(translation: string): void;
     /**
      * One verse as a paragraph, or null when the translation hasn't it (comparisons).
      */
@@ -234,6 +244,7 @@ export interface InitOutput {
     readonly bible_highlightSpan: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly bible_importStudy: (a: number, b: number, c: number, d: number) => void;
     readonly bible_load: (a: number, b: number, c: number, d: number) => void;
+    readonly bible_loadNlt: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly bible_marks: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly bible_new: () => number;
     readonly bible_note: (a: number, b: number, c: number) => void;
@@ -255,6 +266,7 @@ export interface InitOutput {
     readonly bible_stopPlan: (a: number, b: number, c: number, d: number) => void;
     readonly bible_studyItems: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly bible_toggleBookmark: (a: number, b: number, c: number) => void;
+    readonly bible_unload: (a: number, b: number, c: number) => void;
     readonly bible_verse: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly bible_verses: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly books: (a: number) => void;

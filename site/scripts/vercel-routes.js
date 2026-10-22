@@ -62,6 +62,19 @@ export function compactRoutes(file) {
 }
 
 /**
+ * Adds headers to every response whose path matches `src`, ahead of the adapter's routes.
+ *
+ * @param {string} file the adapter's `.vercel/output/config.json`
+ * @param {string} src a route pattern
+ * @param {Record<string, string>} headers
+ */
+export function addHeaders(file, src, headers) {
+	const config = JSON.parse(readFileSync(file, 'utf8'));
+	config.routes.unshift({ src, headers, continue: true });
+	writeFileSync(file, JSON.stringify(config, null, '\t'));
+}
+
+/**
  * Joins patterns that are the same everywhere but segment `at`.
  *
  * @param {string[][][]} patterns

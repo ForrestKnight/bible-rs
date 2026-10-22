@@ -89,7 +89,7 @@ class Importer {
 			const result = await convertSource(
 				picked,
 				{ abbrev: this.abbrev.trim(), name: this.name.trim(), unlockKey: key },
-				app.translations.map((t) => t.id),
+				app.takenIds(),
 				(p) => {
 					if (run !== this.#run) return;
 					this.progress = { ...this.progress, ...p };
@@ -183,7 +183,7 @@ class Importer {
 		const picked = this.picked;
 		if (!picked) return;
 		try {
-			this.result = await convertSource(picked, {}, app.translations.map((t) => t.id), () => {});
+			this.result = await convertSource(picked, {}, app.takenIds(), () => {});
 			this.error = null;
 		} catch (e) {
 			this.result = null;

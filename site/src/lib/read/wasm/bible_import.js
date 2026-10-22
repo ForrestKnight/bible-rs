@@ -282,6 +282,31 @@ export class Bible {
         }
     }
     /**
+     * Keeps one chapter of the NLT, read from the HTML Tyndale's API returned (through the site's
+     * `/api/nlt`), in place of any chapter of it kept before: Tyndale's terms allow quoting up to
+     * 500 verses and never a whole book, so the page holds one chapter at a time and stores none.
+     * @param {number} index
+     * @param {string} html
+     * @returns {any}
+     */
+    loadNlt(index, html) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(html, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.bible_loadNlt(retptr, this.__wbg_ptr, index, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return takeObject(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Decodes a `.bbl` file (≈10 ms for a whole Bible) and keeps it under its id, which is
      * returned with its metadata.
      * @param {Uint8Array} bytes
@@ -744,6 +769,15 @@ export class Bible {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
+    }
+    /**
+     * Lets a translation go (the NLT's chapter, once the reader moves on).
+     * @param {string} translation
+     */
+    unload(translation) {
+        const ptr0 = passStringToWasm0(translation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bible_unload(this.__wbg_ptr, ptr0, len0);
     }
     /**
      * One verse as a paragraph, or null when the translation hasn't it (comparisons).

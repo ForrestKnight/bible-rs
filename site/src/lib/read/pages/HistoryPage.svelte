@@ -33,12 +33,16 @@
 		return app.readingSince(since).filter((s) => !q || title(s).toLowerCase().includes(q));
 	});
 
+	/** Where a session's opening line comes from: its translation, or for a live one, which holds
+	 *  only the chapter being read, the translation search and the study lists use (`fallback`). */
+	const textOf = (id: string) => (app.isLive(id) ? app.fallback() : id);
+
 	$effect(() => {
-		for (const id of new Set(sessions.map((s) => s.translation))) void app.ensure(id);
+		for (const id of new Set(sessions.map((s) => textOf(s.translation)))) void app.ensure(id);
 	});
 
 	const snippet = (s: ReadingSession) =>
-		app.verses(s.translation, indexOf(s))?.[0]?.runs.map((r) => r.text).join('').trim() ?? '';
+		app.verses(textOf(s.translation), indexOf(s))?.[0]?.runs.map((r) => r.text).join('').trim() ?? '';
 
 	function dayLabel(s: ReadingSession): string {
 		const d = dayStart(s.started);

@@ -27,6 +27,8 @@ export interface TranslationInfo {
 	size: number | null;
 	/** Set for a translation imported in this browser: its source format and stored size. */
 	imported?: { format: string; bytes: number };
+	/** Read live from its publisher's API, a chapter at a time (the NLT: nlt.ts). */
+	live?: boolean;
 }
 
 export interface Book {
@@ -259,6 +261,20 @@ export class Core {
 		this.#info.set(info.id, info);
 		this.#loading.set(info.id, Promise.resolve(info));
 		return info;
+	}
+
+	/** Holds a chapter of the NLT (HTML from /api/nlt) in place of the one held before (nlt.ts). */
+	loadNlt(index: number, html: string): TranslationInfo {
+		const info: TranslationInfo = { ...this.bible.loadNlt(index, html), live: true };
+		this.#info.set(info.id, info);
+		return info;
+	}
+
+	/** Lets a translation's text go (the NLT's chapter, when the reader moves on). */
+	unload(id: string) {
+		this.bible.unload(id);
+		this.#info.delete(id);
+		this.#loading.delete(id);
 	}
 
 	has(id: string): boolean {

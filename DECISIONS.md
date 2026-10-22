@@ -497,17 +497,32 @@ also a static page that search engines can index.
   Zefania, SWORD, locked modules included) take their files from memory as well as from disk
   (`import::peek_files`, `import::import_files`). They sit behind bible-core's `import` feature,
   which brings the zip and gzip readers but not SQLite or the HTTP client. `scripts/build-web.sh`
-  builds `bible-web` twice: the reader's module without the importers (612 KB) and
-  `bible_import` with them (906 KB). Only `import.worker.ts` loads the second module, the first
+  builds `bible-web` twice: the reader's module without the importers (710 KB) and
+  `bible_import` with them (964 KB). Only `import.worker.ts` loads the second module, the first
   time someone imports, so the reader doesn't pay for it and a long conversion never blocks the
   page. On wasm the `.bbl` is compressed with ruzstd's fastest level, since zstd's C library
   isn't available there. The converted bytes go to IndexedDB, and the list of imports to
   `localStorage` next to the settings. An imported translation has no static page, so while it
   is the reading translation the address stays `/read`.
-- **No online translations on the web.** ESV, API.Bible, NLT and NET need an API key that
-  would either be exposed in the page or call for a proxy that relays licensed text. Their APIs
-  also aren't all open to browsers (CORS). The web reader offers the bundled translations and
-  files you import.
+- **The NLT is the web's one online translation, through the site's own proxy.** ESV, API.Bible
+  and NET still aren't offered: they need the reader's own key, which a page would expose, and
+  their APIs aren't all open to browsers (CORS). The NLT has a site key (`NLT_API_KEY`, set in
+  Vercel), so `/api/nlt` (`site/src/routes/api/nlt`) asks Tyndale for a chapter or less at a
+  time and returns the verses' HTML with Tyndale's credit line. It refuses whole books and
+  passages across chapters, and allows 20 chapters a minute and 300 a day for each address. Each
+  function instance counts these on its own, so they slow one client down rather than cap the site.
+  Browsers get `Cache-Control: no-store`, and Vercel's edge keeps a chapter for a day
+  (`Vercel-CDN-Cache-Control`), but nothing from a one-chapter book, which could be the whole book. The page
+  parses the HTML with the core's NLT parser (`bible_core::nlt_html`, shared with the Mac's
+  `online::nlt`), and the core holds that one chapter until the reader moves on. So the reader
+  shows one NLT chapter at a time, ending in Tyndale's credit line and links to the chapters
+  either side, instead of scrolling on. Nothing of it is prerendered, stored or cached offline.
+  Search, the study lists and exports use the translation read before the NLT, and a highlight
+  of some words in the NLT colours their verses whole, since a partial highlight keeps the words
+  it covers. `/read/nlt/<book>/<chapter>` shows the KJV page for that chapter (a `reroute`
+  hook), with its canonical address and description. Vercel adds `X-Robots-Tag: noindex`, and the
+  reader adds the robots meta tag while it shows the NLT. Offline, rate-limited or failing, the
+  reader goes back to the translation read before, with a toast to retry.
 
 ## Windows
 

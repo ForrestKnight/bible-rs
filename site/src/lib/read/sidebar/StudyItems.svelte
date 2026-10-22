@@ -39,7 +39,7 @@
 		return kind === 'highlights' && filter ? sorted.filter((i) => i.highlight === filter) : sorted;
 	});
 	const shown = $derived(all ? items : items.slice(0, RECENT_ITEMS));
-	const abbrev = $derived(app.info(app.settings.translation)?.abbrev ?? '');
+	const abbrev = $derived(app.info(app.textTranslation())?.abbrev ?? '');
 	const selected = $derived(app.selection?.[0] ?? null);
 
 	let menu = $state<{ x: number; y: number; verse: VerseRef; start: number } | null>(null);
