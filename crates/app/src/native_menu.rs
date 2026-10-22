@@ -45,7 +45,7 @@ pub fn action(id: &str) -> Option<Action> {
     })
 }
 
-/// Drains menu clicks into this frame's actions.
+/// Drains menu clicks into this frame's actions (macOS; Windows queues them itself to wake egui).
 pub fn poll(actions: &mut Vec<Action>) {
     while let Ok(event) = MenuEvent::receiver().try_recv() {
         if let Some(a) = action(event.id.0.as_str()) {

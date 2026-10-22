@@ -2669,12 +2669,19 @@ pub fn open_url(url: &str) {
 pub fn shell_open(target: &std::ffi::OsStr) {
     use std::os::windows::ffi::OsStrExt;
 
+    use windows_sys::Win32::System::Com::{
+        COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize,
+    };
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     let wide: Vec<u16> = target.encode_wide().chain([0]).collect();
     let open: Vec<u16> = "open".encode_utf16().chain([0]).collect();
-    // SAFETY: both strings are NUL-terminated and outlive the call.
+    // SAFETY: both strings are NUL-terminated and outlive the call. ShellExecute wants COM on the
+    // calling thread (the update check calls this from its own); a successful CoInitializeEx is
+    // balanced, one that finds COM already set up in another mode changes nothing.
     unsafe {
+        let com =
+            CoInitializeEx(std::ptr::null(), (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) as u32);
         ShellExecuteW(
             std::ptr::null_mut(),
             open.as_ptr(),
@@ -2683,6 +2690,9 @@ pub fn shell_open(target: &std::ffi::OsStr) {
             std::ptr::null(),
             SW_SHOWNORMAL,
         );
+        if com >= 0 {
+            CoUninitialize();
+        }
     }
 }
 

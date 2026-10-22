@@ -4,9 +4,15 @@
 //! accelerator table, so a shortcut changed in Settings › Shortcuts works and nothing fires twice.
 //! Clicks become the same [`Action`]s the keyboard produces (`native_menu.rs`). Alt and the
 //! underlined letters open the menus, as in any Windows program.
+//!
+//! Choosing an item reaches the window as `WM_COMMAND`, which winit doesn't pass on, so the click
+//! also asks egui for a frame; otherwise it would wait for the next mouse move or key press.
 
+use std::sync::Mutex;
+
+use eframe::egui;
 use muda::accelerator::Accelerator;
-use muda::{Menu, MenuItem, MenuTheme, PredefinedMenuItem, Submenu};
+use muda::{Menu, MenuEvent, MenuItem, MenuTheme, PredefinedMenuItem, Submenu};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -26,6 +32,9 @@ fn item(id: &str, label: &str, accel: Option<&str>) -> MenuItem {
     MenuItem::with_id(id, label, true, accel.and_then(|a| a.parse::<Accelerator>().ok()))
 }
 
+/// Ids of the items chosen since the last frame.
+static CHOSEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
 fn theme(dark: bool) -> MenuTheme {
     if dark { MenuTheme::Dark } else { MenuTheme::Light }
 }
@@ -40,8 +49,8 @@ fn client_size(hwnd: HWND) -> Option<(i32, i32)> {
 impl AppMenu {
     /// Builds the menu bar and attaches it to the window, keeping the window's content the size
     /// it was (the bar adds to the window's height rather than taking from the content).
-    pub fn install(handle: &impl HasWindowHandle, dark: bool) -> Option<Self> {
-        let RawWindowHandle::Win32(h) = handle.window_handle().ok()?.as_raw() else { return None };
+    pub fn install(cc: &eframe::CreationContext<'_>, dark: bool) -> Option<Self> {
+        let RawWindowHandle::Win32(h) = cc.window_handle().ok()?.as_raw() else { return None };
         let hwnd = h.hwnd.get();
         let menu = Menu::new();
         let file = Submenu::with_items(
@@ -116,6 +125,11 @@ impl AppMenu {
         )
         .ok()?;
         menu.append_items(&[&file, &view, &go, &help]).ok()?;
+        let ctx: egui::Context = cc.egui_ctx.clone();
+        MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+            CHOSEN.lock().unwrap_or_else(|e| e.into_inner()).push(event.id.0);
+            ctx.request_repaint();
+        }));
         let before = client_size(hwnd as HWND);
         // SAFETY: winit's live window, on the thread that created it (the app's main thread).
         unsafe { menu.init_for_hwnd_with_theme(hwnd, theme(dark)) }.ok()?;
@@ -143,7 +157,8 @@ impl AppMenu {
 
     /// Drains menu clicks into this frame's actions.
     pub fn poll(&self, actions: &mut Vec<Action>) {
-        crate::native_menu::poll(actions);
+        let chosen = std::mem::take(&mut *CHOSEN.lock().unwrap_or_else(|e| e.into_inner()));
+        actions.extend(chosen.iter().filter_map(|id| crate::native_menu::action(id)));
     }
 
     /// Draws the bar light or dark, to match the app's theme.
