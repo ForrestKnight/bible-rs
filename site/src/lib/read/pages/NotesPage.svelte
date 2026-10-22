@@ -10,7 +10,7 @@
 	import { parseReference, type VerseRef } from '../core';
 	import ListItem from '../sidebar/ListItem.svelte';
 	import { ago, shortDate } from '../time';
-	import { Icon, Menu, MenuItem, MenuSeparator, Popover, RoundButton, Segmented, TextField } from '../ui';
+	import { Icon, Menu, MenuItem, Popover, RoundButton, Segmented, TextField } from '../ui';
 	import { apply, lines, mentioned, notesPage, plain, sameVerse, stylesAt, type Tool } from './notes.svelte';
 
 	let { top }: { top: number } = $props();
@@ -334,8 +334,6 @@
 					onclick={() => ((more = false), app.dispatch({ type: 'jump', chapter: index(v), verse: v.verse, flash: true }))}
 				/>
 				<MenuItem label="Copy as Markdown" onclick={() => ((more = false), copy(text))} />
-				<MenuSeparator />
-				<MenuItem label="Delete Note" onclick={() => ((more = false), remove())} />
 			</Menu>
 		{/if}
 	{/if}

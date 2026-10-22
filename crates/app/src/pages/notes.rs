@@ -410,10 +410,6 @@ impl State {
                             if ui.button("Copy as Markdown").clicked() {
                                 ui.ctx().copy_text(to_markdown(&e.text));
                             }
-                            crate::menu::separator(ui);
-                            if ui.button("Delete Note").clicked() {
-                                remove = true;
-                            }
                         });
                     }
                     _ => {}
