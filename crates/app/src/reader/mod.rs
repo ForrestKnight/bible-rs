@@ -224,12 +224,13 @@ impl Reader {
     }
 
     fn select(&mut self, v: VerseRef, extend: bool) {
-        self.text_selection = None;
+        // Clicking the verse of chosen words selects it whole, rather than letting go of it.
+        let words = self.text_selection.take().is_some();
         match (self.selection, extend) {
             (Some((a, _)), true) if a.book == v.book && a.chapter == v.chapter => {
                 self.selection = Some(if v < a { (v, a) } else { (a, v) });
             }
-            (Some((a, b)), false) if a == v && b == v => self.selection = None,
+            (Some((a, b)), false) if a == v && b == v && !words => self.selection = None,
             _ => self.selection = Some((v, v)),
         }
     }

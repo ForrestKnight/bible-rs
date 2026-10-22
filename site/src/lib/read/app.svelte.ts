@@ -499,12 +499,14 @@ export class ReadApp {
 
 	/** Selects a verse; with `extend`, from the selection's start to it (same chapter only). */
 	select(v: VerseRef, extend: boolean) {
+		// Clicking the verse of chosen words selects it whole, rather than letting go of it.
+		const words = this.wordSpan();
 		this.words = null;
 		const sel = this.selection;
 		if (sel && extend && sel[0].book === v.book && sel[0].chapter === v.chapter) {
 			const a = sel[0];
 			this.selection = refCmp(v, a) < 0 ? [v, a] : [a, v];
-		} else if (sel && !extend && refEq(sel[0], v) && refEq(sel[1], v)) {
+		} else if (sel && !extend && !words && refEq(sel[0], v) && refEq(sel[1], v)) {
 			this.selection = null;
 		} else {
 			this.selection = [v, v];

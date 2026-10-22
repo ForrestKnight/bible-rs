@@ -157,6 +157,13 @@ fn dragging_chooses_words_to_highlight() {
         ]
     );
 
+    // Clicking the words' verse selects it whole; clicking it again lets go.
+    let p = at(&h, 16, 1);
+    click(&mut h, p, Modifiers::NONE);
+    assert_eq!((h.state().reader.selection, h.state().reader.text_span()), (Some((v(16), v(16))), None));
+    click(&mut h, p, Modifiers::NONE);
+    assert_eq!(h.state().reader.selection, None);
+
     // Clicking selects whole verses again; shift-click extends them; a colour covers them whole.
     let p = at(&h, 18, 3);
     click(&mut h, p, Modifiers::NONE);
