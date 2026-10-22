@@ -124,11 +124,31 @@
 	</svg>
 {/snippet}
 
-{#snippet download()}
-	<a class="download" href={resolve('/download')} data-sveltekit-reload>
-		{@render apple()}
-		Download for macOS
-	</a>
+<!-- hooks.server.ts sets up the reader's page on the server, so links to it need a full page load. -->
+{#snippet actions()}
+	<div class="actions">
+		<a class="download" href={resolve('/download')} data-sveltekit-reload>
+			{@render apple()}
+			Download for macOS
+		</a>
+		<a class="web" href={resolve('/read')} data-sveltekit-reload>
+			<svg viewBox="0 0 16 16" aria-hidden="true">
+				<circle cx="8" cy="8" r="6.5" />
+				<path d="M1.5 8h13M8 1.5c-1.8 1.7-2.8 4-2.8 6.5s1 4.8 2.8 6.5M8 1.5c1.8 1.7 2.8 4 2.8 6.5s-1 4.8-2.8 6.5" />
+			</svg>
+			Read on the web
+		</a>
+	</div>
+{/snippet}
+
+{#snippet soon()}
+	<span class="soon">
+		<svg viewBox="0 0 12 16" aria-hidden="true">
+			<rect x="1.5" y="1" width="9" height="14" rx="2.2" />
+			<path d="M4.8 12.5h2.4" />
+		</svg>
+		iPhone and iPad app coming soon
+	</span>
 {/snippet}
 
 {#snippet card(item: (typeof reading)[number], i: number)}
@@ -168,10 +188,11 @@
 			Type a reference, press Return, and the passage is already there.
 		</p>
 		<div class="cta">
-			{@render download()}
+			{@render actions()}
 			<p class="meta">
 				Free · Version {VERSION} · {ARCH} · macOS {MIN_MACOS} or later<DownloadCount repo={REPO_URL} />
 			</p>
+			{@render soon()}
 		</div>
 	</header>
 
@@ -221,8 +242,9 @@
 	<section id="install" class="section" aria-labelledby="install-title">
 		<div class="intro" {@attach reveal}>
 			<h2 id="install-title">Install</h2>
-			<p>Free. macOS {MIN_MACOS} or later on {ARCH}.</p>
-			{@render download()}
+			<p>Free. macOS {MIN_MACOS} or later on {ARCH}, or in your browser.</p>
+			{@render actions()}
+			{@render soon()}
 		</div>
 	</section>
 </main>
@@ -290,15 +312,44 @@
 		margin-top: 32px;
 	}
 
+	.actions {
+		--solid-edge: 0 10px 30px rgba(255, 255, 255, 0.07);
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 12px;
+	}
+
+	:global(:root[data-theme='light']) .actions {
+		--solid-edge: 0 10px 30px rgba(0, 0, 0, 0.14);
+	}
+
+	/* The Mac download leads and the web version follows as the raised button. */
 	.download {
+		--fill: var(--solid);
+		--fill-hover: var(--solid-hover);
+		--ink: var(--on-solid);
+		--edge: var(--solid-edge);
+	}
+
+	.web {
+		--fill: var(--raised);
+		--fill-hover: var(--raised), color-mix(in srgb, var(--fg) 8%, transparent);
+		--ink: var(--fg);
+		--edge: var(--raised-edge);
+	}
+
+	.download,
+	.web {
 		display: inline-flex;
 		align-items: center;
+		justify-content: center;
 		gap: 9px;
 		padding: 13px 22px 13px 20px;
 		border-radius: 999px;
-		background: var(--solid);
-		box-shadow: 0 10px 30px rgba(255, 255, 255, 0.07);
-		color: var(--on-solid);
+		background: var(--fill);
+		box-shadow: var(--edge);
+		color: var(--ink);
 		font: 600 15px/18px var(--sans);
 		text-decoration: none;
 		transition:
@@ -306,12 +357,9 @@
 			background-color 0.2s;
 	}
 
-	:global(:root[data-theme='light']) .download {
-		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
-	}
-
-	.download:hover {
-		background: var(--solid-hover);
+	.download:hover,
+	.web:hover {
+		background: var(--fill-hover);
 		scale: 1.03;
 	}
 
@@ -319,6 +367,54 @@
 		width: 15px;
 		height: 18px;
 		fill: currentColor;
+	}
+
+	.web svg {
+		width: 16px;
+		height: 16px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 1.3;
+		stroke-linecap: round;
+	}
+
+	/* Phones and tablets can't run the Mac app, so there the web version leads. */
+	@media (max-width: 640px), (hover: none) and (pointer: coarse) {
+		.web {
+			order: -1;
+			--fill: var(--solid);
+			--fill-hover: var(--solid-hover);
+			--ink: var(--on-solid);
+			--edge: var(--solid-edge);
+		}
+
+		.download {
+			--fill: var(--raised);
+			--fill-hover: var(--raised), color-mix(in srgb, var(--fg) 8%, transparent);
+			--ink: var(--fg);
+			--edge: var(--raised-edge);
+		}
+	}
+
+	.soon {
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
+		padding: 5px 12px 5px 10px;
+		border-radius: 999px;
+		box-shadow: inset 0 0 0 1px var(--line);
+		color: var(--muted);
+		font-size: 13px;
+		line-height: 16px;
+	}
+
+	.soon svg {
+		width: 10px;
+		height: 14px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 1.3;
+		stroke-linecap: round;
 	}
 
 	.meta {
@@ -438,8 +534,13 @@
 		max-width: none;
 	}
 
-	.intro .download {
+	.intro .actions {
+		justify-content: flex-start;
 		margin-top: 22px;
+	}
+
+	.intro .soon {
+		margin-top: 18px;
 	}
 
 	.shortcuts {
@@ -554,6 +655,11 @@
 
 		.lede br {
 			display: none;
+		}
+
+		.actions {
+			flex-direction: column;
+			width: min(100%, 300px);
 		}
 
 		.showcase {

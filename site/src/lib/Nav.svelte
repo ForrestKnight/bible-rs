@@ -34,7 +34,8 @@
 					/>
 				</svg>
 			</button>
-			<a class="pill" href={resolve('/download')} data-sveltekit-reload>Download</a>
+			<a class="pill mac" href={resolve('/download')} data-sveltekit-reload>Download</a>
+			<a class="pill web" href={resolve('/read')} data-sveltekit-reload>Read online</a>
 		</div>
 	</div>
 </nav>
@@ -154,9 +155,24 @@
 		background-color: color-mix(in srgb, var(--fg) 8%, transparent);
 	}
 
+	.web {
+		display: none;
+	}
+
 	@media (max-width: 640px) {
 		.links .link {
 			display: none;
+		}
+	}
+
+	/* Phones and tablets can't run the Mac app; send them to the web version. */
+	@media (max-width: 640px), (hover: none) and (pointer: coarse) {
+		.mac {
+			display: none;
+		}
+
+		.web {
+			display: inline;
 		}
 	}
 </style>
