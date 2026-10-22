@@ -283,10 +283,9 @@ pub struct BibleApp {
     no_drag: crate::macos_window::NoDragAreas,
     #[cfg(any(target_os = "macos", windows))]
     menu: Option<crate::menu_bar::AppMenu>,
-    /// Windows: whether the title bar and menu bar were last drawn dark, and whether the window
-    /// had the focus last frame.
+    /// Windows: whether the window had the focus last frame.
     #[cfg(windows)]
-    title_bar: (Option<bool>, bool),
+    was_focused: bool,
 }
 
 /// Toolbar geometry for the current frame.
@@ -417,7 +416,7 @@ impl BibleApp {
                 crate::windows_menu::AppMenu::install(cc, settings.theme == Theme::Dark)
             },
             #[cfg(windows)]
-            title_bar: (None, false),
+            was_focused: false,
             settings,
         }
     }
@@ -2085,26 +2084,24 @@ fn translation_menu(ui: &mut Ui, library: &Library, settings: &Settings, actions
 }
 
 impl BibleApp {
-    /// Windows: the title bar and the menu bar follow the app's theme (dark for Dark, light for
-    /// Light and Sepia), and focus mode hides the menu bar. Windows puts the title bar back to the
-    /// system's theme when a system setting changes, so the theme is also set again whenever the
-    /// window gets the focus back.
+    /// Windows: the menu bar follows the app's theme (dark for Dark, light for Light and Sepia)
+    /// and focus mode hides it. egui gives the title bar the app's theme when that changes, but
+    /// winit puts it back to the system's whenever a system setting changes, so it is set again
+    /// when the window gets the focus back.
     #[cfg(windows)]
-    fn match_window_chrome(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+    fn match_window_chrome(&mut self, ctx: &egui::Context) {
         if crate::offscreen() {
             return;
         }
         let dark = self.settings.theme == Theme::Dark;
         let focused = ctx.input(|i| i.focused);
-        let (drawn, was_focused) = self.title_bar;
-        if drawn != Some(dark) || (focused && !was_focused) {
-            crate::windows_window::set_dark_title_bar(frame, dark);
-            if let Some(menu) = &mut self.menu {
-                menu.set_dark(dark);
-            }
+        if focused && !self.was_focused {
+            let theme = if dark { egui::SystemTheme::Dark } else { egui::SystemTheme::Light };
+            ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(theme));
         }
-        self.title_bar = (Some(dark), focused);
+        self.was_focused = focused;
         if let Some(menu) = &mut self.menu {
+            menu.set_dark(dark);
             menu.set_shown(!self.focus);
         }
     }
@@ -2280,7 +2277,7 @@ impl eframe::App for BibleApp {
             }
         }
         #[cfg(windows)]
-        self.match_window_chrome(&ctx, frame);
+        self.match_window_chrome(&ctx);
         let p = self.settings.theme.palette();
 
         self.chrome = chrome(frame, &ctx);

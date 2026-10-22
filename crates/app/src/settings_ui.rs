@@ -533,12 +533,6 @@ impl SettingsUi {
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("settings"), builder, |ui, _class| {
             #[cfg(target_os = "macos")]
             crate::macos_window::unify_window_titled("Settings");
-            #[cfg(windows)]
-            if !crate::offscreen() {
-                let focused = ui.ctx().input(|i| i.focused);
-                let dark = settings.theme == crate::theme::Theme::Dark;
-                crate::windows_window::set_dark_title_bar_titled("Settings", dark, focused);
-            }
             if ui.ctx().input(|i| i.viewport().close_requested() || i.key_pressed(egui::Key::Escape))
                 && !ui.ctx().egui_wants_keyboard_input()
             {

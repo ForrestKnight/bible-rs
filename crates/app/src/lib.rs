@@ -45,8 +45,6 @@ pub mod verse_menu;
 pub mod widgets;
 #[cfg(windows)]
 pub mod windows_menu;
-#[cfg(windows)]
-pub mod windows_window;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;

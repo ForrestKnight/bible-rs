@@ -491,11 +491,11 @@ The Windows app is the same egui app with the macOS-only pieces given Windows co
   Settings works, and nothing fires twice. It costs two things. The drop-down menus stay light in
   the dark theme, because Windows has no public dark menu API and muda draws only the bar dark.
   And the menus show the default shortcuts.
-- **The standard title bar**, drawn dark for the dark theme (`DWMWA_USE_IMMERSIVE_DARK_MODE`).
-  A title bar drawn by the app, as on the Mac, would lose Snap layouts on the maximize button
-  unless the app answered Windows' hit tests itself. winit resets the title bar to the system
-  theme whenever a system setting changes, so the app sets it again when the window gets the
-  focus back.
+- **The standard title bar.** A title bar drawn by the app, as on the Mac, would lose Snap
+  layouts on the maximize button unless the app answered Windows' hit tests itself. egui already
+  gives it the app's theme (dark for Dark). winit puts it back to the system's theme whenever a
+  system setting changes, so the app sets it again when the window gets the focus back. The menu
+  bar follows the theme too.
 - **Direct3D 12 through wgpu**, not glow. Windows ships no OpenGL 3 driver, so glow depends on the
   GPU vendor's driver and fails in virtual machines and remote sessions; Direct3D 12 falls back to
   Windows' software renderer (WARP). Only the DX12 backend is enabled, as only Metal is on macOS,
