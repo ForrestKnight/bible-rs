@@ -8,6 +8,10 @@
 //!
 //! `BIBLE_RS_SHOT_CLICKS` and `BIBLE_RS_SHOT_HOVER` (points, `x,y`) click and point after the
 //! demo steps, for states only the pointer reaches, such as an open menu.
+//! `BIBLE_RS_SHOT_SCRIPT` then runs steps in order, `;` apart: `click:x,y`, `shift-click:x,y`,
+//! `hover:x,y`, `drag:x,y>x,y` and `key:1`. A point can also be a place in the chapter being
+//! read, `verse.char`: `drag:16.4>16.26` drags from char 4 of verse 16 to char 26. Each step
+//! prints the points it used.
 //! `BIBLE_RS_SHOT_PAUSE_MS` waits that long after each frame, so chapters of an online translation
 //! can arrive before the picture is taken.
 //!
@@ -124,6 +128,10 @@ fn main() {
         }
         harness.run_steps(4);
     }
+    let script = std::env::var("BIBLE_RS_SHOT_SCRIPT").unwrap_or_default();
+    for step in script.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+        run_step(&mut harness, step);
+    }
     let save = |harness: &mut Harness<'_, BibleApp>, path: &str| {
         let mut img = harness.render().expect("rendering");
         if cfg!(target_os = "macos") && std::env::var_os("BIBLE_RS_NO_TRAFFIC_LIGHTS").is_none() {
@@ -151,6 +159,102 @@ fn main() {
     for i in 1..=frames {
         harness.step();
         save(&mut harness, &format!("{stem}-{i:02}.png"));
+    }
+}
+
+fn point(s: &str) -> Option<egui::Pos2> {
+    let (x, y) = s.split_once(',')?;
+    Some(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
+
+/// A place in the chapter being read, `verse.char`, on screen.
+fn text_point(harness: &Harness<'_, BibleApp>, s: &str) -> Option<egui::Pos2> {
+    let (verse, offset) = s.split_once('.')?;
+    let reader = &harness.state().reader;
+    let c = reader.location.0;
+    let verse = bible_core::VerseRef::new(c.book(), c.chapter(), verse.trim().parse().ok()?);
+    reader.point_at(bible_rs::reader::TextPos { verse, offset: offset.trim().parse().ok()?, column: 0 })
+}
+
+fn press(harness: &mut Harness<'_, BibleApp>, pos: egui::Pos2, modifiers: egui::Modifiers) {
+    harness.event(egui::Event::ModifiersChanged(modifiers));
+    harness.hover_at(pos);
+    harness.step();
+    for pressed in [true, false] {
+        harness.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers,
+        });
+        harness.step();
+    }
+    harness.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    harness.run_steps(4);
+}
+
+fn drag(harness: &mut Harness<'_, BibleApp>, from: egui::Pos2, to: egui::Pos2) {
+    harness.hover_at(from);
+    harness.step();
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    harness.event(button(from, true));
+    harness.step();
+    for i in 1..=10 {
+        harness.event(egui::Event::PointerMoved(from + (to - from) * (i as f32 / 10.0)));
+        harness.step();
+    }
+    harness.event(button(to, false));
+    harness.run_steps(4);
+}
+
+/// A point, `x,y`, or a place in the chapter being read, `verse.char`.
+fn resolve(harness: &Harness<'_, BibleApp>, s: &str) -> Option<egui::Pos2> {
+    point(s).or_else(|| text_point(harness, s))
+}
+
+/// One step of `BIBLE_RS_SHOT_SCRIPT`. Each prints the points it used, to repeat it elsewhere.
+fn run_step(harness: &mut Harness<'_, BibleApp>, step: &str) {
+    let (kind, arg) = step.split_once(':').unwrap_or((step, ""));
+    let at = |p: egui::Pos2| format!("{},{}", p.x, p.y);
+    match kind {
+        "click" | "shift-click" | "hover" => {
+            let Some(p) = resolve(harness, arg) else {
+                eprintln!("BIBLE_RS_SHOT_SCRIPT: {step:?} isn't on screen");
+                return;
+            };
+            eprintln!("{step} → {kind}:{}", at(p));
+            match kind {
+                "click" => press(harness, p, egui::Modifiers::NONE),
+                "shift-click" => press(harness, p, egui::Modifiers::SHIFT),
+                _ => {
+                    harness.hover_at(p);
+                    harness.run_steps(4);
+                }
+            }
+        }
+        "drag" => {
+            let ends =
+                arg.split_once('>').and_then(|(a, b)| Some((resolve(harness, a)?, resolve(harness, b)?)));
+            let Some((a, b)) = ends else {
+                eprintln!("BIBLE_RS_SHOT_SCRIPT: {step:?} isn't on screen");
+                return;
+            };
+            eprintln!("{step} → drag:{}>{}", at(a), at(b));
+            drag(harness, a, b);
+        }
+        "key" => match egui::Key::from_name(arg.trim()) {
+            Some(key) => {
+                harness.key_press(key);
+                harness.run_steps(4);
+            }
+            None => eprintln!("BIBLE_RS_SHOT_SCRIPT: unknown key {arg:?}"),
+        },
+        _ => eprintln!("BIBLE_RS_SHOT_SCRIPT: unknown step {step:?}"),
     }
 }
 
