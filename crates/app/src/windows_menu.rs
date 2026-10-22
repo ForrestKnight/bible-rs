@@ -26,6 +26,8 @@ pub struct AppMenu {
     hwnd: isize,
     dark: bool,
     shown: bool,
+    focus: MenuItem,
+    focus_enabled: bool,
 }
 
 fn item(id: &str, label: &str, accel: Option<&str>) -> MenuItem {
@@ -53,6 +55,7 @@ impl AppMenu {
         let RawWindowHandle::Win32(h) = cc.window_handle().ok()?.as_raw() else { return None };
         let hwnd = h.hwnd.get();
         let menu = Menu::new();
+        let focus = item("focus", "&Focus Mode", Some("F11"));
         let file = Submenu::with_items(
             "&File",
             true,
@@ -91,7 +94,7 @@ impl AppMenu {
                 &item("parallel", "&Parallel Translations", Some("CmdOrCtrl+Shift+P")),
                 &item("sidebar", "Side&bar", Some("CmdOrCtrl+B")),
                 &PredefinedMenuItem::separator(),
-                &item("focus", "&Focus Mode", Some("F11")),
+                &focus,
             ],
         )
         .ok()?;
@@ -152,7 +155,7 @@ impl AppMenu {
                 }
             }
         }
-        Some(Self { menu, hwnd, dark, shown: true })
+        Some(Self { menu, hwnd, dark, shown: true, focus, focus_enabled: true })
     }
 
     /// Drains menu clicks into this frame's actions.
@@ -167,6 +170,15 @@ impl AppMenu {
             // SAFETY: the window the menu was attached to; it lives as long as the app.
             let _ = unsafe { self.menu.set_theme_for_hwnd(self.hwnd, theme(dark)) };
             self.dark = dark;
+        }
+    }
+
+    /// Greys out Focus Mode while the first-launch screens show: there is no reader to focus on,
+    /// and nothing there would lead back out of full screen.
+    pub fn set_focus_enabled(&mut self, enabled: bool) {
+        if enabled != self.focus_enabled {
+            self.focus.set_enabled(enabled);
+            self.focus_enabled = enabled;
         }
     }
 

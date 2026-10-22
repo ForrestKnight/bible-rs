@@ -2084,8 +2084,8 @@ fn translation_menu(ui: &mut Ui, library: &Library, settings: &Settings, actions
 }
 
 impl BibleApp {
-    /// Windows: the menu bar follows the app's theme (dark for Dark, light for Light and Sepia)
-    /// and focus mode hides it. egui gives the title bar the app's theme when that changes, but
+    /// Windows: the menu bar follows the app's theme (dark for Dark, light for Light and Sepia),
+    /// focus mode hides it, and onboarding greys out Focus Mode. egui gives the title bar the app's theme when that changes, but
     /// winit puts it back to the system's whenever a system setting changes, so it is set again
     /// when the window gets the focus back.
     #[cfg(windows)]
@@ -2103,6 +2103,7 @@ impl BibleApp {
         if let Some(menu) = &mut self.menu {
             menu.set_dark(dark);
             menu.set_shown(!self.focus);
+            menu.set_focus_enabled(self.onboarding.is_none());
         }
     }
 }
