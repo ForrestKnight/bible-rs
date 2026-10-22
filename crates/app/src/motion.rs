@@ -77,7 +77,19 @@ pub fn system_reduces_motion() -> bool {
     objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Whether the system asks for less motion (Windows: Accessibility › Visual effects ›
+/// Animation effects off).
+#[cfg(windows)]
+pub fn system_reduces_motion() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW};
+    let mut animate: windows_sys::core::BOOL = 1;
+    // SAFETY: SPI_GETCLIENTAREAANIMATION writes one BOOL into `animate`.
+    let ok =
+        unsafe { SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, (&mut animate as *mut i32).cast(), 0) };
+    ok != 0 && animate == 0
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn system_reduces_motion() -> bool {
     false
 }

@@ -134,7 +134,8 @@ pub fn paint_row(painter: &Painter, p: &Palette, r: Rect, row: Row<'_>) {
     crate::icons::heavy(|| (row.icon)(painter, glyph, ink2));
     let font = text::UI.font();
     painter.text(pos2(glyph.right() + m::ICON_GAP, cy), Align2::LEFT_CENTER, row.label, font.clone(), ink);
-    painter.text(pos2(r.right() - m::ITEM_PADDING, cy), Align2::RIGHT_CENTER, row.shortcut, font, ink3);
+    let shortcut = crate::keymap::shown(row.shortcut);
+    painter.text(pos2(r.right() - m::ITEM_PADDING, cy), Align2::RIGHT_CENTER, shortcut, font, ink3);
 }
 
 /// One cell of a grid menu (the book picker): a row-height highlight like a menu row's.

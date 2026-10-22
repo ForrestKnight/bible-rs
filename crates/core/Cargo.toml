@@ -40,8 +40,9 @@ ruzstd = { version = "0.9", default-features = false, features = ["std"] }
 # The clock: std has none on wasm32-unknown-unknown.
 js-sys = "0.3"
 
-# API keys live in the macOS Keychain; other platforms use a 0600 file.
-[target.'cfg(target_os = "macos")'.dependencies]
+# API keys live in the macOS Keychain or the Windows Credential Manager; other platforms use a
+# 0600 file.
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
 keyring = "4"
 
 [dev-dependencies]

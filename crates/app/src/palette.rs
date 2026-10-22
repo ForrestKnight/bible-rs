@@ -571,7 +571,7 @@ fn paint_row(ui: &Ui, p: &Palette, r: Rect, it: &Item, selected: bool, hovered: 
         widgets::keycap(painter, p, right - w, cy, "↵");
         right -= w + 8.0;
     }
-    for key in it.keys.iter().rev() {
+    for key in crate::keymap::shown_caps(&it.keys).iter().rev() {
         let w = widgets::keycap_width(painter, key);
         widgets::keycap(painter, p, right - w, cy, key);
         right -= w + 4.0;

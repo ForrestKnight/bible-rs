@@ -138,8 +138,11 @@ impl State {
             glyph: icons::note,
             tone: Tone::Accent,
             title: "Your notes will live here",
-            body: "Select a verse and press N, or right-click it and choose Add Note. Notes stay on this \
-                       Mac and export to Markdown.",
+            body: concat!(
+                "Select a verse and press N, or right-click it and choose Add Note. Notes stay on ",
+                crate::platform::this_computer!(),
+                " and export to Markdown."
+            ),
             buttons: &[
                 Button::new(Kind::Primary, "Open John 1"),
                 Button::new(Kind::Ghost, "Import a backup"),

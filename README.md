@@ -2,7 +2,8 @@
 
 Bible: a very fast, native Bible reader for the Mac, written in Rust. Just the Bible — beautifully
 typeset, searchable as you type, with highlights, notes and bookmarks kept on your computer. The
-[iPhone version](#iphone) and the [web reader](#web) share the same core.
+[iPhone version](#iphone) and the [web reader](#web) share the same core, and a
+[Windows build](WINDOWS.md) runs the same app (unsigned for now).
 
 ![Reading John 1 in the King James Version](docs/screenshots/reader-light.png)
 
@@ -315,6 +316,11 @@ x86_64, `SIGN_IDENTITY=…` to sign). `scripts/release-macos.sh` makes the downl
 universal app signed with a Developer ID and notarized, a disk image, a zip, their checksums and
 the signed update feed that installed copies check with Sparkle ([RELEASING.md](RELEASING.md)).
 CI builds an ad-hoc signed DMG on every push and uploads it as an artifact.
+
+On Windows, `cargo build --release -p bible-rs` builds `bible-rs.exe` and
+`scripts/package-windows.sh` the per-user installer; [WINDOWS.md](WINDOWS.md) covers building
+(also cross-compiling from a Mac), installing, signing and what's still missing. CI builds the
+unsigned installer on every pull request and uploads it as an artifact.
 
 Other tasks:
 

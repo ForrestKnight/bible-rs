@@ -51,8 +51,11 @@ impl State {
                 glyph: icons::history,
                 tone: Tone::Accent,
                 title: "Your reading will show up here",
-                body: "Each chapter you read is kept here — when, for how long and how far you got. It stays \
-                       on this Mac.",
+                body: concat!(
+                    "Each chapter you read is kept here — when, for how long and how far you got. It stays on ",
+                    crate::platform::this_computer!(),
+                    "."
+                ),
                 buttons: &[Button::new(Kind::Primary, "Open John 1")],
                 hints: &[],
                 width: 360.0,

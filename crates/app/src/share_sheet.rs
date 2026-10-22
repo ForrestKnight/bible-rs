@@ -1,8 +1,11 @@
 //! Share Verse (frame 22): a live image card of the selected verses in one of four styles and
-//! three shapes, with options, the text to copy in three formats, and Save Image… / Share….
+//! three shapes, with options, the text to copy in three formats, and Save Image… / Share…. Away
+//! from macOS, which has the system share picker, Share… is Copy Image: the card goes to the
+//! clipboard.
 //!
 //! The image is the card as drawn, read back from a screenshot of the window at its pixel density.
 
+#[cfg(target_os = "macos")]
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -125,6 +128,7 @@ pub enum Outcome {
     Open,
     Close,
     /// Show the system share picker for this image, by the Share button.
+    #[cfg(target_os = "macos")]
     Share {
         path: PathBuf,
         anchor: Rect,
@@ -136,6 +140,7 @@ pub struct ShareSheet {
     refs: Vec<VerseRef>,
     /// Where the card was drawn last frame (for the screenshot crop).
     card: Rect,
+    #[cfg(target_os = "macos")]
     share_button: Rect,
     pending: Option<Purpose>,
 }
@@ -144,7 +149,13 @@ impl ShareSheet {
     pub fn new(mut refs: Vec<VerseRef>) -> Self {
         refs.sort();
         refs.dedup();
-        Self { refs, card: Rect::NOTHING, share_button: Rect::NOTHING, pending: None }
+        Self {
+            refs,
+            card: Rect::NOTHING,
+            #[cfg(target_os = "macos")]
+            share_button: Rect::NOTHING,
+            pending: None,
+        }
     }
 
     fn reference(&self) -> String {
@@ -190,6 +201,15 @@ impl ShareSheet {
         {
             self.pending = None;
             let ppp = ctx.pixels_per_point();
+            #[cfg(not(target_os = "macos"))]
+            if purpose == Purpose::Share {
+                let Some(card) = crop(&image, self.card, ppp) else {
+                    return Outcome::Toast("Couldn't make the image".into());
+                };
+                let size = [card.width() as usize, card.height() as usize];
+                ctx.copy_image(egui::ColorImage::from_rgba_unmultiplied(size, card.as_raw()));
+                return Outcome::Toast("Copied the image".into());
+            }
             let png = crop_png(&image, self.card, ppp);
             let name = format!("{}.png", self.reference().replace(':', "."));
             match (png, purpose) {
@@ -205,6 +225,7 @@ impl ShareSheet {
                         };
                     }
                 }
+                #[cfg(target_os = "macos")]
                 (Some(png), Purpose::Share) => {
                     let path = std::env::temp_dir().join(name);
                     if std::fs::write(&path, png).is_ok() {
@@ -212,6 +233,8 @@ impl ShareSheet {
                     }
                 }
                 (None, _) => return Outcome::Toast("Couldn't make the image".into()),
+                #[cfg(not(target_os = "macos"))]
+                (Some(_), Purpose::Share) => {}
             }
         }
 
@@ -389,14 +412,16 @@ impl ShareSheet {
             cy,
             ui.id().with("copy-text"),
         );
-        let (share, share_resp) = Button::new(Kind::Primary, "Share…").icon(icons::share).show_right(
-            ui,
-            p,
-            sheet.right() - 24.0,
-            cy,
-            ui.id().with("share"),
-        );
-        self.share_button = share;
+        #[cfg(target_os = "macos")]
+        let share_label = Button::new(Kind::Primary, "Share…").icon(icons::share);
+        #[cfg(not(target_os = "macos"))]
+        let share_label = Button::new(Kind::Primary, "Copy Image").icon(icons::copy);
+        let (share, share_resp) =
+            share_label.show_right(ui, p, sheet.right() - 24.0, cy, ui.id().with("share"));
+        #[cfg(target_os = "macos")]
+        {
+            self.share_button = share;
+        }
         let (_, save_resp) = Button::new(Kind::Secondary, "Save Image…").show_right(
             ui,
             p,
@@ -582,6 +607,14 @@ fn verse_job(t: &Translation, refs: &[VerseRef], size: f32, width: f32, c: &Colo
 
 /// The card's pixels from a window screenshot, as PNG.
 fn crop_png(image: &egui::ColorImage, card: Rect, ppp: f32) -> Option<Vec<u8>> {
+    let img = crop(image, card, ppp)?;
+    let mut out = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).ok()?;
+    Some(out)
+}
+
+/// The card's pixels from a window screenshot, with its rounded corners cut out.
+fn crop(image: &egui::ColorImage, card: Rect, ppp: f32) -> Option<image::RgbaImage> {
     let [w, h] = image.size;
     let x0 = (card.left() * ppp).round().max(0.0) as usize;
     let y0 = (card.top() * ppp).round().max(0.0) as usize;
@@ -605,10 +638,7 @@ fn crop_png(image: &egui::ColorImage, card: Rect, ppp: f32) -> Option<Vec<u8>> {
             rgba.extend_from_slice(&[r, g, b, (a as f32 * cover).round() as u8]);
         }
     }
-    let mut out = Vec::new();
-    let img = image::RgbaImage::from_raw(cw as u32, ch as u32, rgba)?;
-    img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).ok()?;
-    Some(out)
+    image::RgbaImage::from_raw(cw as u32, ch as u32, rgba)
 }
 
 #[cfg(test)]

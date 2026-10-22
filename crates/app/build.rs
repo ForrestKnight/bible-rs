@@ -137,6 +137,83 @@ fn main() {
 
     let dest = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("tokens.rs");
     std::fs::write(dest, out).unwrap();
+
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        windows_resources();
+    }
+}
+
+/// The Windows executable's icon, version information (publisher Fabrika LLC, the copyright
+/// line of LICENSE, as the macOS bundle has) and manifest, from `packaging/windows`.
+///
+/// Building on Windows needs the Windows SDK's rc.exe (part of Visual Studio's C++ tools) or
+/// MinGW's windres; cross-compiling needs llvm-rc (for -msvc) or x86_64-w64-mingw32-windres (for
+/// -gnu). Without one a cross build goes on with a warning and an executable that has no icon.
+fn windows_resources() {
+    let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let root = manifest_dir.join("../..");
+    let packaging = root.join("packaging/windows");
+    let (icon, manifest, license) =
+        (packaging.join("bible-rs.ico"), packaging.join("bible-rs.exe.manifest"), root.join("LICENSE"));
+    for f in [&icon, &manifest, &license] {
+        println!("cargo:rerun-if-changed={}", f.display());
+    }
+    let copyright = std::fs::read_to_string(&license)
+        .ok()
+        .and_then(|l| l.lines().find(|l| l.starts_with("Copyright")).map(str::to_string))
+        .unwrap_or_default();
+    let env = |k: &str| std::env::var(k).unwrap();
+    let (version, major, minor, patch) = (
+        env("CARGO_PKG_VERSION"),
+        env("CARGO_PKG_VERSION_MAJOR"),
+        env("CARGO_PKG_VERSION_MINOR"),
+        env("CARGO_PKG_VERSION_PATCH"),
+    );
+    // Resource compilers take forward slashes in file names on every host.
+    let path = |p: &std::path::Path| p.display().to_string().replace('\\', "/");
+    let rc = format!(
+        r#"1 ICON "{icon}"
+1 24 "{manifest}"
+1 VERSIONINFO
+FILEVERSION {major},{minor},{patch},0
+PRODUCTVERSION {major},{minor},{patch},0
+FILEFLAGSMASK 0x3f
+FILEFLAGS 0x0
+FILEOS 0x40004
+FILETYPE 0x1
+FILESUBTYPE 0x0
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "Fabrika LLC"
+      VALUE "FileDescription", "Bible"
+      VALUE "FileVersion", "{version}"
+      VALUE "InternalName", "bible-rs"
+      VALUE "LegalCopyright", "{copyright}. MIT License."
+      VALUE "OriginalFilename", "bible-rs.exe"
+      VALUE "ProductName", "Bible"
+      VALUE "ProductVersion", "{version}"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
+"#,
+        icon = path(&icon),
+        manifest = path(&manifest),
+        copyright = copyright.replace('"', "'"),
+    );
+    let rc_file = std::path::Path::new(&env("OUT_DIR")).join("bible-rs.rc");
+    std::fs::write(&rc_file, rc).unwrap();
+    match embed_resource::compile(&rc_file, embed_resource::NONE) {
+        embed_resource::CompilationResult::Ok => {}
+        other if cfg!(windows) => panic!("Windows resources: {other}"),
+        other => println!("cargo:warning=Windows resources skipped ({other}); the .exe has no icon"),
+    }
 }
 
 /// `#RRGGBB` or `#RRGGBBAA` as a `Color32` constructor.

@@ -294,13 +294,9 @@ impl SettingsUi {
                 }
             } else {
                 row_label(ui, p, r, "Stored in", None);
-                let (b, resp) = Button::new(Kind::Secondary, "Show in Finder").small().show_right(
-                    ui,
-                    p,
-                    r.right() - 16.0,
-                    r.center().y,
-                    ui.id().with("reveal"),
-                );
+                let (b, resp) = Button::new(Kind::Secondary, crate::platform::SHOW_IN_FILE_BROWSER)
+                    .small()
+                    .show_right(ui, p, r.right() - 16.0, r.center().y, ui.id().with("reveal"));
                 if resp.clicked() {
                     actions.push(Action::RevealDataDir);
                 }
@@ -537,6 +533,12 @@ impl SettingsUi {
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("settings"), builder, |ui, _class| {
             #[cfg(target_os = "macos")]
             crate::macos_window::unify_window_titled("Settings");
+            #[cfg(windows)]
+            if !crate::offscreen() {
+                let focused = ui.ctx().input(|i| i.focused);
+                let dark = settings.theme == crate::theme::Theme::Dark;
+                crate::windows_window::set_dark_title_bar_titled("Settings", dark, focused);
+            }
             if ui.ctx().input(|i| i.viewport().close_requested() || i.key_pressed(egui::Key::Escape))
                 && !ui.ctx().egui_wants_keyboard_input()
             {
@@ -935,7 +937,11 @@ impl SettingsUi {
         footnote(
             ui,
             p,
-            "Converted text is stored only on this Mac. Copyrighted translations are never bundled.",
+            concat!(
+                "Converted text is stored only on ",
+                crate::platform::this_computer!(),
+                ". Copyrighted translations are never bundled."
+            ),
         );
         ui.add_space(24.0);
 
@@ -1281,7 +1287,7 @@ fn row_label(ui: &Ui, p: &Palette, r: Rect, label: &str, detail: Option<&str>) {
             ui.painter().text(
                 pos2(x, r.center().y + 10.0),
                 Align2::LEFT_CENTER,
-                d,
+                crate::keymap::shown(d),
                 text::SMALL.font(),
                 p.ink_3,
             );
@@ -1838,18 +1844,13 @@ fn about(ui: &mut Ui, p: &Palette) {
     let arch = match std::env::consts::ARCH {
         "aarch64" if cfg!(target_os = "macos") => "Apple Silicon",
         "x86_64" if cfg!(target_os = "macos") => "Intel",
+        "x86_64" if cfg!(windows) => "x64",
+        "aarch64" if cfg!(windows) => "ARM64",
         other => other,
     };
     let version = format!("Version {} · {arch}", env!("CARGO_PKG_VERSION"));
     centred(r.top() + 144.0, 20.0, &version, theme::ui_font(13.0), p.ink_2, 0.0);
-    centred(
-        r.top() + 168.0,
-        20.0,
-        "A very fast, native Bible reader for the Mac.",
-        theme::ui_font(13.0),
-        p.ink_3,
-        0.0,
-    );
+    centred(r.top() + 168.0, 20.0, crate::platform::TAGLINE, theme::ui_font(13.0), p.ink_3, 0.0);
     let check = Button::new(Kind::Secondary, "Check for Updates…");
     let notes = Button::new(Kind::Ghost, "Release Notes").trailing_icon(icons::external);
     let (wa, wb) = (check.width(&painter), notes.width(&painter));
@@ -1936,23 +1937,29 @@ pub fn quick_text_settings(ui: &mut Ui, settings: &mut Settings, actions: &mut V
     });
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        if ui.button(RichText::new("A−").font(theme::ui_medium(13.0))).on_hover_text("Smaller (⌘−)").clicked()
+        if ui
+            .button(RichText::new("A−").font(theme::ui_medium(13.0)))
+            .on_hover_text(crate::keymap::shown("Smaller (⌘−)").as_ref())
+            .clicked()
         {
             actions.push(Action::FontSize(-1.0));
         }
         ui.label(format!("{:.0} pt", settings.typo.size));
-        if ui.button(RichText::new("A+").font(theme::ui_medium(15.0))).on_hover_text("Bigger (⌘+)").clicked()
+        if ui
+            .button(RichText::new("A+").font(theme::ui_medium(15.0)))
+            .on_hover_text(crate::keymap::shown("Bigger (⌘+)").as_ref())
+            .clicked()
         {
             actions.push(Action::FontSize(1.0));
         }
     });
     ui.add_space(4.0);
     let mut per_line = settings.typo.mode == Mode::VersePerLine;
-    if ui.checkbox(&mut per_line, "Verse per line (⌘L)").changed() {
+    if ui.checkbox(&mut per_line, crate::keymap::shown("Verse per line (⌘L)").as_ref()).changed() {
         actions.push(Action::ToggleMode);
     }
     let mut red = settings.typo.red_letters;
-    if ui.checkbox(&mut red, "Red letters (⌘R)").changed() {
+    if ui.checkbox(&mut red, crate::keymap::shown("Red letters (⌘R)").as_ref()).changed() {
         actions.push(Action::ToggleRedLetters);
     }
     ui.checkbox(&mut settings.typo.justify, "Justify paragraphs");

@@ -480,6 +480,42 @@ also a static page that search engines can index.
   also aren't all open to browsers (CORS). The web reader offers the bundled translations and
   files you import.
 
+## Windows
+
+The Windows app is the same egui app with the macOS-only pieces given Windows counterparts
+(`cfg(windows)`); on macOS nothing changes. [WINDOWS.md](WINDOWS.md) is the user-facing side.
+
+- **The native Win32 menu bar**, through muda as on the Mac, rather than menus drawn in the
+  window. Alt and access keys, screen readers and the look of other Windows programs come with it.
+  The app installs no accelerator table, so the keys still reach egui, a shortcut changed in
+  Settings works, and nothing fires twice. It costs two things. The drop-down menus stay light in
+  the dark theme, because Windows has no public dark menu API and muda draws only the bar dark.
+  And the menus show the default shortcuts.
+- **The standard title bar**, drawn dark for the dark theme (`DWMWA_USE_IMMERSIVE_DARK_MODE`).
+  A title bar drawn by the app, as on the Mac, would lose Snap layouts on the maximize button
+  unless the app answered Windows' hit tests itself. winit resets the title bar to the system
+  theme whenever a system setting changes, so the app sets it again when the window gets the
+  focus back.
+- **Direct3D 12 through wgpu**, not glow. Windows ships no OpenGL 3 driver, so glow depends on the
+  GPU vendor's driver and fails in virtual machines and remote sessions; Direct3D 12 falls back to
+  Windows' software renderer (WARP). Only the DX12 backend is enabled, as only Metal is on macOS,
+  so wgpu doesn't spend start-up time probing Vulkan.
+- **Shortcuts are the Mac's with Ctrl for ⌘**, and the UI writes them that way ("Ctrl+Shift+P").
+  egui reports Ctrl as the command key on Windows, so ⌃⌘F (focus mode) would also be Ctrl+F
+  (search); focus mode is F11 there, the usual full-screen key.
+- **NSIS, a per-user installer.** No administrator prompt, an entry in Installed apps, a Start
+  menu shortcut. NSIS also runs on macOS and Linux, so the installer is built and inspected off
+  Windows too; MSI (WiX) and Inno Setup need Windows to build, and MSIX can't be installed
+  unsigned. The C runtime is linked statically (`.cargo/config.toml`), so no Visual C++
+  Redistributable is needed.
+- **Updates check GitHub's latest release**, daily and on demand, and open the new installer in
+  the browser. Sparkle is Mac-only; WinSparkle or Velopack would install by
+  themselves, but both want signed builds and an update feed, which can wait for signing.
+- **Share Verse copies the image** to the clipboard (eframe's clipboard does images) instead of
+  calling Windows' share sheet, which needs WinRT and an asynchronous handshake for one button.
+- **API keys in the Credential Manager** through the same `keyring` crate as the Keychain on
+  macOS.
+
 ## What was traded away
 
 - Highlights of part of a verse fall back to the whole verse in a translation that words it

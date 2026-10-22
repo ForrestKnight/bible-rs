@@ -391,8 +391,11 @@ impl ImportSheet {
         let y = key.bottom() + 20.0;
         let icon = Rect::from_min_size(pos2(body.left(), y + 9.0), vec2(14.0, 14.0));
         icons::heavy(|| icons::info(&painter, icon, p.ink_3));
-        let note =
-            "The text is converted and stored only on this Mac. Copyrighted translations are never uploaded.";
+        let note = concat!(
+            "The text is converted and stored only on ",
+            crate::platform::this_computer!(),
+            ". Copyrighted translations are never uploaded."
+        );
         let font = theme::ui_font(12.0);
         let mut job = egui::text::LayoutJob::simple(note.into(), font, p.ink_3, body.width() - 22.0);
         job.sections[0].format.line_height = Some(16.0);

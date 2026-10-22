@@ -67,8 +67,25 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 raw-window-handle = "0.6"
 winit = { version = "0.30", default-features = false }
 
+# Windows: the native menu bar, and the Win32 calls for links, local time, the console, the
+# system's animation setting and the window's light or dark title bar.
+[target.'cfg(windows)'.dependencies]
+muda = { version = "0.21", default-features = false }
+raw-window-handle = "0.6"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_System_Console",
+    "Win32_System_Threading",
+    "Win32_System_Time",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [build-dependencies]
 serde_json.workspace = true
+# The Windows executable's icon, version information and manifest (packaging/windows).
+embed-resource = "3"
 
 [dev-dependencies]
 egui_kittest = { version = "0.36", features = ["eframe", "wgpu"] }

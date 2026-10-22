@@ -1,0 +1,7 @@
+# Windows: link the C runtime into bible-rs.exe, so it runs on a PC without the Visual C++
+# Redistributable (VCRUNTIME140.dll), which Windows doesn't ship.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

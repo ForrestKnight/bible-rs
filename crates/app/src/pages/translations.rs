@@ -89,7 +89,7 @@ fn description(e: &Entry) -> String {
         },
         EntryKind::Online(o) => {
             let key = match (o.has_key(), o.needs_key()) {
-                (true, _) => "key in Keychain",
+                (true, _) => crate::platform::KEY_SAVED,
                 (false, true) => "no API key",
                 (false, false) => "no key needed",
             };

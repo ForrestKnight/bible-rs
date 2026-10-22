@@ -1,8 +1,8 @@
 //! API key storage.
 //!
-//! On macOS keys live in the login Keychain (via the `keyring` crate). Elsewhere — where a
-//! Secret Service daemon is often missing (headless machines, CI) — they are kept in a JSON file
-//! that only the current user can read (mode 0600).
+//! On macOS keys live in the login Keychain and on Windows in the Credential Manager (both via the
+//! `keyring` crate). Elsewhere — where a Secret Service daemon is often missing (headless machines,
+//! CI) — they are kept in a JSON file that only the current user can read (mode 0600).
 
 use std::path::{Path, PathBuf};
 
@@ -10,7 +10,7 @@ use anyhow::Result;
 
 #[derive(Debug, Clone)]
 pub struct SecretStore {
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    #[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
     file: PathBuf,
 }
 
@@ -20,7 +20,13 @@ impl SecretStore {
     }
 
     pub fn backend_name(&self) -> &'static str {
-        if cfg!(target_os = "macos") { "macOS Keychain" } else { "local secrets file (mode 0600)" }
+        if cfg!(target_os = "macos") {
+            "macOS Keychain"
+        } else if cfg!(windows) {
+            "Windows Credential Manager"
+        } else {
+            "local secrets file (mode 0600)"
+        }
     }
 
     /// Stores a value; an empty value deletes it.
@@ -29,13 +35,13 @@ impl SecretStore {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 mod backend {
     use super::*;
 
-    /// The Keychain service. Tests must never see or overwrite the user's keys: unit tests use
-    /// their own service, and `BIBLE_RS_KEYCHAIN_SERVICE` (set by the integration tests)
-    /// overrides it.
+    /// The Keychain service (on Windows, the credentials are named `<key>.<service>`). Tests must
+    /// never see or overwrite the user's keys: unit tests use their own service, and
+    /// `BIBLE_RS_KEYCHAIN_SERVICE` (set by the integration tests) overrides it.
     fn service() -> String {
         std::env::var("BIBLE_RS_KEYCHAIN_SERVICE")
             .unwrap_or_else(|_| if cfg!(test) { "bible-rs-tests" } else { "bible-rs" }.into())
@@ -60,7 +66,7 @@ mod backend {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 mod backend {
     use std::collections::BTreeMap;
 
@@ -109,7 +115,7 @@ mod backend {
     }
 }
 
-#[cfg(all(test, not(target_os = "macos")))]
+#[cfg(all(test, not(any(target_os = "macos", windows))))]
 mod tests {
     use super::*;
 
@@ -130,5 +136,23 @@ mod tests {
         store.put("esv-api-key", "").unwrap();
         assert_eq!(store.get("esv-api-key"), None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The Credential Manager round trip, under the tests' own service name.
+#[cfg(all(test, windows))]
+mod credential_manager_tests {
+    use super::*;
+
+    #[test]
+    fn credential_manager_round_trip() {
+        let store = SecretStore::new(Path::new("unused"));
+        let key = format!("round-trip-{}", std::process::id());
+        assert_eq!(store.get(&key), None);
+        store.put(&key, " abc123 ").unwrap();
+        assert_eq!(store.get(&key).as_deref(), Some("abc123"));
+        store.put(&key, "").unwrap();
+        assert_eq!(store.get(&key), None);
+        assert_eq!(store.backend_name(), "Windows Credential Manager");
     }
 }

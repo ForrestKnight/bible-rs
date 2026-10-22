@@ -146,7 +146,11 @@ impl Onboarding {
             cx,
             top + 204.0,
             24.0,
-            "Just the Bible — fast, beautifully typeset, and kept on this Mac.",
+            concat!(
+                "Just the Bible — fast, beautifully typeset, and kept on ",
+                crate::platform::this_computer!(),
+                "."
+            ),
             theme::ui_font(15.0),
             p.ink_2,
             0.0,
@@ -245,7 +249,7 @@ impl Onboarding {
             cx,
             top + 122.0,
             24.0,
-            "You can switch any time with ⇧⌘L.",
+            &crate::keymap::shown("You can switch any time with ⇧⌘L."),
             theme::ui_font(15.0),
             p.ink_2,
             0.0,

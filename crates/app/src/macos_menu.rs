@@ -1,15 +1,14 @@
 //! Native macOS menu bar.
 //!
 //! Items with key equivalents are dispatched by AppKit before the key reaches egui, so each menu
-//! command is turned back into the same [`Action`] the keyboard path produces. There is no Edit
-//! menu on purpose: AppKit's predefined copy/paste items would swallow ⌘C/⌘V before egui's text
-//! fields see them (verse copying is ⌘C handled by the app itself).
+//! command is turned back into the same [`Action`] the keyboard path produces (`native_menu.rs`).
+//! There is no Edit menu on purpose: AppKit's predefined copy/paste items would swallow ⌘C/⌘V
+//! before egui's text fields see them (verse copying is ⌘C handled by the app itself).
 
 use muda::accelerator::Accelerator;
-use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use muda::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
-use crate::actions::{Action, ExportKind, SettingsTab};
-use crate::theme::Theme;
+use crate::actions::Action;
 
 pub struct AppMenu {
     _menu: Menu,
@@ -110,39 +109,6 @@ impl AppMenu {
 
     /// Drains menu clicks into this frame's actions.
     pub fn poll(&self, actions: &mut Vec<Action>) {
-        while let Ok(event) = MenuEvent::receiver().try_recv() {
-            let a = match event.id.0.as_str() {
-                "settings" => Action::OpenSettings(SettingsTab::Reading),
-                "check_updates" => Action::CheckForUpdates,
-                "import_translation" => Action::ImportTranslation,
-                "translations" => Action::OpenSettings(SettingsTab::Translations),
-                "export_md" => Action::Export(ExportKind::Markdown),
-                "export_json" => Action::Export(ExportKind::Json),
-                "import_notes" => Action::ImportStudy,
-                "theme_light" => Action::SetTheme(Theme::Light),
-                "theme_sepia" => Action::SetTheme(Theme::Sepia),
-                "theme_dark" => Action::SetTheme(Theme::Dark),
-                "theme_cycle" => Action::CycleTheme,
-                "bigger" => Action::FontSize(1.0),
-                "smaller" => Action::FontSize(-1.0),
-                "actual" => Action::FontReset,
-                "text" => Action::TextFormat,
-                "mode" => Action::ToggleMode,
-                "red" => Action::ToggleRedLetters,
-                "parallel" => Action::ToggleParallel,
-                "sidebar" => Action::ToggleSidebar,
-                "jump" => Action::OpenPalette,
-                "search" => Action::OpenSearch(None),
-                "back" => Action::Back,
-                "forward" => Action::Forward,
-                "prev" => Action::PrevChapter,
-                "next" => Action::NextChapter,
-                "bookmark" => Action::ToggleBookmark,
-                "compare" => Action::Compare,
-                "shortcuts" => Action::ShowShortcuts,
-                _ => continue,
-            };
-            actions.push(a);
-        }
+        crate::native_menu::poll(actions);
     }
 }

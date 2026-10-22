@@ -62,7 +62,7 @@ pub fn toolbar_button(
         p.ink
     };
     paint(ui.painter(), Rect::from_center_size(rect.center(), Vec2::splat(metrics::ICON)), color);
-    resp.on_hover_text(tooltip)
+    resp.on_hover_text(crate::keymap::shown(tooltip).as_ref())
 }
 
 /// A round icon button (28 pt) with a 16 pt glyph in secondary ink, for panels and popovers.
@@ -87,7 +87,7 @@ pub fn icon_button(
         p.ink_2
     };
     paint(ui.painter(), Rect::from_center_size(rect.center(), Vec2::splat(metrics::ICON_SM)), color);
-    resp.on_hover_text(tooltip)
+    resp.on_hover_text(crate::keymap::shown(tooltip).as_ref())
 }
 
 /// A capsule of icon buttons separated by hairlines (`dividers`) or not, at `left`.
@@ -162,7 +162,7 @@ impl Picker {
             Vec2::splat(PICKER_CHEVRON),
         );
         crate::icons::chevron_down(ui.painter(), chevron, p.ink_2);
-        resp.on_hover_text(tooltip)
+        resp.on_hover_text(crate::keymap::shown(tooltip).as_ref())
     }
 }
 
@@ -264,8 +264,9 @@ pub fn caption(ui: &mut Ui, label: &str) {
 
 /// A keycap (`ds-15`): 20 pt high, radius 5, `fill` with a hairline and a heavier bottom edge,
 /// 11 pt medium secondary ink. Drawn with its left edge at `left`, centred on `center_y`;
-/// returns its rectangle.
+/// returns its rectangle. `label` is written the macOS way ("⌘"; "Ctrl" elsewhere).
 pub fn keycap(painter: &Painter, p: &Palette, left: f32, center_y: f32, label: &str) -> Rect {
+    let label = crate::keymap::shown(label);
     let galley = painter.layout_no_wrap(label.to_string(), theme::ui_medium(11.0), p.ink_2);
     let w = (galley.size().x + 10.0).max(20.0).round();
     let r = Rect::from_min_size(pos2(left, center_y - 10.0), vec2(w, 20.0));
@@ -279,6 +280,7 @@ pub fn keycap(painter: &Painter, p: &Palette, left: f32, center_y: f32, label: &
 
 /// Width of [`keycap`] for `label`.
 pub fn keycap_width(painter: &Painter, label: &str) -> f32 {
+    let label = crate::keymap::shown(label);
     let w = painter.layout_no_wrap(label.to_string(), theme::ui_medium(11.0), Color32::PLACEHOLDER).size().x;
     (w + 10.0).max(20.0).round()
 }

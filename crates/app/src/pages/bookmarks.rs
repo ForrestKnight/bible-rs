@@ -46,8 +46,11 @@ impl State {
                 glyph: |p, r, c| icons::bookmark(p, r, c, false),
                 tone: Tone::Accent,
                 title: "Your bookmarks will live here",
-                body: "Select a verse and press B, or right-click it and choose Bookmark. Bookmarks stay on \
-                       this Mac and export with your notes.",
+                body: concat!(
+                    "Select a verse and press B, or right-click it and choose Bookmark. Bookmarks stay on ",
+                    crate::platform::this_computer!(),
+                    " and export with your notes."
+                ),
                 buttons: &[Button::new(Kind::Primary, "Open John 1")],
                 hints: &[(&["B"], "Bookmark the selected verse")],
                 width: 360.0,

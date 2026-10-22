@@ -35,6 +35,66 @@ jobs:
       - name: Startup and scrolling under Xvfb (software OpenGL)
         run: RUNS=5 scripts/bench-startup.sh
 
+  windows:
+    name: Windows · clippy, tests, unsigned installer
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --workspace
+      # The runner's clock is UTC; local times (history, plan days) need a real offset to test.
+      - name: Local time east of UTC
+        run: |
+          tzutil //s "AUS Eastern Standard Time"
+          cargo test -p bible-rs --lib time::
+      - name: Search smoke test (release)
+        run: cargo run --release -p bible-rs -- search "love one another" --limit 3
+      # Opens the window, renders the first frame with Direct3D 12 (the runner has no GPU, so
+      # Windows' software renderer) and exits.
+      - name: Startup (Direct3D 12)
+        run: |
+          BIBLE_RS_HOME="$(mktemp -d)" BIBLE_RS_TRACE_STARTUP=1 BIBLE_RS_STARTUP_PROBE=1 \
+            timeout 120 target/release/bible-rs.exe 2>&1 | tail -20
+      - name: NSIS
+        run: choco install nsis --version=3.13.0 --no-progress -y
+      - name: Installer (unsigned; release.yml can sign, WINDOWS.md)
+        run: BIN=target/release/bible-rs.exe MAKENSIS="/c/Program Files (x86)/NSIS/makensis.exe" scripts/package-windows.sh
+      - name: Installer contents
+        run: 7z l dist/bible-rs-*-windows-x64-setup.exe
+      - name: Install, open and uninstall (silently)
+        run: |
+          set -x
+          key='HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\bible-rs'
+          dir="$(cygpath -u "$LOCALAPPDATA")/Programs/Bible"
+          link="$(cygpath -u "$APPDATA")/Microsoft/Windows/Start Menu/Programs/Bible.lnk"
+          setup=(dist/bible-rs-*-windows-x64-setup.exe)
+          # `//S` is /S once Git Bash has turned it back from a path.
+          "${setup[0]}" //S
+          ls -l "$dir" "$link"
+          reg query "$key" | tee reg.txt
+          grep -q 'Publisher.*Fabrika LLC' reg.txt
+          BIBLE_RS_HOME="$(mktemp -d)" BIBLE_RS_STARTUP_PROBE=1 timeout 120 "$dir/bible-rs.exe" | tail -1
+          "$dir/Uninstall Bible.exe" //S
+          # The uninstaller runs from a copy in %TEMP% and returns at once.
+          for _ in $(seq 60); do [ -e "$dir" ] || break; sleep 1; done
+          [ ! -e "$dir" ] && [ ! -e "$link" ] && ! reg query "$key" 2>/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bible-rs-windows-x64-unsigned
+          path: |
+            dist/bible-rs-*-windows-x64-setup.exe
+            dist/bible-rs-*-windows-x64-SHA256SUMS.txt
+          if-no-files-found: error
+
   ios:
     name: iOS · framework, simulator and device builds
     runs-on: macos-latest

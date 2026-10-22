@@ -304,7 +304,7 @@ impl NotePopover {
                     );
                 }
                 ui.painter().text(done.center(), Align2::CENTER_CENTER, "Done", font, p.on_accent);
-                if dr.on_hover_text("Done (⌘↩)").clicked() {
+                if dr.on_hover_text(crate::keymap::shown("Done (⌘↩)").as_ref()).clicked() {
                     close = true;
                 }
             });

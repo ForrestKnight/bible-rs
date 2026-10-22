@@ -565,7 +565,8 @@ impl Sidebar {
                 StudyKind::Notes => "No notes yet. Select a verse and press N.",
             };
             egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
-                ui.label(egui::RichText::new(hint).font(text::SMALL.font()).color(p.ink_2));
+                let hint = crate::keymap::shown(hint);
+                ui.label(egui::RichText::new(hint.as_ref()).font(text::SMALL.font()).color(p.ink_2));
             });
             return;
         }
