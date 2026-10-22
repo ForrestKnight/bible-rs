@@ -162,10 +162,11 @@ download page links only the Mac disk image today.
 
 ## Known gaps
 
-- **Not tried on a Windows 10 or 11 desktop.** It was developed on a Mac. Every Windows run so far
-  is on GitHub's Windows Server runner (no GPU): the build, the tests, the first frame with
-  Direct3D 12, and the installer. The menu bar, the title bar colours, the clipboard image, the
-  Credential Manager and the update dialogs need a look on a real PC before release.
+- **Not tried on a Windows 10 or 11 PC.** Development happened on a Mac, and every Windows run so
+  far is on GitHub's Windows Server 2025 runner, which has no GPU and a 100% scale 1024x768 screen.
+  There the tests passed, the installer installed and uninstalled, and the menu bar, F11, Copy
+  Image and the update check worked when driven on the runner's desktop. Still unseen: a real GPU
+  driver, high-DPI and mixed-DPI monitors, and the title bar on Windows 10.
 - **Unsigned** until the steps above are done.
 - **No `bible://` links yet.** Opening `bible://` links in the app is still an open pull request
   (#19); once it lands, the installer can register the scheme for the current user
