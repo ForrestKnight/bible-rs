@@ -68,6 +68,7 @@ typeset, searchable as you type, with highlights, notes and bookmarks kept on yo
 - Click a verse (⇧-click for a range, J/K to move) to select it, then: highlight in six colours
   (1–6, 0 to clear), write a note (N), bookmark (B / ⌘D), copy (⌘C, or ⇧⌘C with the reference)
   or compare translations (C). Right-click opens the verse menu with all of these.
+- Drag across words (in a verse or across verses) to highlight or copy just them.
 - Notes and bookmarks show in the margin; the Study sidebar lists everything.
 - Export to Markdown (⌘E) or JSON (⌘⇧E); JSON imports back.
 
@@ -171,6 +172,7 @@ chapter by chapter, and appear in parallel and compare views as their chapters l
 | ↑ ↓, Space, ⇧Space, PgUp/PgDn | Scroll |
 | ⌘[ / ⌘] (⌥← / ⌥→) | Back / forward |
 | Click, ⇧-click, J / K | Select a verse, a range, next / previous verse |
+| Drag, ⇧-click | Choose words, extend them |
 | 1–6, 0 | Highlight colour, remove highlight |
 | N · B or ⌘D · ⌘C · ⇧⌘C · C | Note · bookmark · copy · copy with reference · compare |
 | ⌘1…⌘9 | Switch translation |
