@@ -29,6 +29,9 @@ pub enum Page {
     Notes,
     History,
     Plans,
+    /// The Ark of the Covenant in 3D: the website's page in a webview (`webview.rs`), which the
+    /// app places over this page's area.
+    Ark,
 }
 
 impl Page {
@@ -42,6 +45,7 @@ impl Page {
             Page::Notes => "Search notes",
             Page::History => "Search history",
             Page::Plans => "Search plans",
+            Page::Ark => "",
         }
     }
 
@@ -54,6 +58,7 @@ impl Page {
             "notes" => Page::Notes,
             "history" => Page::History,
             "plans" => Page::Plans,
+            "ark" => Page::Ark,
             _ => return None,
         })
     }
@@ -104,6 +109,24 @@ impl Pages {
         ui.painter().rect_filled(rect, 0.0, p.paper);
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
         child.set_clip_rect(rect);
+        if self.page == Page::Ark {
+            // The webview covers this once its page draws.
+            let note = if crate::webview::AVAILABLE {
+                "Loading…"
+            } else {
+                "The 3D view is in the Mac app, and on the website."
+            };
+            let below = Rect::from_min_max(pos2(rect.left(), rect.top() + env.toolbar), rect.max);
+            child.painter().text(
+                below.center(),
+                egui::Align2::CENTER_CENTER,
+                note,
+                theme::text::UI.font(),
+                p.ink_3,
+            );
+            self.scrolled = false;
+            return;
+        }
         if self.page.has_panes() && !self.notes.is_empty(env) {
             self.notes.show(&mut child, rect, env, actions);
             self.scrolled = false;
@@ -123,7 +146,7 @@ impl Pages {
                     Page::History => self.history.show(ui, content, env, actions),
                     Page::Plans => self.plans.show(ui, content, env, actions),
                     Page::Notes => self.notes.show_empty(ui, content, env, actions),
-                    Page::Reader => content.top(),
+                    Page::Reader | Page::Ark => content.top(),
                 };
                 ui.allocate_rect(
                     Rect::from_min_max(ui.max_rect().min, pos2(ui.max_rect().right(), bottom + 40.0)),

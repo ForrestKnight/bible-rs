@@ -38,6 +38,7 @@ async function list(): Promise<Sitemap[]> {
 				'/',
 				'/privacy',
 				'/support',
+				'/ark-of-the-covenant',
 				...c.bundled.map(translationPath),
 				...bookPages(c).map(({ translation, book }) => bookPath(translation, book))
 			]

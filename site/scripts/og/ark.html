@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<!-- The Ark page's share image: scripts/ark-og.sh renders the model into og-ark-render.png, then this. -->
+		<style>
+			@font-face{font-family:Literata;src:url('../../static/fonts/read/literata.woff2') format('woff2');font-weight:300 600}
+			@font-face{font-family:Inter;src:url('../../static/fonts/read/inter.woff2') format('woff2');font-weight:400 600}
+			html,body{margin:0}
+			body{position:relative;width:1200px;height:630px;overflow:hidden;background:#14110d;color:#f3ead8;font-family:Inter,sans-serif;-webkit-font-smoothing:antialiased}
+			.shot{position:absolute;right:-40px;top:-60px;width:820px;height:750px;object-fit:cover}
+			.fade{position:absolute;left:0;top:0;bottom:0;width:640px;background:linear-gradient(90deg,#14110d 62%,rgba(20,17,13,0))}
+			.copy{position:absolute;left:72px;top:0;bottom:0;width:500px;display:flex;flex-direction:column;justify-content:center}
+			h1{font-family:Literata,Georgia,serif;font-weight:400;font-size:76px;letter-spacing:-.02em;line-height:1.02;margin:0 0 26px}
+			.dims{font-size:30px;font-weight:600;color:#e6b84f;margin:0 0 12px}
+			p{margin:0;color:#b3a68c;font-size:26px;line-height:1.35;text-wrap:balance}
+			.site{position:absolute;left:72px;bottom:44px;color:#b3a68c;font-size:20px;font-weight:500}
+		</style>
+	</head>
+	<body>
+		<img class="shot" src="og-ark-render.png" alt="" />
+		<div class="fade"></div>
+		<div class="copy">
+			<h1>The Ark of the Covenant</h1>
+			<div class="dims">2½ × 1½ × 1½ cubits</div>
+			<p>Built in 3D from Exodus&nbsp;25, verse by verse</p>
+		</div>
+		<div class="site">simplymybible.com</div>
+	</body>
+</html>

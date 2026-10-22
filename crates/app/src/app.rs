@@ -273,6 +273,9 @@ pub struct BibleApp {
     reminded: Option<i64>,
     /// The page in the main area (the reader unless a library or study page is open).
     pub pages: crate::pages::Pages,
+    /// The Ark page's webview, and the area it covers this frame (under the toolbar).
+    pub object_view: crate::webview::ObjectView,
+    object_rect: Option<egui::Rect>,
     /// `BIBLE_RS_DEMO`: steps that put the window into a given state (screenshots), one per frame.
     demo: std::collections::VecDeque<String>,
     chrome: Chrome,
@@ -399,6 +402,8 @@ impl BibleApp {
             focus_reveal: false,
             backup_checked: None,
             pages: Default::default(),
+            object_view: Default::default(),
+            object_rect: None,
             demo: std::env::var("BIBLE_RS_DEMO")
                 .map(|s| s.split(';').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
                 .unwrap_or_default(),
@@ -1333,7 +1338,12 @@ impl BibleApp {
         }
         items.push(nav_rect);
 
-        // On a page: a wider field that filters it, and nothing else.
+        // On a page: a wider field that filters it, and nothing else (the Ark has nothing to filter).
+        if self.pages.page == crate::pages::Page::Ark {
+            #[cfg(target_os = "macos")]
+            self.toolbar_items.extend(items);
+            return;
+        }
         if !self.pages.reader() {
             let w = PAGE_SEARCH_WIDTH;
             let search = egui::Rect::from_min_size(
@@ -1843,6 +1853,57 @@ impl BibleApp {
             _ => {
                 self.offline = None;
                 None
+            }
+        }
+    }
+
+    /// Places the Ark page's webview over its page, or closes it once another page is open, and
+    /// turns what the page asks for into actions.
+    fn object_view(&mut self, ctx: &egui::Context, frame: &eframe::Frame, actions: &mut Vec<Action>) {
+        let Some(rect) = self.object_rect.take().filter(|_| crate::webview::AVAILABLE) else {
+            self.object_view.close();
+            return;
+        };
+        // egui draws everything in one layer under the native view, so anything it shows over the
+        // page (the palette, a sheet, a menu) needs the view out of the way. Tooltips and toasts
+        // are left under it rather than make the page blink.
+        let over_page = ctx.memory(|m| {
+            m.areas().visible_layer_ids().into_iter().any(|layer| {
+                !matches!(layer.order, egui::Order::Background | egui::Order::Tooltip)
+                    && m.area_rect(layer.id).is_some_and(|r| r.intersects(rect))
+            })
+        });
+        let covered = over_page
+            || self.palette.is_some()
+            || self.shortcuts_open
+            || self.import_sheet.is_some()
+            || self.share_sheet.is_some();
+        self.object_view.show(
+            frame,
+            ctx,
+            crate::objects::ark(),
+            rect,
+            covered,
+            self.settings.theme,
+            &self.settings.translation,
+            &self.library,
+        );
+        if !covered && ctx.input(|i| i.key_pressed(Key::Escape)) {
+            actions.push(Action::Back);
+        }
+        for m in self.object_view.messages() {
+            match m {
+                crate::webview::Message::Read(v) => {
+                    actions.push(Action::Jump { chapter: v.chapter_idx(), verse: Some(v.verse), flash: true })
+                }
+                crate::webview::Message::Close => actions.push(Action::Back),
+                crate::webview::Message::Ready => {
+                    if let Some(t) = self.object_view.first_draw
+                        && std::env::var_os("BIBLE_RS_TRACE_WEBVIEW").is_some()
+                    {
+                        eprintln!("webview: first draw {:.0} ms", t.as_secs_f64() * 1000.0);
+                    }
+                }
             }
         }
     }
@@ -2378,6 +2439,12 @@ impl eframe::App for BibleApp {
                     toolbar: self.chrome.height,
                 };
                 self.pages.show(ui, full, &env, &mut actions);
+                if self.pages.page == crate::pages::Page::Ark {
+                    self.object_rect = Some(egui::Rect::from_min_max(
+                        egui::pos2(full.left(), full.top() + self.chrome.height),
+                        full.max,
+                    ));
+                }
                 let material = ctx.animate_bool_with_time(
                     Id::new("toolbar-material"),
                     self.pages.scrolled,
@@ -2598,6 +2665,7 @@ impl eframe::App for BibleApp {
         self.plan_reminder(&ctx);
         self.auto_backup(&ctx);
         self.toasts(&ctx);
+        self.object_view(&ctx, frame, &mut actions);
         self.end_frame(&ctx, frame, frame_start, actions);
     }
 

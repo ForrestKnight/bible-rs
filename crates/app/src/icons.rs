@@ -439,6 +439,14 @@ pub fn tray(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(2.75, 11.25), (6.75, 11.25), (7.75, 13.25), (12.25, 13.25), (13.25, 11.25), (17.25, 11.25)]);
 }
 
+/// A cube in three-quarter view: an object from the text with a 3D model (the reader's glyph).
+pub fn cube(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    g.closed(&[(10.0, 2.75), (16.25, 6.25), (16.25, 13.75), (10.0, 17.25), (3.75, 13.75), (3.75, 6.25)]);
+    g.line(&[(3.75, 6.25), (10.0, 9.75), (16.25, 6.25)]);
+    g.line(&[(10.0, 9.75), (10.0, 17.25)]);
+}
+
 /// A check mark, drawn heavier (2.5 units) as on the design's selected radios and done steps.
 pub fn check(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::with(p, r, c, 20.0, 2.5);

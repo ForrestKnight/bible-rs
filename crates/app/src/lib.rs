@@ -25,6 +25,7 @@ pub mod motion;
 #[cfg(any(target_os = "macos", windows))]
 pub mod native_menu;
 pub mod note_popover;
+pub mod objects;
 pub mod offline;
 pub mod onboarding;
 pub mod pages;
@@ -42,6 +43,7 @@ pub mod theme;
 pub mod time;
 pub mod updater;
 pub mod verse_menu;
+pub mod webview;
 pub mod widgets;
 #[cfg(windows)]
 pub mod windows_menu;

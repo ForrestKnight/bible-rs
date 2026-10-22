@@ -1,0 +1,43 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://github.com/michaelshimeles/bible-rs/objects/cubits.schema.json",
+	"$comment": "SPDX-License-Identifier: CC-BY-4.0 (objects/LICENSE)",
+	"title": "Cubit conversions",
+	"description": "The cubits every object can be shown in (objects/cubits.json), and the person drawn for scale.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["license", "default", "cubits", "person"],
+	"properties": {
+		"$schema": { "type": "string" },
+		"license": { "description": "CC BY 4.0, as for everything in objects/ (objects/LICENSE).", "const": "CC-BY-4.0" },
+		"default": { "type": "string" },
+		"cubits": {
+			"type": "array",
+			"minItems": 1,
+			"items": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["id", "label", "inches", "cm", "note"],
+				"properties": {
+					"id": { "type": "string", "pattern": "^[a-z]+$" },
+					"label": { "type": "string", "minLength": 1 },
+					"inches": { "type": "number", "exclusiveMinimum": 0 },
+					"cm": { "type": "number", "exclusiveMinimum": 0 },
+					"note": { "type": "string", "minLength": 1 },
+					"ref": { "$ref": "object.schema.json#/$defs/ref" },
+					"quote": { "$ref": "object.schema.json#/$defs/quote" }
+				},
+				"dependentRequired": { "ref": ["quote"], "quote": ["ref"] }
+			}
+		},
+		"person": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["label", "inches"],
+			"properties": {
+				"label": { "type": "string", "minLength": 1 },
+				"inches": { "type": "number", "exclusiveMinimum": 0 }
+			}
+		}
+	}
+}

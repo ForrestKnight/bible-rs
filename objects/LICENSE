@@ -1,0 +1,18 @@
+SPDX-License-Identifier: CC-BY-4.0
+
+The object specs in this folder (ark.json, cubits.json, object.schema.json, cubits.schema.json,
+README.md, CONTRIBUTING.md and anything added here later, such as glTF models under models/) and
+the images rendered from their 3D models (site/static/ark-of-the-covenant/ark.jpg and og.jpg, and
+the copy of ark.jpg in crates/app/web/ark-of-the-covenant/) are licensed under the Creative
+Commons Attribution 4.0 International License (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/
+
+The full legal code is in ../LICENSES/CC-BY-4.0.txt.
+
+Credit them as:
+
+    Ark of the Covenant specs and 3D models © 2026 Micky (github.com/michaelshimeles) / bible-rs contributors, licensed CC BY 4.0, https://github.com/michaelshimeles/bible-rs
+
+The code that reads the specs and generates the models' geometry (site/, crates/) is MIT, like
+the rest of the repository (../LICENSE). The Bible words the specs quote come from the KJV and the
+BSB, both public domain (../LICENSES/README.md).

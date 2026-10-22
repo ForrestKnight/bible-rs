@@ -1,0 +1,10 @@
+SPDX-License-Identifier: CC-BY-4.0
+
+ark.jpg and og.jpg are renders of the Ark of the Covenant's 3D model, made from its spec in
+objects/ark.json by scripts/ark-og.sh. Like the spec, they are licensed under the Creative Commons
+Attribution 4.0 International License (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
+(full legal code: LICENSES/CC-BY-4.0.txt; notice: objects/LICENSE).
+
+Credit them as:
+
+    Ark of the Covenant specs and 3D models © 2026 Micky (github.com/michaelshimeles) / bible-rs contributors, licensed CC BY 4.0, https://github.com/michaelshimeles/bible-rs

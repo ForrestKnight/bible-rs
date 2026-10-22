@@ -1,7 +1,8 @@
 <!--
-	The frame of the reader's plain pages (a verse, a book, a translation, a topic): no app, only
-	text and links in the reader's type and colours, in the theme the reader was last set to (app.html
-	applies it). They're prerendered with no JavaScript of their own (csr = false).
+	The frame of the reader's plain pages (a verse, a book, a translation, a topic, an object): no
+	app, only text and links in the reader's type and colours, in the theme the reader was last set
+	to (app.html applies it). They're prerendered with no JavaScript of their own (csr = false), but
+	for an object's page, whose 3D viewer needs it (`scripted`).
 -->
 <script lang="ts">
 	import '../read.css';
@@ -18,17 +19,21 @@
 		reader: { href: string; label: string };
 		/** The small print at the foot: the translation's copyright, or each translation's. */
 		notice?: string | string[];
+		/** A page with SvelteKit's client (csr), whose +layout.ts already loads the analytics. */
+		scripted?: boolean;
 		children: Snippet;
 	}
 
-	let { crumbs, reader, notice, children }: Props = $props();
+	let { crumbs, reader, notice, scripted = false, children }: Props = $props();
 </script>
 
 <svelte:head>
 	<link rel="preload" href="/fonts/read/literata.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
 	<link rel="preload" href="/fonts/read/inter.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
-	<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-	{@html analyticsTag()}
+	{#if !scripted}
+		<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+		{@html analyticsTag()}
+	{/if}
 </svelte:head>
 
 <div class="frame">

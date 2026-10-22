@@ -79,6 +79,10 @@ export interface PageMeta {
 	/** The canonical path, from the site's root. */
 	path: string;
 	crumbs: Crumb[];
+	/** The link preview's image (1200 x 630), from the site's root; the site's own otherwise. */
+	image?: string;
+	/** The page's questions and answers, shown on it, as a FAQPage too. */
+	faq?: { question: string; answer: string }[];
 }
 
 /** The page as a WebPage of the site, with its breadcrumb trail: a <script> for the <head>. */
@@ -99,6 +103,21 @@ export function jsonLd(page: PageMeta): string {
 				isPartOf: { '@id': site },
 				breadcrumb: { '@id': `${url}#breadcrumb` }
 			},
+			...(page.faq?.length
+				? [
+						{
+							'@type': 'FAQPage',
+							'@id': `${url}#faq`,
+							url,
+							isPartOf: { '@id': url },
+							mainEntity: page.faq.map((f) => ({
+								'@type': 'Question',
+								name: f.question,
+								acceptedAnswer: { '@type': 'Answer', text: f.answer }
+							}))
+						}
+					]
+				: []),
 			{
 				'@type': 'BreadcrumbList',
 				'@id': `${url}#breadcrumb`,

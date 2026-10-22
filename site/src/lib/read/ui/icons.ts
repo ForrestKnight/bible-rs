@@ -159,7 +159,9 @@ export const ICONS = {
 	},
 	retry: { body: path('M15.968 11.26A6.1 6.1 0 1 1 14.283 5.657') + path('M14.75 2.75V6.25H11.25') },
 	info: { body: circle(10, 10, 7.25) + path('M10 9.25V13.75') + circle(10, 6.45, 0.9, true) },
-	ellipsis: { body: circle(5, 10, 1.4, true) + circle(10, 10, 1.4, true) + circle(15, 10, 1.4, true) }
+	ellipsis: { body: circle(5, 10, 1.4, true) + circle(10, 10, 1.4, true) + circle(15, 10, 1.4, true) },
+	/** An object modelled in 3D (the glyph after a verse that describes one). */
+	cube: { body: path('M10 2.75 16.25 6.25V13.75L10 17.25 3.75 13.75V6.25Z') + path('M3.75 6.25 10 9.75 16.25 6.25M10 9.75V17.25') }
 } satisfies Record<string, IconDef>;
 
 export type IconName = keyof typeof ICONS;

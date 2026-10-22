@@ -741,6 +741,22 @@ impl Reader {
                     if pointer.is_some_and(|pt| r.expand(4.0).contains(pt)) {
                         marker_hit = Some(vref);
                     }
+                    x += 24.0;
+                }
+                // An object built from this passage (objects.rs): its cube opens it in 3D.
+                let ark = crate::objects::ark();
+                if crate::webview::AVAILABLE && ark.glyphs.contains(&vref) && top + lh > toolbar_bottom {
+                    let r = Rect::from_center_size(pos2(x + 10.0, cy), vec2(16.0, 16.0));
+                    icons::cube(&painter, r, p.accent);
+                    let resp = ui
+                        .interact(r.expand(4.0), id.with(("object", ch.0, a.number)), Sense::click())
+                        .on_hover_text(format!("{} in 3D", ark.title));
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                    }
+                    if resp.clicked() {
+                        actions.push(Action::OpenPage(crate::pages::Page::Ark));
+                    }
                 }
             }
             if first_visible.is_none() && y + l.height > reading_line {

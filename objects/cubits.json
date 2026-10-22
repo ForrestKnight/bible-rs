@@ -1,0 +1,27 @@
+{
+	"$schema": "./cubits.schema.json",
+	"license": "CC-BY-4.0",
+	"default": "common",
+	"cubits": [
+		{
+			"id": "common",
+			"label": "Common cubit",
+			"inches": 18,
+			"cm": 45.72,
+			"note": "About the length of a forearm, elbow to fingertip: the usual reckoning of 18 inches."
+		},
+		{
+			"id": "royal",
+			"label": "Royal cubit",
+			"inches": 20.6,
+			"cm": 52.32,
+			"note": "A long cubit, \"a cubit and an hand breadth\", the measure of Ezekiel's temple.",
+			"ref": "Ezek.40.5",
+			"quote": { "kjv": "by the cubit and an hand breadth", "bsb": "a cubit and a handbreadth" }
+		}
+	],
+	"person": {
+		"label": "5 ft 9 in",
+		"inches": 69
+	}
+}

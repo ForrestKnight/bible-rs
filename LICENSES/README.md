@@ -1,7 +1,8 @@
 # Licences and provenance
 
 bible-rs's own code is MIT-licensed (see `../LICENSE`). Everything else that ships inside the
-binary is listed here with where it came from and why it may be redistributed.
+binary is listed here with where it came from and why it may be redistributed, along with the
+object specs, which are CC BY 4.0.
 
 ## Bundled Bible translations — all public domain
 
@@ -45,6 +46,16 @@ every source above; copies of those statements are reproduced in [`bibles.md`](b
 
 egui's default fonts (Ubuntu-Light, Hack, Noto Emoji, emoji-icon-font; OFL/Apache/MIT) remain as
 fallbacks for symbols.
+
+## Object specs and model images: CC BY 4.0
+
+The object specs in `objects/` (`ark.json`, `cubits.json`, their schemas and docs) and the images
+rendered from their 3D models (`site/static/ark-of-the-covenant/ark.jpg` and `og.jpg`; the app
+carries `ark.jpg` and the specs) are licensed CC BY 4.0, unlike the MIT code that draws them. The
+notice is [`objects/LICENSE`](../objects/LICENSE) and the legal code is
+[`CC-BY-4.0.txt`](CC-BY-4.0.txt). Credit them as:
+
+> Ark of the Covenant specs and 3D models © 2026 Micky (github.com/michaelshimeles) / bible-rs contributors, licensed CC BY 4.0, https://github.com/michaelshimeles/bible-rs
 
 ## Test fixtures
 

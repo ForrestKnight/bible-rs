@@ -1,0 +1,1 @@
+var e=`0.1.0`,t=`Apple Silicon and Intel`,n=`Bible`,r=`Simply My Bible`,i=`https://github.com/michaelshimeles/bible-rs`,a=`https://simplymybible.com`;export{a,r as i,n,e as o,i as r,t};

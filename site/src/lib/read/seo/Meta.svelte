@@ -9,10 +9,10 @@
 		type?: 'article' | 'website';
 	}
 
-	let { title, description, path, crumbs, tabTitle, type = 'article' }: Props = $props();
+	let { title, description, path, crumbs, image, faq, tabTitle, type = 'article' }: Props = $props();
 
 	const url = $derived(`${SITE_URL}${path}`);
-	const ld = $derived(jsonLd({ title, description, path, crumbs }));
+	const ld = $derived(jsonLd({ title, description, path, crumbs, faq }));
 </script>
 
 <svelte:head>
@@ -24,7 +24,7 @@
 	<meta property="og:title" content={title} />
 	<meta property="og:description" content={description} />
 	<meta property="og:url" content={url} />
-	<meta property="og:image" content="{SITE_URL}/og.jpg" />
+	<meta property="og:image" content="{SITE_URL}{image ?? '/og.jpg'}" />
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content={title} />
 	<meta name="twitter:description" content={description} />

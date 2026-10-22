@@ -36,6 +36,16 @@ The Mac app in the browser. [DECISIONS.md](../DECISIONS.md#web-the-core-in-webas
 - `src/service-worker/` caches the reader for offline use. It is registered by the reader only, scoped to `/read`, and not in development.
 - Development: `npm run dev`, then <http://localhost:5173/read>. In development the reader takes the Mac's demo steps for screenshots, for example `/read/kjv/john/1?fixture&settings={"theme":"dark"}&demo=jump:jn 3:16;select:jn 3:16` (`src/lib/read/demo.ts`): `fixture` loads sample highlights, notes and bookmarks, `settings` overrides settings, and `demo` runs steps in order. `window.readApp` is the app.
 
+## Objects in 3D (`/ark-of-the-covenant`)
+
+- The Ark of the Covenant, built from its spec in `../objects/ark.json` ([objects/README.md](../objects/README.md)): every size, the verse it comes from, and whether the text gives it or the model chooses it. `src/lib/objects/check.mjs` checks the spec against the core's KJV and BSB while the page prerenders, so a wrong reference or quote stops the build; `node src/lib/objects/check.mjs` runs the same check on its own (CI does).
+- `src/routes/ark-of-the-covenant/` is the page: the answer first, the 3D viewer, the dimensions, every part with its KJV verses, a visible FAQ (also FAQPage JSON-LD), and links to every verse and chapter it cites. `verses.json` there holds the cited verses in every bundled translation, so the viewer's hotspots read in the reader's current translation (`lib/objects/texts.ts`); one imported into this browser is read through the core. `embed` is the viewer alone, for the Mac app.
+- `src/lib/objects/Viewer.svelte` is the viewer: "Build from the text", the cubit toggle, the person for scale, See inside, Close-up, numbered hotspots and the parts list, and the rings' two readings. `scene.ts` draws it with three.js from the spec's numbers (`cherub.ts` is the cherubim's figure). It loads after the page paints and only where WebGL works; otherwise the page shows `static/ark-of-the-covenant/ark.jpg`. With reduced motion the build doesn't play by itself and nothing animates.
+- three.js stays off every other page: only the viewer imports it, and the reader's service worker leaves the viewer's files out of its offline copy (`viewerFiles` in `vite.config.ts` names them).
+- The reader puts a cube glyph after the first verse of each of the spec's sources (Exodus 25:10, 37:1) that links to the page (`lib/objects/glyphs.ts`).
+- Images: `sh scripts/ark-og.sh` (with `npm run dev` running; macOS, Google Chrome) renders the model into `static/ark-of-the-covenant/ark.jpg` and the share image `og.jpg` (template `scripts/og/ark.html`).
+- The Mac app shows the same page offline: after a build, `node scripts/app-web.mjs` copies the embed page and every file it loads into `../crates/app/web/`.
+
 ## Building
 
 - Requires Node >= 22.17 (SvelteKit 3). `.npmrc` sets `engine-strict`, so on a newer Node use `npm install --engine-strict=false`.

@@ -545,6 +545,32 @@ The Windows app is the same egui app with the macOS-only pieces given Windows co
 - **API keys in the Credential Manager** through the same `keyring` crate as the Keychain on
   macOS.
 
+## Objects in 3D: open specs, three.js, and the same page in the Mac app
+
+The first object is the Ark of the Covenant (`/ark-of-the-covenant`), from Marketing's spec and
+prototype.
+
+- **The spec is data, checked against the text.** `objects/ark.json` gives every part and every
+  number with the verse it comes from and the KJV and BSB words that state it, or marks it
+  interpretive with a note ([objects/README.md](objects/README.md)). The check
+  (`site/src/lib/objects/check.mjs`) finds each quote in its verse in the repository's own text,
+  so the spec can't cite a verse for a number the verse doesn't hold. CI runs it, and so does the
+  page's build.
+- **Plain three.js, not Threlte.** Marketing's spec suggested Threlte. The model is procedural
+  geometry with a timeline (the assembly), camera moves and picking, all imperative, which is
+  what their prototype already did in three.js. Threlte would add a declarative layer and tie the
+  scene to Svelte's version for none of that. `scene.ts` has no Svelte in it, and the page and
+  the app's embed load the same module.
+- **three.js loads only on the object's page, after it paints.** It is a 156 KB (gzipped) dynamic
+  import. The reader's service worker precaches every immutable file, so a build plugin
+  (`viewerFiles` in `site/vite.config.ts`) names the viewer's chunks for the worker to skip, and
+  reading offline never downloads them. A chapter page grew by 1.7 KB of gzipped script for the
+  glyph.
+- **Hotspots read in the reader's translation without the core.** The 25 cited verses in each
+  bundled translation are prerendered into `verses.json` (26 KB, 4 KB gzipped); only a
+  translation imported into the browser loads the core. The page's HTML carries the KJV, the
+  text search engines index.
+
 ## What was traded away
 
 - Highlights of part of a verse fall back to the whole verse in a translation that words it

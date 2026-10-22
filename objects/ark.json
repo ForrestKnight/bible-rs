@@ -1,0 +1,344 @@
+{
+	"$schema": "./object.schema.json",
+	"id": "ark",
+	"slug": "ark-of-the-covenant",
+	"title": "The Ark of the Covenant",
+	"summary": "A chest of acacia wood overlaid with pure gold, 2.5 by 1.5 by 1.5 cubits, with a lid of pure gold (the mercy seat) and two gold cherubim on it.",
+	"license": "CC-BY-4.0",
+	"sources": ["Exod.25.10-22", "Exod.37.1-9"],
+	"unit": "cubit",
+	"parts": [
+		{
+			"id": "chest",
+			"label": "The ark (chest)",
+			"interpretive": false,
+			"note": "Length, breadth and height are given in cubits, in acacia (shittim) wood overlaid with pure gold within and without. The thickness of the wood and of the gold is not given.",
+			"facts": [
+				{
+					"text": "Made of shittim (acacia) wood",
+					"ref": "Exod.25.10",
+					"quote": { "kjv": "an ark of shittim wood", "bsb": "an ark of acacia wood" }
+				},
+				{
+					"text": "Overlaid with pure gold, inside and out",
+					"ref": "Exod.25.11",
+					"quote": { "kjv": "overlay it with pure gold, within and without", "bsb": "Overlay it with pure gold both inside and out" }
+				},
+				{
+					"text": "Bezalel made it to the same measure",
+					"ref": "Exod.37.1",
+					"quote": {
+						"kjv": "two cubits and a half was the length of it",
+						"bsb": "two and a half cubits long"
+					}
+				}
+			],
+			"dims": {
+				"length": {
+					"value": 2.5,
+					"ref": "Exod.25.10",
+					"interpretive": false,
+					"quote": { "kjv": "two cubits and a half shall be the length thereof", "bsb": "two and a half cubits long" }
+				},
+				"breadth": {
+					"value": 1.5,
+					"ref": "Exod.25.10",
+					"interpretive": false,
+					"quote": { "kjv": "a cubit and a half the breadth thereof", "bsb": "a cubit and a half wide" }
+				},
+				"height": {
+					"value": 1.5,
+					"ref": "Exod.25.10",
+					"interpretive": false,
+					"quote": { "kjv": "a cubit and a half the height thereof", "bsb": "a cubit and a half high" }
+				},
+				"gold": {
+					"value": 0.006,
+					"interpretive": true,
+					"note": "The gold's thickness is not given. Drawn as a thin skin over the wood."
+				}
+			},
+			"model": "procedural:chest"
+		},
+		{
+			"id": "crown",
+			"label": "Crown of gold",
+			"interpretive": true,
+			"note": "A crown of gold \"round about\" is stated; its profile and height are not. Drawn as a plain rim around the top edge.",
+			"facts": [
+				{
+					"text": "A crown (molding) of gold around it",
+					"ref": "Exod.25.11",
+					"quote": { "kjv": "a crown of gold round about", "bsb": "a gold molding around it" }
+				},
+				{
+					"text": "Bezalel made it",
+					"ref": "Exod.37.2",
+					"quote": { "kjv": "made a crown of gold to it round about", "bsb": "made a gold molding around it" }
+				}
+			],
+			"dims": {
+				"height": { "value": 0.1, "interpretive": true, "note": "Not given." },
+				"thickness": { "value": 0.05, "interpretive": true, "note": "Not given." }
+			},
+			"model": "procedural:crown"
+		},
+		{
+			"id": "rings",
+			"label": "Four rings of gold",
+			"interpretive": true,
+			"note": "Four cast rings, two on each side, are stated. The Hebrew word the KJV renders \"corners\" (pa'am) is often read \"feet\", as the BSB does, so they are drawn low on the chest by default; some place them at the top corners.",
+			"facts": [
+				{
+					"text": "Four rings of cast gold",
+					"ref": "Exod.25.12",
+					"quote": { "kjv": "cast four rings of gold", "bsb": "Cast four gold rings" }
+				},
+				{
+					"text": "Two on one side, two on the other",
+					"ref": "Exod.25.12",
+					"quote": {
+						"kjv": "two rings shall be in the one side of it, and two rings in the other side of it",
+						"bsb": "two rings on one side and two on the other"
+					}
+				},
+				{
+					"text": "Bezalel cast them",
+					"ref": "Exod.37.3",
+					"quote": { "kjv": "he cast for it four rings of gold", "bsb": "he cast four gold rings" }
+				}
+			],
+			"dims": {
+				"count": {
+					"value": 4,
+					"unit": "count",
+					"ref": "Exod.25.12",
+					"interpretive": false,
+					"quote": { "kjv": "four rings of gold", "bsb": "four gold rings" }
+				},
+				"radius": { "value": 0.09, "interpretive": true, "note": "Not given." },
+				"thickness": { "value": 0.024, "interpretive": true, "note": "Not given." },
+				"inset": {
+					"value": 0.22,
+					"interpretive": true,
+					"note": "How far each ring sits from the end of the chest is not given."
+				}
+			},
+			"options": [
+				{
+					"id": "position",
+					"label": "Where the rings sit",
+					"default": "feet",
+					"choices": [
+						{
+							"id": "feet",
+							"label": "Low, at the feet",
+							"note": "Reads the Hebrew pa'am as \"feet\" (the BSB's \"its four feet\").",
+							"values": { "height": { "value": 0.32, "interpretive": true, "note": "A ring's centre above the floor; not given." } }
+						},
+						{
+							"id": "top-corners",
+							"label": "At the top corners",
+							"note": "Reads it as the KJV's \"four corners\", placed high so the ark rides above the bearers' shoulders.",
+							"values": { "height": { "value": 1.22, "interpretive": true, "note": "A ring's centre above the floor; not given." } }
+						}
+					]
+				}
+			],
+			"model": "procedural:rings"
+		},
+		{
+			"id": "poles",
+			"label": "Staves (poles)",
+			"interpretive": true,
+			"note": "Acacia overlaid with gold, carried in the rings and never taken out. Their number, length and thickness are not given, nor whether they run along the length or the breadth. Shown as two staves of 4.5 cubits along the length.",
+			"facts": [
+				{
+					"text": "Acacia wood overlaid with gold",
+					"ref": "Exod.25.13",
+					"quote": { "kjv": "staves of shittim wood, and overlay them with gold", "bsb": "poles of acacia wood and overlay them with gold" }
+				},
+				{
+					"text": "Put through the rings to carry the ark",
+					"ref": "Exod.25.14",
+					"quote": { "kjv": "put the staves into the rings by the sides of the ark", "bsb": "Insert the poles into the rings on the sides of the ark" }
+				},
+				{
+					"text": "Never taken out of the rings",
+					"ref": "Exod.25.15",
+					"quote": { "kjv": "they shall not be taken from it", "bsb": "they must not be removed" }
+				},
+				{
+					"text": "Bezalel made them and put them in",
+					"ref": "Exod.37.5",
+					"quote": { "kjv": "he put the staves into the rings by the sides of the ark", "bsb": "He inserted the poles into the rings on the sides of the ark" }
+				}
+			],
+			"dims": {
+				"count": {
+					"value": 2,
+					"unit": "count",
+					"interpretive": true,
+					"note": "Not stated; one stave for each side's pair of rings."
+				},
+				"length": { "value": 4.5, "interpretive": true, "note": "Not given." },
+				"radius": { "value": 0.055, "interpretive": true, "note": "Not given." }
+			},
+			"model": "procedural:poles"
+		},
+		{
+			"id": "testimony",
+			"label": "The testimony",
+			"interpretive": true,
+			"note": "The testimony goes inside the ark. Exodus 31:18 calls it two tables of stone; their size is not given. Hebrews 9:4 adds the pot of manna and Aaron's rod. Turn on See inside.",
+			"facts": [
+				{
+					"text": "The testimony is put inside the ark",
+					"ref": "Exod.25.16",
+					"quote": { "kjv": "put into the ark the testimony", "bsb": "place inside the ark the Testimony" }
+				},
+				{
+					"text": "Two tables of stone",
+					"ref": "Exod.31.18",
+					"quote": { "kjv": "two tables of testimony, tables of stone", "bsb": "two tablets of the Testimony, tablets of stone" }
+				},
+				{
+					"text": "Also the pot of manna and Aaron's rod",
+					"ref": "Heb.9.4",
+					"quote": { "kjv": "the golden pot that had manna, and Aaron’s rod that budded", "bsb": "the gold jar of manna, Aaron’s staff that had budded" }
+				}
+			],
+			"dims": {
+				"count": {
+					"value": 2,
+					"unit": "count",
+					"ref": "Exod.31.18",
+					"interpretive": false,
+					"quote": { "kjv": "two tables", "bsb": "two tablets" }
+				},
+				"width": { "value": 0.3, "interpretive": true, "note": "Not given." },
+				"height": { "value": 0.5, "interpretive": true, "note": "Not given." },
+				"thickness": { "value": 0.06, "interpretive": true, "note": "Not given." }
+			},
+			"model": "procedural:tablets"
+		},
+		{
+			"id": "mercy-seat",
+			"label": "Mercy seat",
+			"interpretive": false,
+			"note": "Pure gold, 2.5 by 1.5 cubits, set above on the ark. Its thickness is not given.",
+			"facts": [
+				{
+					"text": "Pure gold",
+					"ref": "Exod.25.17",
+					"quote": { "kjv": "a mercy seat of pure gold", "bsb": "a mercy seat of pure gold" }
+				},
+				{
+					"text": "Set above on the ark",
+					"ref": "Exod.25.21",
+					"quote": { "kjv": "put the mercy seat above upon the ark", "bsb": "Set the mercy seat atop the ark" }
+				},
+				{
+					"text": "Bezalel made it to the same measure",
+					"ref": "Exod.37.6",
+					"quote": { "kjv": "he made the mercy seat of pure gold", "bsb": "He constructed a mercy seat of pure gold" }
+				}
+			],
+			"dims": {
+				"length": {
+					"value": 2.5,
+					"ref": "Exod.25.17",
+					"interpretive": false,
+					"quote": { "kjv": "two cubits and a half shall be the length thereof", "bsb": "two and a half cubits long" }
+				},
+				"breadth": {
+					"value": 1.5,
+					"ref": "Exod.25.17",
+					"interpretive": false,
+					"quote": { "kjv": "a cubit and a half the breadth thereof", "bsb": "a cubit and a half wide" }
+				},
+				"thickness": { "value": 0.08, "interpretive": true, "note": "Not given." }
+			},
+			"model": "procedural:slab"
+		},
+		{
+			"id": "cherubim",
+			"label": "Two cherubim",
+			"interpretive": true,
+			"note": "Stated in the text: beaten gold, of one piece with the mercy seat, one at each end, wings stretched on high covering the seat, faces toward one another and toward the seat. Interpretive: the kneeling posture, faces, robes and feathers follow artistic tradition, not the text, and so does their height.",
+			"facts": [
+				{
+					"text": "Two cherubim of beaten gold",
+					"ref": "Exod.25.18",
+					"quote": { "kjv": "two cherubims of gold, of beaten work", "bsb": "two cherubim of hammered gold" }
+				},
+				{
+					"text": "One at each end, of one piece with the mercy seat",
+					"ref": "Exod.25.19",
+					"quote": { "kjv": "one cherub on the one end, and the other cherub on the other end", "bsb": "all made from one piece of gold" }
+				},
+				{
+					"text": "Wings stretched on high, covering the mercy seat",
+					"ref": "Exod.25.20",
+					"quote": { "kjv": "stretch forth their wings on high, covering the mercy seat", "bsb": "wings that spread upward, overshadowing the mercy seat" }
+				},
+				{
+					"text": "Facing each other, toward the mercy seat",
+					"ref": "Exod.25.20",
+					"quote": { "kjv": "their faces shall look one to another", "bsb": "The cherubim are to face each other" }
+				},
+				{
+					"text": "Bezalel made them so",
+					"ref": "Exod.37.9",
+					"quote": { "kjv": "the cherubims spread out their wings on high", "bsb": "the cherubim had wings that spread upward" }
+				}
+			],
+			"dims": {
+				"count": {
+					"value": 2,
+					"unit": "count",
+					"ref": "Exod.25.18",
+					"interpretive": false,
+					"quote": { "kjv": "two cherubims", "bsb": "two cherubim" }
+				},
+				"height": {
+					"value": 1.12,
+					"interpretive": true,
+					"note": "Not given. The figures' height, to the top of the wings, follows artistic tradition."
+				},
+				"inset": {
+					"value": 0.34,
+					"interpretive": true,
+					"note": "How far each figure stands from the end of the mercy seat is not given."
+				}
+			},
+			"model": "procedural:cherub"
+		},
+		{
+			"id": "presence",
+			"label": "Between the cherubim",
+			"interpretive": true,
+			"note": "The text names the place: above the mercy seat, between the two cherubim. The soft light is only a visual cue.",
+			"facts": [
+				{
+					"text": "God would meet Moses there, between the cherubim",
+					"ref": "Exod.25.22",
+					"quote": { "kjv": "from between the two cherubims", "bsb": "between the two cherubim" }
+				}
+			],
+			"dims": {},
+			"model": "procedural:glow"
+		}
+	],
+	"assembly": [
+		{ "part": "chest", "ref": "Exod.25.10" },
+		{ "part": "chest", "effect": "gild", "ref": "Exod.25.11" },
+		{ "part": "crown", "ref": "Exod.25.11" },
+		{ "part": "rings", "ref": "Exod.25.12" },
+		{ "part": "poles", "ref": "Exod.25.13" },
+		{ "part": "testimony", "ref": "Exod.25.16" },
+		{ "part": "mercy-seat", "ref": "Exod.25.17" },
+		{ "part": "cherubim", "ref": "Exod.25.18" },
+		{ "part": "presence", "ref": "Exod.25.22" }
+	]
+}

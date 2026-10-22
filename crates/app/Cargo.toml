@@ -66,6 +66,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 ] }
 raw-window-handle = "0.6"
 winit = { version = "0.30", default-features = false }
+# The 3D objects (objects/*.json): the website's pages in a WKWebView, served from the binary.
+wry = { version = "0.57", default-features = false }
 
 # Windows: the native menu bar, and the Win32 calls for links, local time, the console and the
 # system's animation setting.

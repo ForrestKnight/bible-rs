@@ -453,6 +453,8 @@
 
 	function onclick(e: MouseEvent) {
 		if (e.button !== 0 || !getSelection()?.isCollapsed) return;
+		// A link in the text (an object's glyph) goes where it points without choosing the verse.
+		if ((e.target as Element).closest('a[href]')) return;
 		const marker = (e.target as Element).closest<HTMLElement>('[data-marker]');
 		if (marker) {
 			const v = refIn(marker, Number(marker.dataset.v));
