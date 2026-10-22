@@ -57,6 +57,39 @@ export class Bible {
         }
     }
     /**
+     * Words chosen in `translation` for the clipboard: "plain" (just the words) or "reference"
+     * (`“so loved the world” — John 3:16 (KJV)`). Null when the translation hasn't them.
+     * @param {string} translation
+     * @param {any} span
+     * @param {string} format
+     * @returns {string | undefined}
+     */
+    copySpan(translation, span, format) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(translation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passStringToWasm0(format, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len1 = WASM_VECTOR_LEN;
+            wasm.bible_copySpan(retptr, this.__wbg_ptr, ptr0, len0, addHeapObject(span), ptr1, len1);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+            if (r3) {
+                throw takeObject(r2);
+            }
+            let v3;
+            if (r0 !== 0) {
+                v3 = getStringFromWasm0(r0, r1);
+                wasm.__wbindgen_export4(r0, r1 * 1, 1);
+            }
+            return v3;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Verses as text for the clipboard or a share sheet. `format` is "plain" (the verses
      * joined), "reference" (`“text” — John 3:16 (KJV)`, or a reference line and numbered verses
      * for several) or "markdown" (a quote with its reference). Null when none of the verses are
@@ -199,6 +232,31 @@ export class Bible {
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.bible_has(this.__wbg_ptr, ptr0, len0);
         return ret !== 0;
+    }
+    /**
+     * Colours a stretch of text as read in `translation` (`{first, start, last, end}`, UTF-16
+     * offsets into the verse texts), or with null clears it: over the highlights there, which it
+     * replaces where they overlap.
+     * @param {string} translation
+     * @param {any} span
+     * @param {string | null} [color]
+     */
+    highlightSpan(translation, span, color) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(translation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            var ptr1 = isLikeNone(color) ? 0 : passStringToWasm0(color, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            var len1 = WASM_VECTOR_LEN;
+            wasm.bible_highlightSpan(retptr, this.__wbg_ptr, ptr0, len0, addHeapObject(span), ptr1, len1);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
      * Merges a JSON export in (entries for the same verse are overwritten); returns how many
@@ -393,6 +451,24 @@ export class Bible {
         }
     }
     /**
+     * Removes one highlight of a verse: the one a study item's `start` names.
+     * @param {any} verse
+     * @param {number} start
+     */
+    removeHighlight(verse, start) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.bible_removeHighlight(retptr, this.__wbg_ptr, addHeapObject(verse), start);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Replaces the study store with a `snapshot`.
      * @param {string} json
      */
@@ -554,6 +630,35 @@ export class Bible {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
             wasm.__wbindgen_export4(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
+     * The colour every letter of a stretch of text has, if one does.
+     * @param {string} translation
+     * @param {any} span
+     * @returns {string | undefined}
+     */
+    spanColor(translation, span) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(translation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.bible_spanColor(retptr, this.__wbg_ptr, ptr0, len0, addHeapObject(span));
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+            if (r3) {
+                throw takeObject(r2);
+            }
+            let v2;
+            if (r0 !== 0) {
+                v2 = getStringFromWasm0(r0, r1);
+                wasm.__wbindgen_export4(r0, r1 * 1, 1);
+            }
+            return v2;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
         }
     }
     /**

@@ -1,7 +1,8 @@
 <!--
 	One chapter as verse-aligned rows across translations (the Mac's layout_parallel, frame 07): a
 	centred label, then a row per verse, each column a 24 pt number lane and the verse in Literata at
-	17/28 (at a 20 pt reading size). A selected verse is marked as a whole row.
+	17/28 (at a 20 pt reading size). A selected verse is marked as a whole row; each column shows the
+	highlights placed in its own translation's text.
 -->
 <script lang="ts" module>
 	import type { VerseContent } from '../core';
@@ -15,15 +16,16 @@
 </script>
 
 <script lang="ts">
-	import type { HighlightColor, Run, VerseMarks } from '../core';
-	import { runClass } from './segments';
+	import type { HighlightColor, VerseMarks } from '../core';
+	import { washes, type Piece, type Wash } from './segments';
 
 	interface Props {
 		index: number;
 		/** "JOHN 3", "PSALM 23". */
 		label: string;
 		columns: Column[];
-		marks: Map<number, VerseMarks>;
+		/** Each column's marks. */
+		marks: Map<number, VerseMarks>[];
 		selected: ReadonlySet<number>;
 		flash: number | null;
 		redLetters: boolean;
@@ -40,10 +42,17 @@
 	});
 
 	const hl = (c: HighlightColor | null | undefined) => (c ? `var(--hl-${c})` : undefined);
+	/** A verse in one colour throughout takes the verse's own wash. */
+	const whole = (ws: Wash[]) => (ws.length === 1 ? ws[0].color : null);
 </script>
 
-{#snippet run(r: Run)}{@const c = runClass(r, redLetters)}{#if c}<span class={c}>{r.text}</span
-		>{:else}{r.text}{/if}{/snippet}
+{#snippet piece(p: Piece)}<span class={p.cls || undefined} data-o={p.offset}>{p.text}</span>{/snippet}
+
+<!-- Parts of the verse in other colours wash only their words. -->
+{#snippet text(ws: Wash[])}{#each ws as w, i (i)}{#if w.color && ws.length > 1}<span
+				class="h"
+				style:--hl={hl(w.color)}>{#each w.pieces as p, k (k)}{@render piece(p)}{/each}</span
+			>{:else}{#each w.pieces as p, k (k)}{@render piece(p)}{/each}{/if}{/each}{/snippet}
 
 <section class="chapter" data-chapter={index} style:--n={columns.length}>
 	<p class="label">{label}</p>
@@ -55,18 +64,18 @@
 		</div>
 	{/if}
 	{#each rows as row (row.n)}
-		{@const m = marks.get(row.n)}
 		<div class="row" class:sel={selected.has(row.n)} data-row={row.n}>
 			{#each row.cells as v, ci (ci)}
-				<div class="cell">
+				<div class="cell" data-col={ci}>
 					{#if v}
+						{@const ws = washes(v.runs, marks[ci]?.get(v.number)?.highlights ?? [], redLetters)}
 						{#if verseNumbers}<span class="num" data-v={v.number}>{v.number}</span>{/if}
 						<p class="text" data-v={v.number} data-vs={ci === 0 ? '' : undefined}>{#if v.title && v.number === 1}<span
 									class="title">{v.title}</span
 								><br />{/if}<span
 								class="v seg"
 								class:flash={flash === v.number}
-								style:--hl={hl(m?.highlight)}>{#each v.runs as r, k (k)}{@render run(r)}{/each}</span
+								style:--hl={hl(whole(ws))}>{@render text(ws)}</span
 							></p>
 					{/if}
 				</div>
@@ -172,6 +181,17 @@
 	.v {
 		--hl: transparent;
 		background-image: linear-gradient(var(--fl), var(--fl)), linear-gradient(var(--hl), var(--hl));
+		background-size: 100% calc(100% - 0.085em);
+		background-position: 0 50%;
+		background-repeat: no-repeat;
+		border-radius: 4px;
+		-webkit-box-decoration-break: clone;
+		box-decoration-break: clone;
+	}
+
+	/* Part of a verse in its own colour. */
+	.h {
+		background-image: linear-gradient(var(--hl), var(--hl));
 		background-size: 100% calc(100% - 0.085em);
 		background-position: 0 50%;
 		background-repeat: no-repeat;

@@ -18,11 +18,8 @@
 	const refs = $derived(app.selectedRefs());
 	const marks = $derived(refs.length ? app.marks(app.settings.translation, app.chapterIndex(refs[0])) : null);
 	const first = $derived(refs.length ? marks?.get(refs[0].verse) : undefined);
-	/** The colour every selected verse shares, if they share one. */
-	const current = $derived.by(() => {
-		const colours = new Set(refs.map((v) => marks?.get(v.verse)?.highlight ?? null));
-		return colours.size === 1 ? [...colours][0] : null;
-	});
+	/** The colour all of the selection has (the chosen words, or the verses whole), if one. */
+	const current = $derived(app.selectionColor());
 	const keys = (id: string) => shortcutText(id, app.settings.shortcuts);
 
 	const close = () => (app.verseMenu = null);

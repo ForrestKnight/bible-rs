@@ -42,7 +42,7 @@
 	const abbrev = $derived(app.info(app.settings.translation)?.abbrev ?? '');
 	const selected = $derived(app.selection?.[0] ?? null);
 
-	let menu = $state<{ x: number; y: number; verse: VerseRef } | null>(null);
+	let menu = $state<{ x: number; y: number; verse: VerseRef; start: number } | null>(null);
 </script>
 
 {#if kind === 'highlights'}
@@ -73,7 +73,7 @@
 {#if items.length === 0}
 	<p class="hint">{HINTS[kind]}</p>
 {:else}
-	{#each shown as item (`${item.verse.book}:${item.verse.chapter}:${item.verse.verse}`)}
+	{#each shown as item (`${item.verse.book}:${item.verse.chapter}:${item.verse.verse}:${item.start}`)}
 		<ListItem
 			reference={item.reference}
 			trailing={abbrev}
@@ -85,7 +85,7 @@
 				app.dispatch({ type: 'jump', chapter: item.chapterIndex, verse: item.verse.verse, flash: true })}
 			oncontextmenu={(e) => {
 				e.preventDefault();
-				menu = { x: e.clientX, y: e.clientY, verse: item.verse };
+				menu = { x: e.clientX, y: e.clientY, verse: item.verse, start: item.start };
 			}}
 		/>
 	{/each}
@@ -101,7 +101,11 @@
 			label={REMOVE[kind][0]}
 			onclick={() => {
 				menu = null;
-				app.dispatch({ type: REMOVE[kind][1], verse: m.verse });
+				app.dispatch(
+					kind === 'highlights'
+						? { type: 'removeHighlight', verse: m.verse, start: m.start }
+						: { type: REMOVE[kind][1] as 'removeBookmark' | 'removeNote', verse: m.verse }
+				);
 			}}
 		/>
 		<MenuSeparator />

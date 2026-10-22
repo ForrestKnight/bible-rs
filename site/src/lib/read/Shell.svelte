@@ -23,6 +23,7 @@
 	import Pages from './pages/Pages.svelte';
 	import Palette from './overlays/Palette.svelte';
 	import VerseMenu from './overlays/VerseMenu.svelte';
+	import HighlightBar from './overlays/HighlightBar.svelte';
 	import NotePopover from './overlays/NotePopover.svelte';
 	import ComparePopover from './overlays/ComparePopover.svelte';
 	import VersePanel from './overlays/VersePanel.svelte';
@@ -317,6 +318,7 @@
 		{#if app.note}{#key app.note}<NotePopover />{/key}{/if}
 		{#if app.compare}<ComparePopover />{/if}
 		{#if app.verseMenu}<VerseMenu />{/if}
+		{#if app.touch && app.selection && app.page === 'reader' && !app.verseMenu && !app.note}<HighlightBar />{/if}
 		{#if app.palette}<Palette />{/if}
 		{#if app.settingsTab}<SettingsSheet />{/if}
 		{#if app.share}<ShareSheet />{/if}

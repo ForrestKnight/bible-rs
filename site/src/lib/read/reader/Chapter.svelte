@@ -6,7 +6,7 @@
 <script lang="ts">
 	import type { Block, ChapterContent, HighlightColor, Run, VerseMarks } from '../core';
 	import Icon from '../ui/Icon.svelte';
-	import { runClass, segments } from './segments';
+	import { runClass, segments, washes, type Piece, type Wash } from './segments';
 
 	interface Props {
 		index: number;
@@ -72,10 +72,20 @@
 
 	const level = (b: Block) => (b.kind.type === 'poetry' ? b.kind.level : 0);
 	const hl = (c: HighlightColor | null | undefined) => (c ? `var(--hl-${c})` : undefined);
+	/** A verse's part of a block in one colour throughout takes the verse's own wash. */
+	const whole = (ws: Wash[]) => (ws.length === 1 ? ws[0].color : null);
 </script>
 
 {#snippet run(r: Run)}{@const c = runClass(r, redLetters)}{#if c}<span class={c}>{r.text}</span
 		>{:else}{r.text}{/if}{/snippet}
+
+{#snippet piece(p: Piece)}<span class={p.cls || undefined} data-o={p.offset}>{p.text}</span>{/snippet}
+
+<!-- Parts of the verse in other colours wash only their words. -->
+{#snippet text(ws: Wash[])}{#each ws as w, i (i)}{#if w.color && ws.length > 1}<span
+				class="h"
+				style:--hl={hl(w.color)}>{#each w.pieces as p, k (k)}{@render piece(p)}{/each}</span
+			>{:else}{#each w.pieces as p, k (k)}{@render piece(p)}{/each}{/if}{/each}{/snippet}
 
 <section class="chapter" class:justify data-chapter={index} class:message={!!message}>
 	{#if quiet}
@@ -110,7 +120,11 @@
 			>{#if block.gutter}<span class="gutter" data-v={block.gutterVerse}>{block.gutter}</span
 					>{/if}{#each segs as seg, j (j)}{#if seg.verse === 0}{#each seg.runs as r, k (k)}{@render run(
 								r
-							)}{/each}{:else}{@const m = marks.get(seg.verse)}<span
+							)}{/each}{:else}{@const m = marks.get(seg.verse)}{@const ws = washes(
+								seg.runs,
+								m?.highlights ?? [],
+								redLetters
+							)}<span
 							class="seg"
 							data-v={seg.verse}
 							data-vs={seg.start ? '' : undefined}
@@ -134,8 +148,8 @@
 								class="v"
 								class:sel={selected.has(seg.verse)}
 								class:flash={flash === seg.verse}
-								style:--hl={hl(m?.highlight)}
-								>{#each seg.runs as r, k (k)}{@render run(r)}{/each}</span
+								style:--hl={hl(whole(ws))}
+								>{@render text(ws)}</span
 							>{seg.trail}</span
 						>{/if}{/each}</p>
 		{/each}
@@ -340,6 +354,17 @@
 
 	.v.sel {
 		--sel: var(--selection);
+	}
+
+	/* Part of a verse in its own colour: the same wash over just its words (the selection's over it). */
+	.h {
+		background-image: linear-gradient(var(--sel), var(--sel)), linear-gradient(var(--hl), var(--hl));
+		background-size: 100% calc(100% - 0.085em);
+		background-position: 0 50%;
+		background-repeat: no-repeat;
+		border-radius: 4px;
+		-webkit-box-decoration-break: clone;
+		box-decoration-break: clone;
 	}
 
 	.v.flash {

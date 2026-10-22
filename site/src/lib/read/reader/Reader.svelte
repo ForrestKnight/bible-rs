@@ -2,12 +2,13 @@
 	The reading area: chapters one after another in a scroller, as on the Mac (reader/mod.rs).
 	Only the chapters around the reading position are in the page; more are added as it scrolls,
 	keeping what's on screen still. Clicking a verse selects it, shift-click extends, double-click
-	writes a note, right-click opens the verse menu.
+	writes a note, right-click opens the verse menu. Selecting text (dragging, or a long press and
+	its handles on a touch screen) chooses words to highlight, within one chapter.
 -->
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
-	import { getApp, type ReaderHandle } from '../app.svelte';
-	import { CHAPTERS, chapterLabel, type VerseRef } from '../core';
+	import { getApp, refCmp, type ReaderHandle } from '../app.svelte';
+	import { CHAPTERS, chapterLabel, type TextSpan, type VerseRef } from '../core';
 	import Chapter from './Chapter.svelte';
 	import Parallel, { type Column } from './Parallel.svelte';
 	import Scrollbar from './Scrollbar.svelte';
@@ -51,9 +52,10 @@
 	});
 	let scrolledAt = $state(0);
 
-	/** The verses selected in a chapter. */
+	/** The verses selected in a chapter (none washed while words are chosen: the page shows them). */
 	function selectedIn(index: number): Set<number> {
 		const out = new Set<number>();
+		if (app.wordSpan()) return out;
 		for (const v of app.selectedRefs()) if (app.chapterIndex(v) === index) out.add(v.verse);
 		return out;
 	}
@@ -480,8 +482,155 @@
 	}
 
 	function onmousedown(e: MouseEvent) {
-		// Shift-click extends the verse selection, not the text selection.
-		if (e.shiftKey && verseAt(e)) e.preventDefault();
+		// Shift-click extends the verse selection, not the text selection (chosen words it does extend).
+		if (e.shiftKey && verseAt(e) && !app.wordSpan()) e.preventDefault();
+	}
+
+	// ------------------------------------------------------------------ chosen words
+
+	/** A place in a verse's text: its chapter, verse, UTF-16 offset and parallel column. */
+	interface Place {
+		chapter: number;
+		verse: number;
+		offset: number;
+		column: number;
+	}
+
+	/** The pieces of verse text in a chapter's column, in reading order. */
+	function piecesIn(section: Element, column: number): HTMLElement[] {
+		return [...section.querySelectorAll<HTMLElement>('[data-o]')].filter(
+			(p) => Number(p.closest<HTMLElement>('[data-col]')?.dataset.col ?? 0) === column
+		);
+	}
+
+	function placeIn(piece: HTMLElement, offset: number): Place | null {
+		const section = piece.closest<HTMLElement>('section[data-chapter]');
+		const verse = piece.closest<HTMLElement>('[data-v]');
+		if (!section || !verse) return null;
+		return {
+			chapter: Number(section.dataset.chapter),
+			verse: Number(verse.dataset.v),
+			offset: Number(piece.dataset.o) + offset,
+			column: Number(piece.closest<HTMLElement>('[data-col]')?.dataset.col ?? 0)
+		};
+	}
+
+	/** Where a selection's boundary is in the verse text: in a piece of it, or (on a verse number,
+	 *  a space between verses, a heading) the start of the next piece, else the end of the last. */
+	function placeAt(node: Node, offset: number): Place | null {
+		const el = node instanceof Element ? node : node.parentElement;
+		const section = el?.closest('section[data-chapter]');
+		if (!el || !section) return null;
+		const piece = el.closest<HTMLElement>('[data-o]');
+		if (piece) {
+			const at = node.nodeType === Node.TEXT_NODE ? offset : offset > 0 ? (piece.textContent ?? '').length : 0;
+			return placeIn(piece, at);
+		}
+		const range = document.createRange();
+		const pieces = [...section.querySelectorAll<HTMLElement>('[data-o]')];
+		for (const p of pieces) {
+			range.selectNodeContents(p);
+			if (range.comparePoint(node, offset) <= 0) return placeIn(p, 0);
+		}
+		const last = pieces[pieces.length - 1];
+		return last ? placeIn(last, (last.textContent ?? '').length) : null;
+	}
+
+	/** The end of a verse's text in a column (or of the column's last verse in the chapter). */
+	function endOf(chapter: number, column: number, verse: number | null): Place | null {
+		const section = sectionEl(chapter);
+		const pieces = section ? piecesIn(section, column) : [];
+		const mine = verse === null ? pieces : pieces.filter((p) => Number(p.closest<HTMLElement>('[data-v]')?.dataset.v) === verse);
+		const last = mine[mine.length - 1];
+		return last ? placeIn(last, (last.textContent ?? '').length) : null;
+	}
+
+	/** The words the page's text selection covers, held to the chapter and column it starts in. */
+	function wordsSelected(): { span: TextSpan; column: number } | null {
+		const sel = getSelection();
+		if (!sel || sel.isCollapsed || !sel.rangeCount || !column) return null;
+		const range = sel.getRangeAt(0);
+		if (!column.contains(range.commonAncestorContainer)) return null;
+		const a = placeAt(range.startContainer, range.startOffset);
+		let b = placeAt(range.endContainer, range.endOffset);
+		if (!a || !b) return null;
+		if (b.chapter !== a.chapter) b = endOf(a.chapter, a.column, null);
+		else if (b.column !== a.column) b = endOf(a.chapter, a.column, b.verse);
+		if (!b || b.verse < a.verse || (b.verse === a.verse && b.offset <= a.offset)) return null;
+		return {
+			span: { first: app.refAt(a.chapter, a.verse), start: a.offset, last: app.refAt(a.chapter, b.verse), end: b.offset },
+			column: a.column
+		};
+	}
+
+	const sameSpan = (x: TextSpan, y: TextSpan) =>
+		x.start === y.start && x.end === y.end && refCmp(x.first, y.first) === 0 && refCmp(x.last, y.last) === 0;
+
+	function onselectionchange() {
+		const w = wordsSelected();
+		const cur = app.wordSpan();
+		if (w && !(cur && cur.column === w.column && sameSpan(cur.span, w.span))) app.selectWords(w);
+		// A press outside the text (a menu, the highlight bar, the toolbar) keeps the words, as it
+		// keeps selected verses: they're selected again. One in the text lets go of them.
+		else if (!w && cur && app.heldWords && !typing()) void tick().then(reselect);
+		else if (!w && cur && !app.heldWords) app.selectWords(null);
+	}
+
+	/** Whether the keyboard is in a text field (whose own selection mustn't be taken). */
+	function typing(): boolean {
+		const el = document.activeElement as HTMLElement | null;
+		return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+	}
+
+	function onpointerdowncapture(e: PointerEvent) {
+		app.heldWords = column?.contains(e.target as Node) ? null : app.wordSpan();
+	}
+
+	/** The page's selection back on the chosen words, after a highlight redraws their verses. */
+	function reselect() {
+		const w = app.wordSpan();
+		const sel = getSelection();
+		if (!w || !sel) return;
+		const point = (v: VerseRef, offset: number, end: boolean): [Node, number] | null => {
+			const section = sectionEl(app.chapterIndex(v));
+			if (!section) return null;
+			const pieces = piecesIn(section, w.column).filter((p) => Number(p.closest<HTMLElement>('[data-v]')?.dataset.v) === v.verse);
+			for (const p of pieces) {
+				const o = Number(p.dataset.o);
+				const len = (p.textContent ?? '').length;
+				if (offset < o + len || (offset === o + len && end) || p === pieces[pieces.length - 1]) {
+					const text = p.firstChild;
+					return text ? [text, Math.max(0, Math.min(len, offset - o))] : null;
+				}
+			}
+			return null;
+		};
+		const a = point(w.span.first, w.span.start, false);
+		const b = point(w.span.last, w.span.end, true);
+		if (!a || !b) return;
+		const r = sel.rangeCount ? sel.getRangeAt(0) : null;
+		if (r && r.startContainer === a[0] && r.startOffset === a[1] && r.endContainer === b[0] && r.endOffset === b[1]) return;
+		sel.setBaseAndExtent(a[0], a[1], b[0], b[1]);
+	}
+
+	// A highlight redraws the verses it touches: put the selection back on the words.
+	$effect(() => {
+		void app.studyGen;
+		untrack(() => tick().then(reselect));
+	});
+
+	// Words let go (a verse selected instead, Escape): the page's selection goes too.
+	$effect(() => {
+		if (app.wordSpan()) return;
+		untrack(() => {
+			const sel = getSelection();
+			if (sel && !sel.isCollapsed && sel.rangeCount && column?.contains(sel.getRangeAt(0).commonAncestorContainer))
+				sel.removeAllRanges();
+		});
+	});
+
+	function onpointerdown(e: PointerEvent) {
+		app.touch = e.pointerType !== 'mouse';
 	}
 
 	// ------------------------------------------------------------------ the handle
@@ -510,6 +659,11 @@
 			else if (r.bottom > sr.bottom - margin) scrollBy(r.bottom - sr.bottom + margin);
 		},
 		selectionRect() {
+			const sel = getSelection();
+			if (app.wordSpan() && sel?.rangeCount && column.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+				const r = sel.getRangeAt(0).getBoundingClientRect();
+				if (r.width || r.height) return r;
+			}
 			const els = column.querySelectorAll('.v.sel, .row.sel');
 			let rect: DOMRect | null = null;
 			for (const el of els) {
@@ -543,9 +697,13 @@
 			schedule();
 		};
 		document.fonts?.addEventListener('loadingdone', fonts);
+		document.addEventListener('selectionchange', onselectionchange);
+		document.addEventListener('pointerdown', onpointerdowncapture, true);
 		return () => {
+			document.removeEventListener('pointerdown', onpointerdowncapture, true);
 			ro.disconnect();
 			document.fonts?.removeEventListener('loadingdone', fonts);
+			document.removeEventListener('selectionchange', onselectionchange);
 			if (app.reader === handle) app.reader = null;
 			cancelAnimationFrame(frame);
 			cancelAnimationFrame(scrollFrame);
@@ -576,6 +734,7 @@
 		{ondblclick}
 		{oncontextmenu}
 		{onmousedown}
+		{onpointerdown}
 		role="document"
 	>
 		{#each indices as index (index)}
@@ -584,7 +743,7 @@
 					{index}
 					label={parallelLabel(index)}
 					columns={columnsFor(index)}
-					marks={app.marks(translation, index)}
+					marks={cols.map((id) => app.marks(id, index))}
 					selected={selectedIn(index)}
 					flash={flash?.chapter === index ? flash.verse : null}
 					redLetters={typo.redLetters}

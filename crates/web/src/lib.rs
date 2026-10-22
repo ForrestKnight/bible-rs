@@ -475,6 +475,23 @@ impl Bible {
         }))
     }
 
+    /// Words chosen in `translation` for the clipboard: "plain" (just the words) or "reference"
+    /// (`“so loved the world” — John 3:16 (KJV)`). Null when the translation hasn't them.
+    #[wasm_bindgen(js_name = copySpan)]
+    pub fn copy_span(
+        &self,
+        translation: &str,
+        span: JsValue,
+        format: &str,
+    ) -> Result<Option<String>, JsError> {
+        let t = self.get(translation)?;
+        let span = text_span(t, span)?;
+        Ok(match format {
+            "plain" => bible_core::copy::span_text(t, &span),
+            _ => bible_core::copy::format_span(t, &span),
+        })
+    }
+
     /// Highlights, notes and bookmarks on the verses of a chapter (as numbered in `translation`,
     /// or the KJV's numbering when it isn't loaded).
     pub fn marks(&self, translation: &str, index: u16) -> Result<JsValue, JsError> {
