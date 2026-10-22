@@ -809,8 +809,9 @@ export class ReadApp {
 			case 'jump':
 				this.page = 'reader';
 				this.#jump(a.chapter, a.verse, a.flash ?? false);
-				// Landing on a specific verse selects it, so N/B/C/1–6 act on it right away.
-				if (a.verse && a.flash) this.setSelection(this.refAt(a.chapter, a.verse));
+				// Landing on a specific verse selects it, so N/B/C/1–6 act on it right away. Anywhere
+				// else, a selection left from before would send J/K back to where it was.
+				this.setSelection(a.verse && a.flash ? this.refAt(a.chapter, a.verse) : null);
 				break;
 			case 'back': {
 				if (this.page !== 'reader') {

@@ -592,10 +592,11 @@ impl BibleApp {
             Action::Jump { chapter, verse, flash } => {
                 self.pages.open(crate::pages::Page::Reader);
                 self.jump(chapter, verse, flash);
-                // Landing on a specific verse selects it, so N/B/C/1–6 act on it right away.
-                if let (Some(v), true) = (verse, flash) {
-                    self.reader.set_selection(Some(VerseRef::new(chapter.book(), chapter.chapter(), v)));
-                }
+                // Landing on a specific verse selects it, so N/B/C/1–6 act on it right away. Anywhere
+                // else, a selection left from before would send J/K back to where it was.
+                let landed =
+                    verse.filter(|_| flash).map(|v| VerseRef::new(chapter.book(), chapter.chapter(), v));
+                self.reader.set_selection(landed);
             }
             // From a page, Back returns to the reader.
             Action::Back if !self.pages.reader() => self.pages.open(crate::pages::Page::Reader),
