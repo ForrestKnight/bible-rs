@@ -37,12 +37,11 @@
 	let reducedMotion = $state(false);
 	/** ?shot: the model alone, filling the window, for the still and share images (scripts/ark-og.sh). */
 	let shot = $state(false);
-	/** ?shot=og: without the person, framed closer. */
+	/** ?shot=og: framed closer. */
 	let og = false;
 
 	// The props are the page's data, which doesn't change; these start from them.
 	let cubitId = $state(untrack(() => cubits.default));
-	let person = $state(true);
 	let inside = $state(false);
 	let closeUp = $state(false);
 	/** Each debated option's choice, by "part.option": its default to start with. */
@@ -140,7 +139,6 @@
 		const params = new URLSearchParams(location.search);
 		shot = params.has('shot');
 		og = params.get('shot') === 'og';
-		if (og) person = false;
 		// The app names its translation; a browser uses the reader's.
 		const wanted = params.get('translation') ?? readerTranslation() ?? 'kjv';
 		void available(versesUrl, wanted).then((list) => {
@@ -173,8 +171,6 @@
 				try {
 					scene = createScene(stage, spec, {
 						reducedMotion,
-						person: cubits.person.inches,
-						cubit: cubit.inches,
 						touchScroll: !embed,
 						tight: og,
 						events: {
@@ -218,15 +214,7 @@
 		};
 	});
 
-	$effect(() => {
-		const inches = cubit.inches;
-		scene?.setCubit(inches);
-	});
-	$effect(() => {
-		const on = person;
-		scene?.setPerson(on);
-	});
-	// Also what was chosen before the scene loaded, once it has.
+	// Each also applies what was chosen before the scene loaded, once it has.
 	$effect(() => {
 		const on = inside;
 		scene?.setInside(on);
@@ -300,7 +288,6 @@
 			bind:value={cubitId}
 		/>
 		<div class="switches">
-			<label><Toggle label="Person for scale" bind:checked={person} /> Person for scale</label>
 			<label><Toggle label="See inside" bind:checked={inside} /> See inside</label>
 			<label><Toggle label="Close-up" bind:checked={closeUp} /> Close-up</label>
 		</div>
@@ -359,10 +346,6 @@
 						<dd><b>{cubitsLabel(d.value)} cubits</b> {len(d.value).inches} · {len(d.value).cm}</dd>
 					</div>
 				{/each}
-				<div>
-					<dt>A person</dt>
-					<dd><b>{(cubits.person.inches / cubit.inches).toFixed(2)} cubits</b> {cubits.person.label}</dd>
-				</div>
 			</dl>
 			<p class="note">{cubit.label}, {cubit.inches} in ({cubit.cm} cm). The text gives only cubits, so inches and centimetres are estimates.</p>
 			<p class="hint-text">Tap a part, a number on the model or a name below to read the verses behind it.</p>

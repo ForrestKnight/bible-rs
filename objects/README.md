@@ -9,7 +9,7 @@ The site makes the 3D model, the verse panel and the object's page from it. The 
 |---|---|
 | `<id>.json` | An object: its parts, every number with its verse, and what is interpretive |
 | `object.schema.json` | The JSON Schema every object follows |
-| `cubits.json` | The cubits an object can be shown in, and the person drawn for scale |
+| `cubits.json` | The cubits an object can be shown in |
 | `cubits.schema.json` | Its schema |
 | `LICENSE` | CC BY 4.0, for everything here |
 

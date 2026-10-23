@@ -10,7 +10,6 @@ import {
 	AdditiveBlending,
 	BoxGeometry,
 	CanvasTexture,
-	CapsuleGeometry,
 	Color,
 	CylinderGeometry,
 	DirectionalLight,
@@ -59,9 +58,6 @@ export interface Hotspot {
 }
 
 export interface ArkScene {
-	/** Inches per cubit: rescales the person, who stays 5 ft 9 in. */
-	setCubit(inches: number): void;
-	setPerson(on: boolean): void;
 	setInside(on: boolean): void;
 	setCloseUp(on: boolean): void;
 	/** A part's debated option set to one of its choices (the rings' position). */
@@ -98,15 +94,11 @@ function dim(part: Part | undefined, key: string): number {
 export function createScene(
 	stage: HTMLElement,
 	spec: ObjectSpec,
-	{ reducedMotion, person: personInches, cubit: cubitInches, touchScroll, tight = false, events }: {
+	{ reducedMotion, touchScroll, tight = false, events }: {
 		reducedMotion: boolean;
-		/** The person's height in inches. */
-		person: number;
-		/** Inches per cubit, to start with. */
-		cubit: number;
 		/** On a page that scrolls, a vertical swipe scrolls it; a sideways one turns the ark. */
 		touchScroll: boolean;
-		/** Frame the ark alone, without room for the person (the share image). */
+		/** Frame the ark closer (the share image). */
 		tight?: boolean;
 		events: SceneEvents;
 	}
@@ -299,28 +291,6 @@ export function createScene(
 	halo.position.copy(glowAt);
 	presence.add(halo);
 
-	// A person for scale: 5 ft 9 in, so as many cubits tall as that is in the cubit shown.
-	const person = new Group();
-	scene.add(person);
-	const skinMat = new MeshStandardMaterial({ color: 0x77736c, roughness: 0.9 });
-	const limb = (geo: ConstructorParameters<typeof Mesh>[0], pos: number[]) => {
-		const m = new Mesh(geo, skinMat);
-		m.position.set(pos[0], pos[1], pos[2]);
-		m.castShadow = true;
-		person.add(m);
-	};
-	limb(new CapsuleGeometry(0.075, 0.42, 6, 12), [-0.09, 0.27, 0]);
-	limb(new CapsuleGeometry(0.075, 0.42, 6, 12), [0.09, 0.27, 0]);
-	limb(new CapsuleGeometry(0.16, 0.3, 6, 16), [0, 0.74, 0]);
-	limb(new CapsuleGeometry(0.05, 0.36, 6, 12), [-0.23, 0.72, 0]);
-	limb(new CapsuleGeometry(0.05, 0.36, 6, 12), [0.23, 0.72, 0]);
-	limb(new CapsuleGeometry(0.1, 0, 6, 16), [0, 1.08, 0]);
-	/** The mannequin's height as modelled, top of the head. */
-	const MANNEQUIN = 1.18;
-	// Beside the ark's far end, at its depth, so the two compare honestly.
-	person.position.set(-2.75, 0, 0.35);
-	person.rotation.y = 0.55;
-
 	// Every material, by part, for fading parts in and for the selection's glow.
 	const materials = (g: Object3D) => {
 		const out: MeshStandardMaterial[] = [];
@@ -369,7 +339,6 @@ export function createScene(
 	// ------------------------------------------------------------------ state
 	let inside = false;
 	let closeUp = false;
-	let showPerson = true;
 	let selected: string | null = null;
 	let built = new Set(spec.parts.map((p) => p.id));
 	/** Seconds into the assembly, or null when it isn't playing. */
@@ -465,7 +434,7 @@ export function createScene(
 	const near = { pos: new Vector3(1.9, 2.75, 2.6), target: new Vector3(0, 1.85, 0) };
 	let fly: { from: Vector3; to: Vector3; fromT: Vector3; toT: Vector3; start: number } | null = null;
 
-	/** Far enough back that the ark, its staves and the person fit the stage at any aspect. */
+	/** Far enough back that the ark and its staves fit the stage at any aspect. */
 	function fit(base: Vector3, target: Vector3, radius: number) {
 		const vfov = (camera.fov * Math.PI) / 180;
 		const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
@@ -474,7 +443,7 @@ export function createScene(
 	}
 
 	function flyTo(view: typeof wide, instant: boolean) {
-		// The close-up frames the cherubim; the wide view the ark, its staves and the person.
+		// The close-up frames the cherubim; the wide view the ark and its staves.
 		const to = fit(view.pos, view.target, view === near ? 1.15 : tight ? 2.3 : 2.9);
 		if (instant || reducedMotion) {
 			camera.position.copy(to);
@@ -634,15 +603,6 @@ export function createScene(
 	resize();
 	flyTo(wide, true);
 	const api: ArkScene = {
-		setCubit(inches) {
-			person.scale.setScalar(personInches / inches / MANNEQUIN);
-			wake();
-		},
-		setPerson(on) {
-			showPerson = on;
-			person.visible = on && !closeUp;
-			wake();
-		},
 		setInside(on) {
 			inside = on;
 			if (t0 === null) applyInside();
@@ -650,7 +610,6 @@ export function createScene(
 		},
 		setCloseUp(on) {
 			closeUp = on;
-			person.visible = showPerson && !on;
 			flyTo(on ? near : wide, false);
 		},
 		setChoice(id, option, choice) {
@@ -711,7 +670,6 @@ export function createScene(
 			el.remove();
 		}
 	};
-	api.setCubit(cubitInches);
 	wake();
 	return api;
 }

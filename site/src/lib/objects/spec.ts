@@ -85,7 +85,6 @@ export interface Cubits {
 	license: 'CC-BY-4.0';
 	default: string;
 	cubits: Cubit[];
-	person: { label: string; inches: number };
 }
 
 /** A translation's text of the verses an object cites, by OSIS reference. */

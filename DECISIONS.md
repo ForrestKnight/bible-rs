@@ -585,6 +585,10 @@ prototype.
   bundled translation are prerendered into `verses.json` (26 KB, 4 KB gzipped); only a
   translation imported into the browser loads the core. The page's HTML carries the KJV, the
   text search engines index.
+- **No figure for scale.** The floor's grid shows the scale, one square to a cubit, as the
+  viewer's hint says. The first version also stood a 5 ft 9 in figure beside the ark, with a
+  toggle, and Micky chose to drop it. The scene draws the model in cubits, so the Common/Royal
+  switch changes only the inches and centimetres in the panel.
 
 ## What was traded away
 

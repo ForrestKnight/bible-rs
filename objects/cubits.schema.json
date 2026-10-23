@@ -3,10 +3,10 @@
 	"$id": "https://github.com/michaelshimeles/bible-rs/objects/cubits.schema.json",
 	"$comment": "SPDX-License-Identifier: CC-BY-4.0 (objects/LICENSE)",
 	"title": "Cubit conversions",
-	"description": "The cubits every object can be shown in (objects/cubits.json), and the person drawn for scale.",
+	"description": "The cubits every object can be shown in (objects/cubits.json).",
 	"type": "object",
 	"additionalProperties": false,
-	"required": ["license", "default", "cubits", "person"],
+	"required": ["license", "default", "cubits"],
 	"properties": {
 		"$schema": { "type": "string" },
 		"license": { "description": "CC BY 4.0, as for everything in objects/ (objects/LICENSE).", "const": "CC-BY-4.0" },
@@ -28,15 +28,6 @@
 					"quote": { "$ref": "object.schema.json#/$defs/quote" }
 				},
 				"dependentRequired": { "ref": ["quote"], "quote": ["ref"] }
-			}
-		},
-		"person": {
-			"type": "object",
-			"additionalProperties": false,
-			"required": ["label", "inches"],
-			"properties": {
-				"label": { "type": "string", "minLength": 1 },
-				"inches": { "type": "number", "exclusiveMinimum": 0 }
 			}
 		}
 	}
