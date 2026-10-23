@@ -63,7 +63,7 @@ On [Omarchy](https://omarchy.org) the app is part of the desktop:
 - **Keybinding.** In `~/.config/hypr/bindings.lua`:
 
   ```lua
-  o.bind("SUPER + SHIFT + B", "Bible", { launch = "bible-rs", focus = "^bible-rs$" })
+  o.bind("SUPER + ALT + B", "Bible", { launch = "bible-rs", focus = "^bible-rs$" })
   ```
 
   `focus` brings the open window forward instead of starting a second one; the window's app id
