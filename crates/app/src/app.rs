@@ -137,14 +137,21 @@ impl Settings {
     }
 
     pub fn load(study: &StudyStore) -> Self {
-        study.setting("app").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| {
-            let mut s = Self::default();
-            // On Omarchy the desktop's theme is the app's until someone chooses another.
-            if crate::omarchy::available() {
-                s.theme = Theme::Omarchy;
-            }
-            s
-        })
+        let mut s: Self =
+            study.setting("app").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| {
+                let mut s = Self::default();
+                // On Omarchy the desktop's theme is the app's until someone chooses another.
+                if crate::omarchy::available() {
+                    s.theme = Theme::Omarchy;
+                }
+                s
+            });
+        // "Match System" from another machine means the Omarchy theme here.
+        if s.theme_system && crate::omarchy::available() {
+            s.theme_system = false;
+            s.theme = Theme::Omarchy;
+        }
+        s
     }
 
     pub fn save(&self, study: &mut StudyStore) {

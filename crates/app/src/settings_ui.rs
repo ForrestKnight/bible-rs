@@ -1521,8 +1521,9 @@ fn reading(ui: &mut Ui, library: &Library, settings: &mut Settings, actions: &mu
     }
 }
 
-/// The theme cards: Light, Sepia, Dark, Omarchy where the desktop has one, Match System (`ds-14`
-/// theme picker). Four cards are the design's 136 pt; a fifth shares the row.
+/// The theme cards: Light, Sepia, Dark, then Match System (`ds-14` theme picker), or Omarchy in
+/// its place where the desktop has a theme of its own: following the desktop is what Match
+/// System means, and there it is the whole palette rather than light or dark.
 fn theme_cards(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
     let p = settings.theme.palette();
     let width = ui.available_width();
@@ -1531,8 +1532,9 @@ fn theme_cards(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) 
         vec![(Some(Theme::Light), "Light"), (Some(Theme::Sepia), "Sepia"), (Some(Theme::Dark), "Dark")];
     if crate::omarchy::available() {
         options.push((Some(Theme::Omarchy), "Omarchy"));
+    } else {
+        options.push((None, "Match System"));
     }
-    options.push((None, "Match System"));
     let n = options.len() as f32;
     let card_w = ((width - (n - 1.0) * 12.0) / n).min(136.0);
     let gap = (width - n * card_w) / (n - 1.0);
@@ -1624,14 +1626,16 @@ fn appearance(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
     rows_card(ui, p, &[44.0, 64.0, 44.0, 44.0], |ui, i, r| match i {
         0 => {
             row_label(ui, p, r, "Theme", None);
+            // Omarchy's theme is the desktop's, so it stands where Auto (light or dark) would.
             let themes = Theme::choices();
             let mut items: Vec<(IconFn, &str)> =
                 vec![(icons::sun, "Light"), (icons::page, "Sepia"), (icons::moon, "Dark")];
             if themes.contains(&Theme::Omarchy) {
                 items.push((icons::cube, "Omarchy"));
+            } else {
+                items.push((icons::auto, "Auto"));
             }
-            items.push((icons::auto, "Auto"));
-            let auto = items.len() - 1;
+            let auto = items.len();
             let selected = if settings.theme_system {
                 auto
             } else {
