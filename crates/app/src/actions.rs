@@ -35,6 +35,9 @@ pub enum Action {
     EditNote(VerseRef),
     EditSelectedNote,
     ToggleBookmark,
+    /// Pin a book above the testaments in the sidebar, or unpin it.
+    PinBook(bible_core::BookId),
+    UnpinBook(bible_core::BookId),
     RemoveBookmark(VerseRef),
     /// Removes one highlight of a verse: the one stored from that char.
     RemoveHighlight(VerseRef, u32),

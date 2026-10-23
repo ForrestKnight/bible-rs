@@ -187,6 +187,37 @@ pub fn disclosure(p: &Painter, r: Rect, c: Color32) {
     g.line(&[(4.5, 3.0), (7.5, 6.0), (4.5, 9.0)]);
 }
 
+/// A pushpin on the disclosure chevrons' 12-unit grid; `filled` for a pinned book.
+pub fn pin(p: &Painter, r: Rect, c: Color32, filled: bool) {
+    let g = Grid::with(p, r, c, 12.0, 1.0);
+    // Head, body and flared collar.
+    let head = [(4.0, 1.0), (8.0, 1.0), (8.0, 2.5), (4.0, 2.5)];
+    let body = [(4.6, 2.5), (7.4, 2.5), (8.0, 6.25), (4.0, 6.25)];
+    let collar = [(4.0, 6.25), (8.0, 6.25), (9.25, 7.75), (2.75, 7.75)];
+    if filled {
+        // Filled and outlined, so the corners round off.
+        for part in [&head, &body, &collar] {
+            g.fill(part);
+            g.closed(part);
+        }
+    } else {
+        g.closed(&[
+            (4.0, 1.0),
+            (8.0, 1.0),
+            (8.0, 2.5),
+            (7.4, 2.5),
+            (8.0, 6.25),
+            (9.25, 7.75),
+            (2.75, 7.75),
+            (4.0, 6.25),
+            (4.6, 2.5),
+            (4.0, 2.5),
+        ]);
+    }
+    // The needle.
+    g.line(&[(6.0, 7.75), (6.0, 11.0)]);
+}
+
 /// Up-and-down chevrons of a select (popup button).
 pub fn chevrons_up_down(p: &Painter, r: Rect, c: Color32) {
     let g = Grid::new(p, r, c);
@@ -273,6 +304,16 @@ pub fn book(p: &Painter, r: Rect, c: Color32) {
     pts.push((15.75, 19.25));
     let pts: Vec<Pos2> = pts.into_iter().map(|(x, y)| g.p(x, y)).collect();
     g.polyline(pts, false);
+}
+
+/// The book with its cover filled (a pinned book); the pages under it stay open.
+pub fn book_fill(p: &Painter, r: Rect, c: Color32) {
+    let g = Grid::new(p, r, c);
+    let mut cover = vec![(4.25, 15.25), (4.25, 4.75)];
+    cover.extend(Grid::arc(6.25, 4.75, 2.0, PI, PI + FRAC_PI_2));
+    cover.extend([(15.75, 2.75), (15.75, 15.25)]);
+    g.fill(&cover);
+    book(p, r, c);
 }
 
 pub fn close(p: &Painter, r: Rect, c: Color32) {

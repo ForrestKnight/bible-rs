@@ -62,6 +62,8 @@ pub struct Settings {
     /// The first-launch screens are done. Settings saved before they existed count as done.
     #[serde(default = "yes")]
     pub onboarded: bool,
+    /// Books pinned above the testaments in the sidebar, in the order they were pinned.
+    pub pinned_books: Vec<u8>,
 }
 
 fn yes() -> bool {
@@ -96,6 +98,7 @@ impl Default for Settings {
             backup_weekly: false,
             share: Default::default(),
             onboarded: false,
+            pinned_books: Vec::new(),
         }
     }
 }
@@ -111,6 +114,26 @@ impl Settings {
                 name[..1].to_uppercase() + &name[1..]
             }
         }
+    }
+
+    /// The pinned books, oldest pin first (unknown ids from a newer version are skipped).
+    pub fn pinned(&self) -> Vec<BookId> {
+        self.pinned_books.iter().filter(|b| **b < 66).map(|b| BookId(*b)).collect()
+    }
+
+    pub fn is_pinned(&self, b: BookId) -> bool {
+        self.pinned_books.contains(&b.0)
+    }
+
+    /// Pins a book after the ones already pinned; pinning it again leaves it where it is.
+    pub fn pin_book(&mut self, b: BookId) {
+        if !self.is_pinned(b) {
+            self.pinned_books.push(b.0);
+        }
+    }
+
+    pub fn unpin_book(&mut self, b: BookId) {
+        self.pinned_books.retain(|x| *x != b.0);
     }
 
     pub fn load(study: &StudyStore) -> Self {
@@ -768,6 +791,8 @@ impl BibleApp {
                 let v = self.selection_or_location()[0];
                 self.apply_one(ctx, Action::EditNote(v));
             }
+            Action::PinBook(b) => self.settings.pin_book(b),
+            Action::UnpinBook(b) => self.settings.unpin_book(b),
             Action::ToggleBookmark => {
                 let v = self.selection_or_location()[0];
                 match self.study.toggle_bookmark(v) {
@@ -2489,6 +2514,7 @@ impl eframe::App for BibleApp {
                             }),
                         selection: self.reader.selected_refs().first().copied(),
                         page: self.pages.page,
+                        pinned: self.settings.pinned(),
                     };
                     self.sidebar.show(&mut child, &env, &mut self.settings.whole_words, &mut actions);
                 });
@@ -2870,5 +2896,44 @@ mod tests {
             assert!(now.capsule <= last.capsule && last.capsule - now.capsule < 0.01, "{last:?} → {now:?}");
             last = now;
         }
+    }
+
+    #[test]
+    fn pinned_books_keep_their_order_and_survive_a_restart() {
+        use super::Settings;
+        use bible_core::BookId;
+        use bible_core::study::StudyStore;
+        let (philippians, john, psalms) = (BookId(49), BookId(42), BookId(18));
+        let dir = std::env::temp_dir().join(format!("bible-rs-pins-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("study.sqlite");
+        {
+            let mut study = StudyStore::open(&path).unwrap();
+            let mut s = Settings::load(&study);
+            assert!(s.pinned().is_empty(), "nothing is pinned at first");
+            s.pin_book(philippians);
+            s.pin_book(john);
+            s.pin_book(psalms);
+            s.pin_book(philippians);
+            assert_eq!(
+                s.pinned(),
+                [philippians, john, psalms],
+                "in pin order; pinning again keeps the place"
+            );
+            s.unpin_book(john);
+            s.pin_book(john);
+            assert_eq!(s.pinned(), [philippians, psalms, john], "a book pinned again goes last");
+            s.save(&mut study);
+        }
+        let study = StudyStore::open(&path).unwrap();
+        let s = Settings::load(&study);
+        assert_eq!(s.pinned(), [philippians, psalms, john]);
+        assert!(s.is_pinned(psalms) && !s.is_pinned(BookId(0)));
+        // Settings saved before pins existed load with none, keeping everything else.
+        let old: Settings = serde_json::from_str(r#"{"translation":"kjv"}"#).unwrap();
+        assert!(old.pinned_books.is_empty());
+        assert_eq!(old.translation, "kjv");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -11,7 +11,7 @@ use bible_core::search::{Query, Scope};
 use bible_core::study::{HighlightColor, StudyStore};
 use eframe::egui::text::{LayoutJob, TextFormat, TextWrapping};
 use eframe::egui::{
-    self, Align, Align2, Color32, FontId, Key, Painter, Pos2, Rect, Response, ScrollArea, Sense, Shape,
+    self, Align, Align2, Color32, FontId, Id, Key, Painter, Pos2, Rect, Response, ScrollArea, Sense, Shape,
     Stroke, Ui, pos2, vec2,
 };
 
@@ -65,6 +65,8 @@ pub struct SidebarEnv<'a> {
     /// The page in the main area: its row is selected, and the books follow the reader only
     /// while it is shown.
     pub page: crate::pages::Page,
+    /// Books pinned above the testaments, in pin order.
+    pub pinned: Vec<BookId>,
 }
 
 pub struct Sidebar {
@@ -74,6 +76,8 @@ pub struct Sidebar {
     auto_opened: [bool; 2],
     /// The book whose chapter grid is open.
     expanded: Option<BookId>,
+    /// The pinned book whose chapter grid is open under its pinned row (apart from `expanded`).
+    pinned_expanded: Option<BookId>,
     /// Which study collections are expanded, and the one last opened (drawn selected).
     study_open: [bool; 3],
     study_selected: Option<StudyKind>,
@@ -118,6 +122,7 @@ impl Sidebar {
             testaments: [false, false],
             auto_opened: [false, false],
             expanded: None,
+            pinned_expanded: None,
             study_open: [false; 3],
             study_selected: None,
             study_all: [false; 3],
@@ -448,6 +453,66 @@ impl Sidebar {
                     }
 
                     section(ui, p, "Books", false);
+                    // Pinned books, above the testaments: a click opens the book's chapters right
+                    // under it (leaving the testaments as they are); the pin, or a right-click,
+                    // unpins it. Book rows in the testaments pin from their own pin or right-click.
+                    for &b in env.pinned.iter().filter(|b| matches(**b)) {
+                        let name = book_name(b);
+                        let open = self.pinned_expanded == Some(b) && b.chapters() > 1;
+                        let marked = self.activity.1.books.get(&b);
+                        let mut resp = row(
+                            ui,
+                            p,
+                            &Row {
+                                icon: Some(crate::icons::book_fill),
+                                label: &name,
+                                count: open.then(|| b.chapters().to_string()),
+                                pin_lane: true,
+                                marks: marked.map(|m| &m.marks[..]),
+                                ..Row::default()
+                            },
+                        );
+                        if let Some(m) = marked {
+                            resp = resp.on_hover_text(m.summary());
+                        }
+                        let pin = pin_toggle(ui, p, resp.rect, b, true, true);
+                        if pin.clicked() {
+                            actions.push(Action::UnpinBook(b));
+                        } else if resp.clicked() {
+                            if b.chapters() == 1 {
+                                actions.push(Action::Jump {
+                                    chapter: b.first_chapter(),
+                                    verse: None,
+                                    flash: false,
+                                });
+                                // Jumping from here leaves the testaments as they are.
+                                self.revealed = Some(b);
+                            } else {
+                                self.pinned_expanded = if open { None } else { Some(b) };
+                            }
+                        }
+                        resp.context_menu(|ui| {
+                            if ui.button("Unpin").clicked() {
+                                actions.push(Action::UnpinBook(b));
+                                ui.close();
+                            }
+                        });
+                        if open {
+                            let before = actions.len();
+                            chapter_grid(
+                                ui,
+                                p,
+                                ui.id().with(("pinned-chapters", b)),
+                                b,
+                                env.location.0,
+                                &self.activity.1.chapters,
+                                actions,
+                            );
+                            if actions.len() > before {
+                                self.revealed = Some(b);
+                            }
+                        }
+                    }
                     for (t, (label, range)) in
                         [("Old Testament", 0..FIRST_NT_BOOK.0), ("New Testament", FIRST_NT_BOOK.0..66)]
                             .into_iter()
@@ -489,6 +554,7 @@ impl Sidebar {
                                     count: here.then(|| b.chapters().to_string()),
                                     selected: here,
                                     marks: marked.map(|m| &m.marks[..]),
+                                    pin_lane: true,
                                     ..Row::default()
                                 },
                             );
@@ -498,7 +564,24 @@ impl Sidebar {
                             if here && reveal && !self.filtering {
                                 resp.scroll_to_me_animation(None, egui::style::ScrollAnimation::none());
                             }
-                            if resp.clicked() {
+                            let pinned = env.pinned.contains(&b);
+                            // The pin (on hover, or kept while pinned) pins without opening the book.
+                            let pin = pin_toggle(ui, p, resp.rect, b, pinned, false);
+                            if pin.clicked() {
+                                actions.push(if pinned { Action::UnpinBook(b) } else { Action::PinBook(b) });
+                            }
+                            resp.context_menu(|ui| {
+                                let (label, a) = if pinned {
+                                    ("Unpin", Action::UnpinBook(b))
+                                } else {
+                                    ("Pin to Top", Action::PinBook(b))
+                                };
+                                if ui.button(label).clicked() {
+                                    actions.push(a);
+                                    ui.close();
+                                }
+                            });
+                            if resp.clicked() && !pin.clicked() {
                                 if b.chapters() == 1 {
                                     actions.push(Action::Jump {
                                         chapter: b.first_chapter(),
@@ -510,7 +593,15 @@ impl Sidebar {
                                 }
                             }
                             if self.expanded == Some(b) && b.chapters() > 1 {
-                                chapter_grid(ui, p, b, env.location.0, &self.activity.1.chapters, actions);
+                                chapter_grid(
+                                    ui,
+                                    p,
+                                    ui.id().with(("chapters", b)),
+                                    b,
+                                    env.location.0,
+                                    &self.activity.1.chapters,
+                                    actions,
+                                );
                             }
                         }
                     }
@@ -1056,31 +1147,38 @@ struct Row<'a> {
     count: Option<String>,
     /// A disclosure chevron: `Some(open)`.
     disclosure: Option<bool>,
+    /// Keep the chevron's lane free for a pin (see [`pin_toggle`]), and keep the row's hover
+    /// while the pointer is on the pin.
+    pin_lane: bool,
     selected: bool,
-    /// A book's highlights and notes, as a small ring in the icon lane.
+    /// A book's highlights and notes, as a small ring in the icon lane (in place of any icon).
     marks: Option<&'a [Option<HighlightColor>]>,
 }
 
 fn row(ui: &mut Ui, p: &Palette, r: &Row<'_>) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
+    let over = r.pin_lane && ui.rect_contains_pointer(rect);
     if r.selected {
         ui.painter().rect_filled(rect, theme::radius::SM, p.accent_soft);
-    } else if let Some(fill) = widgets::hover_fill(ui, &resp, p, false) {
+    } else if let Some(fill) = widgets::hover_fill(ui, &resp, p, over) {
         ui.painter().rect_filled(rect, theme::radius::SM, fill);
     }
     let painter = ui.painter();
     let cy = rect.center().y;
     let mut x = rect.left() + ROW_PAD + r.indent;
-    if let Some(icon) = r.icon {
+    // A ring takes the icon's place (a pinned book with highlights or notes).
+    if let Some(marks) = r.marks.filter(|m| !m.is_empty()) {
+        let lane = pos2(rect.left() + ROW_PAD + ICON_LANE / 2.0, cy);
+        paint_ring(painter, lane, p, &BOOK_RING, marks);
+    } else if let Some(icon) = r.icon {
         icon(
             painter,
             Rect::from_min_size(pos2(x, cy - ICON_LANE / 2.0), vec2(ICON_LANE, ICON_LANE)),
             r.icon_color.unwrap_or(p.accent),
         );
+    }
+    if r.icon.is_some() {
         x += ICON_LANE + GAP;
-    } else if let Some(marks) = r.marks.filter(|m| !m.is_empty()) {
-        let lane = pos2(rect.left() + ROW_PAD + ICON_LANE / 2.0, cy);
-        paint_ring(painter, lane, p, &BOOK_RING, marks);
     }
     let (font, color) =
         if r.selected { (text::UI_STRONG.font(), p.accent) } else { (text::UI.font(), p.ink) };
@@ -1097,6 +1195,8 @@ fn row(ui: &mut Ui, p: &Palette, r: &Row<'_>) -> Response {
             crate::icons::disclosure(painter, chevron, color);
         }
         right = lane.left() - GAP;
+    } else if r.pin_lane {
+        right -= ICON_LANE + GAP;
     }
     if let Some(count) = &r.count {
         let (font, color) = if r.selected {
@@ -1110,6 +1210,22 @@ fn row(ui: &mut Ui, p: &Palette, r: &Row<'_>) -> Response {
         painter.text(pos2(right, cy), Align2::RIGHT_CENTER, t, theme::ui_medium(11.0), p.ink_3);
     }
     resp
+}
+
+/// The pin in a book row's chevron lane (like the Open in star): drawn filled while `pinned`,
+/// otherwise outlined while the row is hovered; returns its click response.
+/// `pinned_row` tells a pinned row's pin from the same book's pin in its testament.
+fn pin_toggle(ui: &Ui, p: &Palette, row: Rect, book: BookId, pinned: bool, pinned_row: bool) -> Response {
+    let lane = Rect::from_min_size(
+        pos2(row.right() - ROW_PAD - ICON_LANE, row.center().y - ICON_LANE / 2.0),
+        vec2(ICON_LANE, ICON_LANE),
+    );
+    let hit = ui.interact(lane.expand(4.0), ui.id().with(("book-pin", book, pinned_row)), Sense::click());
+    if pinned || ui.rect_contains_pointer(row) {
+        let ink = if hit.hovered() { p.ink } else { p.ink_3 };
+        crate::icons::pin(ui.painter(), Rect::from_center_size(lane.center(), vec2(12.0, 12.0)), ink, pinned);
+    }
+    hit.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// A bookmark, highlight, note or search hit in a list (`ds-09`): reference and translation,
@@ -1457,10 +1573,12 @@ fn paint_ring(
 
 /// The open book's chapters: 24 pt chips, the current one solid accent. A chapter with
 /// highlights or notes gets a segmented ring (one segment per highlight or note, in its colour) and
-/// its number on a disc tinted with its main highlight colour.
+/// its number on a disc tinted with its main highlight colour. The chips' ids come from `id`: a
+/// pinned book can show its chapters twice (under its pinned row and in its testament).
 fn chapter_grid(
     ui: &mut Ui,
     p: &Palette,
+    id: Id,
     book: BookId,
     current: ChapterIdx,
     activity: &HashMap<ChapterIdx, Marks>,
@@ -1481,7 +1599,7 @@ fn chapter_grid(
             vec2(CHIP, CHIP),
         );
         let idx = ChapterIdx::new(book, (i + 1) as u8).unwrap();
-        let resp = ui.interact(chip, ui.id().with(("chapter", book.0, i)), Sense::click());
+        let resp = ui.interact(chip, id.with(i), Sense::click());
         let here = idx == current;
         let marks = activity.get(&idx).filter(|m| !m.is_empty());
         let painter = ui.painter();
