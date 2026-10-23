@@ -21,7 +21,7 @@ optdepends=('libx11: run under X11 instead of Wayland'
 makedepends=('cargo' 'git')
 options=('!debug' '!lto')
 
-_commit=b771ab719661157690e964bdadfb7bd896ee06a7
+_commit=df679244e6cba6c4e3f8c090a02d95b70883e982
 source=("git+$url.git#commit=$_commit")
 sha256sums=('SKIP')
 
