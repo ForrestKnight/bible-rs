@@ -18,6 +18,7 @@ const PRECACHE = [
 	...immutable.filter((f) => !f.path.includes('bible_import') && !VIEWER.has(f.path)).map((f) => `/${f.path}`),
 	...assets.filter((f) => f.path.startsWith('fonts/read/') && f.path.endsWith('.woff2')).map((f) => `/${f.path}`),
 	'/favicon.png',
+	'/logo.png',
 	'/read'
 ];
 const precached = new Set(PRECACHE);

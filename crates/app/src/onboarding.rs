@@ -7,7 +7,8 @@
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 
-use eframe::egui::{self, Align2, Color32, FontId, Mesh, Painter, Pos2, Rect, Sense, Stroke, Ui, pos2, vec2};
+use eframe::egui::emath::GuiRounding;
+use eframe::egui::{self, Align2, Color32, FontId, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2, pos2, vec2};
 
 use bible_core::library::Library;
 use bible_core::model::MarkKind;
@@ -416,64 +417,44 @@ fn steps(painter: &Painter, p: &Palette, full: Rect, current: usize) {
     }
 }
 
-/// The app icon: a blue gradient tile with a soft blue shadow, a white hairline and the book glyph.
+/// The app icon, the logo filling its box over a soft shadow.
 pub fn app_icon(painter: &Painter, r: Rect) {
-    // The design's icon at 64 pt: radius 14.4, a 32 pt glyph; it scales with its box.
+    // The design's icon at 64 pt casts its shadow 8 pt down with a 48 pt blur; it scales with its box.
     let k = r.width() / 64.0;
-    let radius = 14.4 * k;
-    let top = Color32::from_rgb(61, 93, 186);
-    let bottom = Color32::from_rgb(36, 57, 122);
     painter.add(
         egui::epaint::RectShape::filled(
             r.translate(vec2(0.0, 8.0)),
-            radius,
-            Color32::from_rgba_unmultiplied(36, 57, 122, 77),
+            14.4 * k,
+            Color32::from_rgba_unmultiplied(62, 21, 23, 77),
         )
         .with_blur_width(48.0),
     );
-    painter.rect_filled(r, radius, top.lerp_to_gamma(bottom, 0.5));
-    // The gradient runs at 160° (CSS): down and slightly right.
-    let dir = egui::Vec2::angled(160f32.to_radians() - std::f32::consts::FRAC_PI_2);
-    let span = r.width() * dir.x.abs() + r.height() * dir.y.abs();
-    let inner = r.shrink(0.5);
-    let pts = rounded_rect_points(inner, radius - 0.5);
-    let mut mesh = Mesh::default();
-    let color_at =
-        |q: Pos2| top.lerp_to_gamma(bottom, ((q - r.center()).dot(dir) / span + 0.5).clamp(0.0, 1.0));
-    mesh.colored_vertex(inner.center(), color_at(inner.center()));
-    for q in &pts {
-        mesh.colored_vertex(*q, color_at(*q));
-    }
-    let n = pts.len() as u32;
-    for i in 0..n {
-        mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
-    }
-    painter.add(mesh);
-    painter.rect_stroke(
-        r.shrink(0.25),
-        radius,
-        Stroke::new(0.5, Color32::from_white_alpha(64)),
-        egui::StrokeKind::Middle,
-    );
-    icons::book(painter, Rect::from_center_size(r.center(), vec2(32.0 * k, 32.0 * k)), Color32::WHITE);
+    // One texel per pixel, on whole pixels, so the logo stays sharp.
+    let ppp = painter.pixels_per_point();
+    let side = (r.width() * ppp).round().max(1.0) as u32;
+    let at = Rect::from_center_size(r.center(), Vec2::splat(side as f32 / ppp));
+    let at = Rect::from_min_size(at.min.round_to_pixels(ppp), at.size());
+    let texture = logo_texture(painter.ctx(), side);
+    painter.image(texture.id(), at, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
 }
 
-fn rounded_rect_points(r: Rect, radius: f32) -> Vec<Pos2> {
-    use std::f32::consts::{FRAC_PI_2, PI};
-    let corners = [
-        (pos2(r.right() - radius, r.top() + radius), -FRAC_PI_2),
-        (pos2(r.right() - radius, r.bottom() - radius), 0.0),
-        (pos2(r.left() + radius, r.bottom() - radius), FRAC_PI_2),
-        (pos2(r.left() + radius, r.top() + radius), PI),
-    ];
-    let mut pts = Vec::with_capacity(4 * 9);
-    for (c, a0) in corners {
-        for k in 0..=8 {
-            let a = a0 + FRAC_PI_2 * k as f32 / 8.0;
-            pts.push(c + vec2(a.cos(), a.sin()) * radius);
-        }
+/// The logo resampled to `side` pixels, made once per size. The wgpu renderer makes no mipmaps,
+/// so a larger texture drawn small would alias.
+fn logo_texture(ctx: &egui::Context, side: u32) -> egui::TextureHandle {
+    let id = egui::Id::new(("app-icon", side));
+    if let Some(texture) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
+        return texture;
     }
-    pts
+    // Transparent pixels keep the colour of the logo's edge, so resampling leaves no dark rim.
+    let logo =
+        image::load_from_memory_with_format(include_bytes!("../assets/logo.png"), image::ImageFormat::Png)
+            .expect("the bundled logo is a PNG")
+            .into_rgba8();
+    let pixels = image::imageops::resize(&logo, side, side, image::imageops::FilterType::Lanczos3);
+    let image = egui::ColorImage::from_rgba_unmultiplied([side as usize; 2], pixels.as_raw());
+    let texture = ctx.load_texture("app-icon", image, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|d| d.insert_temp(id, texture.clone()));
+    texture
 }
 
 /// A theme card: Psalm 23 set in `tp`'s colours at three quarters of the reading size.
