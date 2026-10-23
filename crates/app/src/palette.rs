@@ -73,6 +73,7 @@ impl Item {
 }
 
 fn command_list(settings: &Settings) -> Vec<(&'static str, IconFn, Vec<&'static str>, Action)> {
+    #[allow(unused_mut)]
     let mut commands: Vec<(&'static str, IconFn, Vec<&'static str>, Action)> = vec![
         ("Toggle parallel translations", icons::columns, vec!["⇧", "⌘", "P"], Action::ToggleParallel),
         ("Theme: Light", sun_icon, vec![], Action::SetTheme(Theme::Light)),
@@ -109,6 +110,7 @@ fn command_list(settings: &Settings) -> Vec<(&'static str, IconFn, Vec<&'static 
         ("Settings", icons::sidebar, vec!["⌘", ","], Action::OpenSettings(SettingsTab::Reading)),
         ("Keyboard shortcuts", icons::list, vec!["⌘", "/"], Action::ShowShortcuts),
     ];
+    #[cfg(target_os = "linux")]
     if crate::omarchy::available() {
         let at = commands.iter().position(|c| c.0 == "Theme: Dark").map_or(commands.len(), |i| i + 1);
         commands.insert(at, ("Theme: Omarchy", sun_icon, vec![], Action::SetTheme(Theme::Omarchy)));

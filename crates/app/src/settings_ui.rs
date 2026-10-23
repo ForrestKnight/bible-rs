@@ -1530,7 +1530,12 @@ fn theme_cards(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) 
     let (row, _) = ui.allocate_exact_size(vec2(width, 108.0), Sense::hover());
     let mut options: Vec<(Option<Theme>, &str)> =
         vec![(Some(Theme::Light), "Light"), (Some(Theme::Sepia), "Sepia"), (Some(Theme::Dark), "Dark")];
-    if crate::omarchy::available() {
+    #[cfg(target_os = "linux")]
+    let omarchy = crate::omarchy::available();
+    #[cfg(not(target_os = "linux"))]
+    let omarchy = false;
+    if omarchy {
+        #[cfg(target_os = "linux")]
         options.push((Some(Theme::Omarchy), "Omarchy"));
     } else {
         options.push((None, "Match System"));
@@ -1630,7 +1635,11 @@ fn appearance(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
             let themes = Theme::choices();
             let mut items: Vec<(IconFn, &str)> =
                 vec![(icons::sun, "Light"), (icons::page, "Sepia"), (icons::moon, "Dark")];
-            if themes.contains(&Theme::Omarchy) {
+            #[cfg(target_os = "linux")]
+            let omarchy = themes.contains(&Theme::Omarchy);
+            #[cfg(not(target_os = "linux"))]
+            let omarchy = false;
+            if omarchy {
                 items.push((icons::cube, "Omarchy"));
             } else {
                 items.push((icons::auto, "Auto"));

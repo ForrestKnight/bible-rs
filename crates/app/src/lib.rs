@@ -27,6 +27,7 @@ pub mod native_menu;
 pub mod note_popover;
 pub mod objects;
 pub mod offline;
+#[cfg(target_os = "linux")]
 pub mod omarchy;
 pub mod onboarding;
 pub mod pages;
@@ -242,6 +243,7 @@ pub fn run() -> eframe::Result {
         Box::new(move |cc| {
             trace(t0, "window + GPU context ready");
             let _ = ctx_cell.set(cc.egui_ctx.clone());
+            #[cfg(target_os = "linux")]
             omarchy::watch(cc.egui_ctx.clone());
             cc.egui_ctx.set_fonts(theme::font_definitions());
             let init = init.join().map_err(|_| "initialization panicked")??;

@@ -25,7 +25,9 @@ pub enum Theme {
     Sepia,
     Dark,
     /// The desktop's own palette on Omarchy ([`crate::omarchy`]): the default there, and the
-    /// theme the app returns to whenever the desktop's changes. Offered only where it exists.
+    /// theme the app returns to whenever the desktop's changes. Offered only where it exists,
+    /// and built only into the Linux app.
+    #[cfg(target_os = "linux")]
     Omarchy,
 }
 
@@ -35,7 +37,9 @@ impl Theme {
 
     /// The themes to offer on this machine.
     pub fn choices() -> Vec<Theme> {
+        #[allow(unused_mut)]
         let mut all = Theme::ALL.to_vec();
+        #[cfg(target_os = "linux")]
         if crate::omarchy::available() {
             all.push(Theme::Omarchy);
         }
@@ -47,6 +51,7 @@ impl Theme {
             Theme::Light => "Light",
             Theme::Sepia => "Sepia",
             Theme::Dark => "Dark",
+            #[cfg(target_os = "linux")]
             Theme::Omarchy => "Omarchy",
         }
     }
@@ -55,13 +60,17 @@ impl Theme {
         match self {
             Theme::Light => Theme::Sepia,
             Theme::Sepia => Theme::Dark,
+            #[cfg(target_os = "linux")]
             Theme::Dark if crate::omarchy::available() => Theme::Omarchy,
-            Theme::Dark | Theme::Omarchy => Theme::Light,
+            #[cfg(target_os = "linux")]
+            Theme::Omarchy => Theme::Light,
+            Theme::Dark => Theme::Light,
         }
     }
 
     pub fn is_dark(self) -> bool {
         match self {
+            #[cfg(target_os = "linux")]
             Theme::Omarchy => crate::omarchy::current().is_some_and(|l| l.dark),
             t => t == Theme::Dark,
         }
@@ -74,6 +83,7 @@ impl Theme {
             Theme::Light => &LIGHT,
             Theme::Sepia => &SEPIA,
             Theme::Dark => &DARK,
+            #[cfg(target_os = "linux")]
             Theme::Omarchy => return crate::omarchy::current().map_or(&LIGHT, |l| l.palette),
         };
         match accent() {
@@ -148,7 +158,9 @@ fn accented() -> &'static [Palette] {
             let base = match theme {
                 Theme::Light => &LIGHT,
                 Theme::Sepia => &SEPIA,
-                Theme::Dark | Theme::Omarchy => &DARK,
+                Theme::Dark => &DARK,
+                #[cfg(target_os = "linux")]
+                Theme::Omarchy => &DARK,
             };
             for a in &Accent::ALL[1..] {
                 let mut p = base.clone();
@@ -453,6 +465,7 @@ pub fn font_definitions() -> FontDefinitions {
 pub fn apply(ctx: &egui::Context, theme: Theme) {
     let p = theme.palette();
     let dark = theme.is_dark();
+    #[cfg(target_os = "linux")]
     if theme == Theme::Omarchy {
         crate::omarchy::mark_applied();
     }

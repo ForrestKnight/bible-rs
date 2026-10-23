@@ -104,7 +104,9 @@ pub fn page_theme(t: Theme) -> &'static str {
         Theme::Light => "light",
         Theme::Sepia => "sepia",
         Theme::Dark => "dark",
+        #[cfg(target_os = "linux")]
         Theme::Omarchy if Theme::Omarchy.is_dark() => "dark",
+        #[cfg(target_os = "linux")]
         Theme::Omarchy => "light",
     }
 }

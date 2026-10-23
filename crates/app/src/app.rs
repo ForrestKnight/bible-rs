@@ -137,16 +137,20 @@ impl Settings {
     }
 
     pub fn load(study: &StudyStore) -> Self {
+        #[allow(unused_mut)]
         let mut s: Self =
             study.setting("app").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| {
+                #[allow(unused_mut)]
                 let mut s = Self::default();
                 // On Omarchy the desktop's theme is the app's until someone chooses another.
+                #[cfg(target_os = "linux")]
                 if crate::omarchy::available() {
                     s.theme = Theme::Omarchy;
                 }
                 s
             });
         // "Match System" from another machine means the Omarchy theme here.
+        #[cfg(target_os = "linux")]
         if s.theme_system && crate::omarchy::available() {
             s.theme_system = false;
             s.theme = Theme::Omarchy;
@@ -2455,6 +2459,7 @@ impl eframe::App for BibleApp {
         }
         // The desktop's theme changed (`omarchy theme set`): it wins over whatever was chosen
         // here, so the app changes with the rest of the desktop.
+        #[cfg(target_os = "linux")]
         if crate::omarchy::changed_since_applied() {
             self.settings.theme_system = false;
             actions.push(Action::SetTheme(Theme::Omarchy));

@@ -307,6 +307,7 @@ impl Reader {
         pixels_per_point.to_bits().hash(&mut h);
         serde_json::to_string(env.typo).unwrap_or_default().hash(&mut h);
         env.theme.hash(&mut h);
+        #[cfg(target_os = "linux")]
         if env.theme == Theme::Omarchy {
             // The same theme with another palette, after `omarchy theme set`.
             crate::omarchy::generation().hash(&mut h);
