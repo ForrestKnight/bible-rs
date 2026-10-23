@@ -173,6 +173,15 @@ pub fn run() -> eframe::Result {
     if !args.is_empty() {
         attach_console();
     }
+    // A reader that stops early (`bible-rs search … | head`) closes the pipe. Rust starts with
+    // SIGPIPE ignored, so the next print fails instead, and with `panic = "abort"` that is a core
+    // dump rather than a quiet exit. The default disposition ends the process the way other
+    // command-line tools end.
+    #[cfg(unix)]
+    // SAFETY: changes a signal disposition, before any other thread exists.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     if let Some(result) = cli::run(&args, &dir) {
         if let Err(e) = result {
             eprintln!("error: {e:#}");
