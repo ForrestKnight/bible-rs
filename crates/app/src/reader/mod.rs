@@ -299,9 +299,12 @@ impl Reader {
         }
     }
 
-    fn layout_key(env: &Env<'_>, width: f32) -> u64 {
+    fn layout_key(env: &Env<'_>, width: f32, pixels_per_point: f32) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         width.to_bits().hash(&mut h);
+        // Galleys are rasterized for one scale. On Wayland the window opens at scale 1 and learns
+        // the monitor's a frame or two later, so the first chapters must be typeset again.
+        pixels_per_point.to_bits().hash(&mut h);
         serde_json::to_string(env.typo).unwrap_or_default().hash(&mut h);
         env.theme.hash(&mut h);
         if env.theme == Theme::Omarchy {
@@ -438,7 +441,7 @@ impl Reader {
         if first_resize_frame
             && self.key != 0
             && (geom.col_w - self.col_w).abs() < 2.0 * env.typo.size
-            && Self::layout_key(env, self.col_w) == self.key
+            && Self::layout_key(env, self.col_w, ui.pixels_per_point()) == self.key
         {
             geom =
                 Geometry::with_column(rect, env.typo, env.columns.len(), ui.pixels_per_point(), self.col_w);
@@ -450,7 +453,7 @@ impl Reader {
         self.viewport_h = rect.height();
 
         // Re-key the cache when anything that affects layout changes, keeping the position.
-        let key = Self::layout_key(env, geom.col_w);
+        let key = Self::layout_key(env, geom.col_w, ui.pixels_per_point());
         if key != self.key {
             if self.key != 0
                 && self.pending_jump.is_none()
