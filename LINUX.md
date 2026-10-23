@@ -46,6 +46,29 @@ X11), xkbcommon and OpenGL libraries, which every desktop installation already h
 
 The command line works as on the Mac: `bible-rs search "love one another"`, `bible-rs read "jn 3:16"`.
 
+## Omarchy
+
+On [Omarchy](https://omarchy.org) the app is part of the desktop:
+
+- **Theme.** The desktop's palette (`~/.local/state/omarchy/current/theme/colors.toml`) is a
+  reading theme of its own, named Omarchy, and the one a new install starts on. `omarchy theme
+  set` changes the app with the rest of the desktop within half a second, even if Light, Sepia or
+  Dark was chosen in Settings meanwhile; those stay a choice between desktop changes.
+- **Package.** `packaging/arch/PKGBUILD` builds and installs it through pacman (`makepkg -si` in
+  that directory), so `omarchy pkg drop bible-rs` removes it. The recipe is shaped for
+  [omarchy-pkgs](https://github.com/omacom/omarchy-pkgs); see
+  [packaging/arch/README.md](packaging/arch/README.md).
+- **Menu.** `packaging/omarchy/omarchy-menu.jsonc` is an Install › Bible entry for the Omarchy
+  menu, for `~/.config/omarchy/extensions/omarchy-menu.jsonc` or Omarchy's own defaults.
+- **Keybinding.** In `~/.config/hypr/bindings.lua`:
+
+  ```lua
+  o.bind("SUPER + SHIFT + B", "Bible", { launch = "bible-rs", focus = "^bible-rs$" })
+  ```
+
+  `focus` brings the open window forward instead of starting a second one; the window's app id
+  is `bible-rs`, which window rules can match too.
+
 ## Build
 
 Rust 1.95+ and the development packages of the libraries above:

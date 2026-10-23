@@ -1,0 +1,12 @@
+// An entry for the Omarchy menu (Super + Space › Install), once bible-rs is in a pacman repo
+// Omarchy can reach. Lives in ~/.config/omarchy/extensions/omarchy-menu.jsonc on one machine, or
+// in default/omarchy/omarchy-menu.jsonc in basecamp/omarchy for everyone.
+{
+  "install.bible": {
+    "icon": "󰂺",
+    "label": "Bible",
+    "description": "Fast native Bible reader with search, highlights and notes",
+    "when": "! omarchy-pkg-present bible-rs",
+    "action": "omarchy-install-and-launch Bible bible-rs bible-rs"
+  }
+}
