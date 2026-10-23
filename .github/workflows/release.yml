@@ -3,8 +3,9 @@
 # scripts/release-macos.sh does the work; running it on a Mac is the primary path
 # (RELEASING.md), this workflow is the same steps on a GitHub runner.
 #
-# The windows job builds the Windows installer as a workflow artifact only; it attaches nothing
-# to the release (WINDOWS.md). It is unsigned until Windows signing is set up.
+# The linux job builds the Linux archives (LINUX.md) and attaches them to the same draft. The
+# windows job builds the Windows installer as a workflow artifact only; it attaches nothing to the
+# release (WINDOWS.md). It is unsigned until Windows signing is set up.
 #
 # Repository secrets (Settings → Secrets and variables → Actions), set up in RELEASING.md:
 #   DEVELOPER_ID_P12           base64 of the "Developer ID Application" certificate and key (.p12)
@@ -13,7 +14,7 @@
 #   NOTARY_API_KEY_ID          that key's ID
 #   NOTARY_API_ISSUER          the issuer ID shown above the keys list
 #   SPARKLE_PRIVATE_KEY        the update signing key, exported with generate_keys -x
-name: Release (macOS; Windows artifact)
+name: Release (macOS, Linux; Windows artifact)
 
 on:
   push:
@@ -144,6 +145,71 @@ jobs:
       - name: Remove the signing keychain
         if: always()
         run: if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
+
+  # The Linux archives, one per architecture, attached to the same draft release. They are not
+  # signed: Linux checks the SHA-256 next to them, and distribution packages pin it again.
+  linux:
+    name: Linux archive (${{ matrix.arch }})
+    needs: macos
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Tag matches the workspace version
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $version (expected v$version)"
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        with:
+          toolchain: stable
+
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libwayland-dev libx11-dev
+
+      - name: Build and package
+        run: scripts/package-linux.sh
+
+      - name: Archive contents
+        run: tar -tzvf dist/bible-rs-*-linux-${{ matrix.arch }}.tar.gz
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bible-rs-${{ github.ref_name }}-linux-${{ matrix.arch }}
+          path: |
+            dist/bible-rs-*-linux-${{ matrix.arch }}.tar.gz
+            dist/bible-rs-*-linux-${{ matrix.arch }}-SHA256SUMS.txt
+          if-no-files-found: error
+
+      # Same rules as the macOS job: a draft is made or filled, a published release is left alone.
+      - name: Attach to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          assets=(dist/bible-rs-*-linux-${{ matrix.arch }}.tar.gz dist/bible-rs-*-linux-${{ matrix.arch }}-SHA256SUMS.txt)
+          draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null || echo none)"
+          case "$draft" in
+            none)
+              gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes \
+                --title "Bible ${GITHUB_REF_NAME#v}" "${assets[@]}" ;;
+            true)
+              gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber ;;
+            *)
+              echo "::notice::$GITHUB_REF_NAME is already published; its files were left alone (this run's artifact has the new build)" ;;
+          esac
 
   # The Windows installer, as a workflow artifact. It never touches the GitHub Release.
   windows:
