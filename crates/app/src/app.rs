@@ -1490,8 +1490,9 @@ impl BibleApp {
             tmeta.as_ref().map(|m| m.abbrev.clone()).unwrap_or_default()
         };
         let show_translation = self.settings.toolbar_translation;
-        let book = widgets::Picker::new(ui, &title, 14.0, if show_translation { 10.0 } else { 12.0 });
-        let translation = widgets::Picker::new(ui, &abbrev, 10.0, 12.0);
+        let book = widgets::Picker::new(ui, &title, 14.0, if show_translation { 10.0 } else { 12.0 })
+            .flat(false, show_translation);
+        let translation = widgets::Picker::new(ui, &abbrev, 10.0, 12.0).flat(true, false);
         let width = book.width() + if show_translation { 1.0 + translation.width() } else { 0.0 };
         let pad_left = LEADING_INSET + (GROUP_GAP - LEADING_INSET) * open;
         let centre = (bar.left() + pad_left + bar.right() - TRAILING_INSET) / 2.0;
@@ -2067,7 +2068,7 @@ impl Leading {
 }
 
 /// The sidebar toggle centred at `centre_x` on the toolbar's line. In the sidebar's header it is a
-/// borderless 32 pt button in secondary ink; after the traffic lights, a 40 pt glass capsule in
+/// borderless 32 pt button in secondary ink; after the traffic lights, a 32 pt glass circle in
 /// ink. `capsule` (0–1) blends the two while the sidebar slides. Painted over the sidebar, whose
 /// edge it follows, so it isn't clipped to the main area.
 fn sidebar_toggle(
@@ -2085,6 +2086,7 @@ fn sidebar_toggle(
     let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
     ui.set_clip_rect(ui.ctx().content_rect());
     let resp = ui.interact(rect, Id::new("sidebar-toggle"), Sense::click());
+    widgets::pointer_on_hover(&ui, &resp);
     let radius = rect.height() / 2.0;
     if capsule > 0.0 {
         let mut glass = ui.painter().clone();
@@ -2785,9 +2787,9 @@ mod tests {
         // 8 pt after the sidebar.
         let shown = Leading::new(1.0, EXTENT, 0.0, DOCKED);
         assert_eq!(shown, Leading { toggle_x: 244.0, capsule: 0.0, nav_x: 272.0 });
-        // Hidden: the 40 pt toggle capsule after the traffic lights, then back and forward.
+        // Hidden: the 32 pt toggle circle after the traffic lights, then back and forward.
         let hidden = Leading::new(0.0, EXTENT, 0.0, DOCKED);
-        assert_eq!(hidden, Leading { toggle_x: 116.0, capsule: 1.0, nav_x: 144.0 });
+        assert_eq!(hidden, Leading { toggle_x: 112.0, capsule: 1.0, nav_x: 136.0 });
     }
 
     #[test]

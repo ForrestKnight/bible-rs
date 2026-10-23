@@ -22,6 +22,13 @@ pub fn hover_fill(ui: &Ui, resp: &Response, p: &Palette, on: bool) -> Option<Col
     (t > 0.0).then(|| p.fill.gamma_multiply(t))
 }
 
+/// The pointing-hand cursor over a clickable, enabled control.
+pub fn pointer_on_hover(ui: &Ui, resp: &Response) {
+    if resp.hovered() && ui.is_enabled() && resp.sense.senses_click() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+}
+
 /// A glass capsule behind toolbar controls.
 pub fn capsule(painter: &Painter, rect: Rect, p: &Palette) {
     let r = rect.height() / 2.0;
@@ -35,11 +42,35 @@ pub fn capsule_divider(painter: &Painter, x: f32, center_y: f32, p: &Palette) {
     painter.rect_filled(r, 0.0, p.separator);
 }
 
-/// A toolbar button at `rect` (inside a capsule, or on its own): a 20 pt icon in ink, a pill
-/// on hover and press, accent on accent-soft when `on`, tertiary ink when disabled.
+/// The corners of one segment of a split capsule: round on the capsule's outer ends, square
+/// where it meets a divider (`flat_left`, `flat_right`), so its fill runs flush to the hairline.
+pub fn segment_radius(rect: Rect, flat_left: bool, flat_right: bool) -> CornerRadius {
+    let r = (rect.height() / 2.0).round() as u8;
+    let (left, right) = (if flat_left { 0 } else { r }, if flat_right { 0 } else { r });
+    CornerRadius { nw: left, sw: left, ne: right, se: right }
+}
+
+/// The fill behind one segment of a capsule of buttons: accent-soft when `on`, else the
+/// hover / press fill, with [`segment_radius`] corners. Every multi-button capsule paints
+/// through this, so all of them square off where segments meet.
+pub fn segment_fill(ui: &Ui, resp: &Response, rect: Rect, p: &Palette, on: bool, flat: (bool, bool)) {
+    pointer_on_hover(ui, resp);
+    let radius = segment_radius(rect, flat.0, flat.1);
+    if on {
+        ui.painter().rect_filled(rect, radius, p.accent_soft);
+    } else if let Some(fill) = hover_fill(ui, resp, p, false) {
+        ui.painter().rect_filled(rect, radius, fill);
+    }
+}
+
+/// A toolbar button at `rect` (inside a capsule, or on its own): a 20 pt icon in ink, a
+/// [`segment_fill`] squared on the `flat` sides, accent on accent-soft when `on`, tertiary
+/// ink when disabled.
+#[allow(clippy::too_many_arguments)]
 pub fn toolbar_button(
     ui: &mut Ui,
     rect: Rect,
+    flat: (bool, bool),
     p: &Palette,
     tooltip: &str,
     enabled: bool,
@@ -48,11 +79,8 @@ pub fn toolbar_button(
 ) -> Response {
     let id = ui.id().with(("toolbar-button", tooltip));
     let resp = ui.interact(rect, id, if enabled { Sense::click() } else { Sense::hover() });
-    let pill = rect.height() / 2.0;
-    if on {
-        ui.painter().rect_filled(rect, pill, p.accent_soft);
-    } else if enabled && let Some(fill) = hover_fill(ui, &resp, p, false) {
-        ui.painter().rect_filled(rect, pill, fill);
+    if on || enabled {
+        segment_fill(ui, &resp, rect, p, on, flat);
     }
     let color = if !enabled {
         p.ink_3
@@ -121,7 +149,8 @@ pub fn button_capsule(
             x += 1.0;
         }
         let r = Rect::from_min_size(pos2(x, rect.top()), vec2(width, h));
-        out.push(toolbar_button(ui, r, p, b.tooltip, b.enabled, b.on, b.icon));
+        let flat = (i > 0, i + 1 < buttons.len());
+        out.push(toolbar_button(ui, r, flat, p, b.tooltip, b.enabled, b.on, b.icon));
         x += width;
     }
     (rect, out)
@@ -132,6 +161,7 @@ pub struct Picker {
     galley: std::sync::Arc<egui::Galley>,
     pad_left: f32,
     pad_right: f32,
+    flat: (bool, bool),
 }
 
 const PICKER_GAP: f32 = 4.0;
@@ -141,7 +171,14 @@ impl Picker {
     pub fn new(ui: &Ui, text: &str, pad_left: f32, pad_right: f32) -> Self {
         let font = text::UI_STRONG.font();
         let galley = ui.painter().layout_no_wrap(text.to_string(), font, Color32::PLACEHOLDER);
-        Self { galley, pad_left, pad_right }
+        Self { galley, pad_left, pad_right, flat: (false, false) }
+    }
+
+    /// Squares the left and/or right corners of the hover fill, where the picker meets a
+    /// divider in a split capsule.
+    pub fn flat(mut self, left: bool, right: bool) -> Self {
+        self.flat = (left, right);
+        self
     }
 
     pub fn width(&self) -> f32 {
@@ -151,9 +188,7 @@ impl Picker {
     /// Paints the picker at `rect` (its full height in the capsule) and makes it clickable.
     pub fn show(self, ui: &mut Ui, rect: Rect, p: &Palette, id: &str, tooltip: &str) -> Response {
         let resp = ui.interact(rect, ui.id().with(("picker", id)), Sense::click());
-        if let Some(fill) = hover_fill(ui, &resp, p, false) {
-            ui.painter().rect_filled(rect, rect.height() / 2.0, fill);
-        }
+        segment_fill(ui, &resp, rect, p, false, self.flat);
         let size = self.galley.size();
         let text_pos = pos2(rect.left() + self.pad_left, (rect.center().y - size.y / 2.0).round());
         ui.painter().galley(text_pos, self.galley, p.ink);
@@ -206,10 +241,14 @@ pub fn search_field(
             .vertical_align(egui::Align::Center)
             .desired_width(edit_rect.width()),
     );
+    if !focused {
+        pointer_on_hover(ui, &resp);
+    }
     let mut cleared = false;
     if !query.is_empty() {
         let c = Rect::from_center_size(pos2(rect.right() - 10.0 - 8.0, rect.center().y), vec2(16.0, 16.0));
         let cr = ui.interact(c.expand(2.0), id.with("clear"), Sense::click());
+        pointer_on_hover(ui, &cr);
         crate::icons::clear(ui.painter(), c, p.ink_3, p.paper);
         cleared = cr.clicked();
     }

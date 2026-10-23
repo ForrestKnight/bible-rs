@@ -662,7 +662,7 @@
     "capsule_height": 32,
     "capsule_radius": 16,
     "button_width": 36,
-    "sidebar_toggle_width": 40,
+    "sidebar_toggle_width": 32,
     "divider": {
       "width": 1,
       "height": 16
