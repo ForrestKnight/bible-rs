@@ -137,7 +137,14 @@ impl Settings {
     }
 
     pub fn load(study: &StudyStore) -> Self {
-        study.setting("app").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        study.setting("app").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| {
+            let mut s = Self::default();
+            // On Omarchy the desktop's theme is the app's until someone chooses another.
+            if crate::omarchy::available() {
+                s.theme = Theme::Omarchy;
+            }
+            s
+        })
     }
 
     pub fn save(&self, study: &mut StudyStore) {
@@ -2439,8 +2446,10 @@ impl eframe::App for BibleApp {
                 actions.push(Action::SetTheme(t));
             }
         }
-        // Omarchy's theme changed under us (`omarchy theme set`): take the new palette.
-        if self.settings.theme == Theme::Omarchy && crate::omarchy::changed_since_applied() {
+        // The desktop's theme changed (`omarchy theme set`): it wins over whatever was chosen
+        // here, so the app changes with the rest of the desktop.
+        if crate::omarchy::changed_since_applied() {
+            self.settings.theme_system = false;
             actions.push(Action::SetTheme(Theme::Omarchy));
         }
         #[cfg(windows)]

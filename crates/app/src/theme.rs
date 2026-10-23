@@ -24,7 +24,8 @@ pub enum Theme {
     Light,
     Sepia,
     Dark,
-    /// The desktop's own palette on Omarchy ([`crate::omarchy`]); offered only where it exists.
+    /// The desktop's own palette on Omarchy ([`crate::omarchy`]): the default there, and the
+    /// theme the app returns to whenever the desktop's changes. Offered only where it exists.
     Omarchy,
 }
 

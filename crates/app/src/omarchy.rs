@@ -2,10 +2,13 @@
 //!
 //! Omarchy keeps the active theme's palette in `~/.local/state/omarchy/current/theme/colors.toml`
 //! and its name in `theme.name` next to it; `omarchy-theme-set` replaces both when the theme
-//! changes. When those files exist the app offers an "Omarchy" theme that is derived from that
-//! palette the way the design's own themes are built (a [`Palette`] with the same roles), and a
-//! background thread notices a change within half a second and repaints. Nothing here depends on
-//! Omarchy at build time: elsewhere the files don't exist and the theme is never offered.
+//! changes. When those files exist the app has an "Omarchy" theme derived from that palette the
+//! way the design's own themes are built (a [`Palette`] with the same roles). It is the theme a
+//! new install starts on, and the desktop stays in charge: a background thread notices
+//! `omarchy theme set` within half a second and the app switches to the new palette, whichever
+//! theme was chosen in Settings meanwhile (Light, Sepia and Dark remain a choice until the next
+//! desktop change). Nothing here depends on Omarchy at build time: elsewhere the files don't
+//! exist and the theme is never offered.
 //!
 //! The palette file is flat TOML (`key = "#rrggbb"`), read here without a TOML parser: only
 //! `background`, `foreground` and `accent` are needed, the rest refine the result when present.
@@ -30,7 +33,9 @@ pub struct Loaded {
 }
 
 static CURRENT: RwLock<Option<Arc<Loaded>>> = RwLock::new(None);
-/// Bumped on every reload; [`crate::theme::apply`] records the generation it applied.
+/// Bumped on every reload; [`crate::theme::apply`] records the generation it applied. The first
+/// load counts as applied, so a saved Light or Sepia survives a restart and only a desktop change
+/// after startup overrides it.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static APPLIED: AtomicU64 = AtomicU64::new(0);
 
@@ -54,8 +59,9 @@ fn load_once() {
     ONCE.call_once(|| {
         if let Some(dir) = current_dir()
             && let Some((colors, name)) = read(&dir)
+            && install(&colors, name)
         {
-            install(&colors, name);
+            mark_applied();
         }
     });
 }
@@ -88,7 +94,8 @@ pub fn generation() -> u64 {
     GENERATION.load(Ordering::Relaxed)
 }
 
-/// True once the palette has changed since the theme was last applied.
+/// True once the desktop's theme has changed since the app last applied it: the signal to
+/// switch to it.
 pub fn changed_since_applied() -> bool {
     GENERATION.load(Ordering::Relaxed) != APPLIED.load(Ordering::Relaxed)
 }
@@ -289,9 +296,11 @@ border = "rgba(33ccffee)"
     #[test]
     fn a_reload_is_a_new_generation_until_applied() {
         let before = generation();
+        mark_applied();
+        assert!(!changed_since_applied(), "startup is not a switch");
         assert!(install(TOKYO_NIGHT, "tokyo-night".into()));
         assert_eq!(generation(), before + 1, "the layout cache re-keys on this");
-        assert!(changed_since_applied());
+        assert!(changed_since_applied(), "a reload after startup is");
         mark_applied();
         assert!(!changed_since_applied());
         assert!(!install("accent = \"#ffffff\"", String::new()), "an unreadable palette keeps the old one");
