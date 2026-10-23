@@ -1016,6 +1016,9 @@ export class ReadApp {
 			}
 			case 'removeParallel':
 				s.parallel = s.parallel.filter((p) => p !== a.id);
+				// With no column left to pair with, columns() would fill in a default one, so the
+				// removed column seemed to stay; leave parallel view instead.
+				if (!s.parallel.some((p) => p !== s.translation && this.info(p))) s.parallelOn = false;
 				break;
 			case 'highlight': {
 				// Chosen words: just those, placed in the text they were chosen in. A highlight of part

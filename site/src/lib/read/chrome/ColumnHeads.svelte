@@ -53,8 +53,10 @@
 			<MenuItem
 				label="Remove column"
 				onclick={() => {
+					// Read the column first: `current` follows `open`, which closing clears.
+					const id = current;
 					open = null;
-					app.dispatch({ type: 'removeParallel', id: current });
+					app.dispatch({ type: 'removeParallel', id });
 				}}
 			/>
 		{/if}

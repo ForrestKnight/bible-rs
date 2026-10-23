@@ -57,6 +57,8 @@ export default defineConfig({
 		})
 	],
 	test: { include: ['src/**/*.test.ts'] },
+	// Tests mount components in Node (in a happy-dom document), so they take Svelte's browser build.
+	resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
 	// The object pages import their specs from ../objects (objects/README.md).
 	server: { fs: { allow: [searchForWorkspaceRoot(process.cwd()), '../objects'] } }
 });

@@ -761,6 +761,13 @@ impl BibleApp {
             }
             Action::RemoveParallel(id) => {
                 self.settings.parallel.retain(|p| *p != id);
+                // With no column left to pair with, columns() would fill in a default one, so the
+                // removed column seemed to stay; leave parallel view instead.
+                let translation = &self.settings.translation;
+                let library = &self.library;
+                if !self.settings.parallel.iter().any(|p| p != translation && library.contains(p)) {
+                    self.settings.parallel_on = false;
+                }
             }
             Action::Highlight(color) => {
                 // Chosen words: just those, placed in the text they were chosen in.
