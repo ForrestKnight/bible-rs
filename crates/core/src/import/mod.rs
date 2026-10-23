@@ -218,13 +218,20 @@ fn unzip(reader: impl std::io::Read + std::io::Seek) -> Result<HashMap<String, V
         if !f.is_file() {
             continue;
         }
-        total += f.size();
-        if total > MAX_TOTAL {
+        let declared = f.size();
+        let left = MAX_TOTAL.saturating_sub(total);
+        if declared > left {
             bail!("archive is larger than 512 MB uncompressed");
         }
-        let mut buf = Vec::with_capacity(f.size() as usize);
-        f.read_to_end(&mut buf)?;
-        files.insert(f.name().replace('\\', "/"), buf);
+        total += declared;
+        // The declared size is only a claim: never read more than the budget left, whatever
+        // the entry really inflates to.
+        let mut buf = Vec::with_capacity((declared as usize).min(1 << 20));
+        (&mut f).take(left + 1).read_to_end(&mut buf)?;
+        if buf.len() as u64 > left {
+            bail!("archive is larger than 512 MB uncompressed");
+        }
+        files.insert(f.name()?.replace('\\', "/"), buf);
     }
     Ok(files)
 }

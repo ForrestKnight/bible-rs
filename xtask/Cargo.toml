@@ -11,4 +11,4 @@ publish = false
 bible-core = { workspace = true, default-features = false, features = ["native"] }
 anyhow.workspace = true
 sha2 = "0.10"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }

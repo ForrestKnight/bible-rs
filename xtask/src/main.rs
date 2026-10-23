@@ -261,7 +261,7 @@ fn build_data(root: &Path, ids: &[String]) -> Result<()> {
         let digest = hex(&Sha256::digest(std::fs::read(&zip_path)?));
         let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip_path)?)?;
         let mut names: Vec<String> =
-            archive.file_names().filter(|n| n.ends_with(".usfm")).map(String::from).collect();
+            archive.file_names().flatten().filter(|n| n.ends_with(".usfm")).map(|n| n.into_owned()).collect();
         names.sort();
         let meta = TranslationMeta {
             id: s.id.into(),

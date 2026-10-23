@@ -95,10 +95,21 @@ pub trait ModuleFiles {
     fn read(&self, rel: &str) -> Result<Vec<u8>>;
 }
 
+/// Is `rel` a relative path that stays inside the module root (no `..`, no absolute path, no
+/// drive letter)? A module's `.conf` is untrusted input.
+fn is_confined(rel: &str) -> bool {
+    let rel = rel.replace('\\', "/");
+    !rel.starts_with('/') && !rel.contains(':') && !rel.split('/').any(|part| part == "..")
+}
+
+/// Upper bound on one decompressed zText block. Real modules use blocks of a few hundred KB.
+const MAX_BLOCK: usize = 64 << 20;
+
 pub struct DirFiles(pub std::path::PathBuf);
 
 impl ModuleFiles for DirFiles {
     fn read(&self, rel: &str) -> Result<Vec<u8>> {
+        ensure!(is_confined(rel), "module file {rel:?} points outside the module");
         let p = self.0.join(rel.trim_start_matches("./"));
         std::fs::read(&p).with_context(|| format!("reading {}", p.display()))
     }
@@ -170,6 +181,7 @@ pub fn read_module(
     };
     let utf8 = conf.get("Encoding").is_some_and(|e| e.eq_ignore_ascii_case("UTF-8"));
     let data_path = conf.get("DataPath").context("conf has no DataPath")?.trim_end_matches('/').to_string();
+    ensure!(is_confined(&data_path), "the module's DataPath {data_path:?} points outside the module");
 
     let mut cipher_check: Option<usize> = None;
     for (testament, books) in [("ot", 0..FIRST_NT_BOOK.0), ("nt", FIRST_NT_BOOK.0..66)] {
@@ -323,10 +335,15 @@ impl TestamentReader {
         if let Some(k) = &self.key {
             Sapphire::new(k.as_bytes()).decrypt_in_place(&mut comp);
         }
+        // The sizes come from the module file: bound them before allocating or inflating, so a
+        // hostile module cannot ask for gigabytes.
+        ensure!(ucsize <= MAX_BLOCK, "a module block claims {ucsize} bytes; the limit is {MAX_BLOCK}");
         let mut out = Vec::with_capacity(ucsize);
         flate2::read::ZlibDecoder::new(&comp[..])
+            .take(ucsize as u64 + 1)
             .read_to_end(&mut out)
             .context("could not decompress a module block (wrong unlock key?)")?;
+        ensure!(out.len() <= ucsize, "a module block inflates past its declared size");
         let rc = std::rc::Rc::new(out);
         *self.cache.borrow_mut() = Some((n, rc.clone()));
         Ok(rc)
@@ -750,5 +767,47 @@ pub(crate) mod tests {
         let v = t.find(VerseRef::new(BookId(42), 3, 17)).unwrap();
         assert_eq!(v.plain_text(), "For God sent not his Son");
         assert_eq!(v.spans[0].style, Style::WordsOfJesus);
+    }
+
+    #[test]
+    fn data_paths_stay_inside_the_module() {
+        for ok in ["./modules/texts/ztext/kjv", "modules/texts/rawtext/web", "kjv"] {
+            assert!(is_confined(ok), "{ok}");
+        }
+        for bad in ["../../etc", "./a/../../b", "/etc", "C:/x", "a\\..\\b"] {
+            assert!(!is_confined(bad), "{bad}");
+        }
+        let dir = std::env::temp_dir().join(format!("bible-rs-sword-confine-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(DirFiles(dir.clone()).read("../outside").is_err());
+        assert!(DirFiles(dir.clone()).read("/etc/hosts").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hostile_block_sizes_are_refused() {
+        let reader = |ucsize: u32, payload: &[u8]| {
+            let mut blocks = Vec::new();
+            blocks.extend_from_slice(&0u32.to_le_bytes());
+            blocks.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            blocks.extend_from_slice(&ucsize.to_le_bytes());
+            TestamentReader {
+                driver: Driver::ZText { size4: false },
+                index: Vec::new(),
+                data: payload.to_vec(),
+                blocks,
+                key: None,
+                cache: Default::default(),
+            }
+        };
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        z.write_all(&vec![b'a'; 1 << 20]).unwrap();
+        let bomb = z.finish().unwrap();
+        // A declared size of 4 GiB is refused before anything is allocated.
+        assert!(reader(u32::MAX, &bomb).block(0).is_err());
+        // A block that inflates past what it declares is refused.
+        assert!(reader(16, &bomb).block(0).is_err());
+        // An honest block still reads.
+        assert_eq!(reader(1 << 20, &bomb).block(0).unwrap().len(), 1 << 20);
     }
 }

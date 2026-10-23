@@ -1,0 +1,28 @@
+# Checks Cargo.lock against the RustSec advisory database. Runs when dependencies change and
+# weekly, because advisories are published against crates that did not change.
+name: Audit
+
+on:
+  push:
+    branches: [main]
+    paths: ["**/Cargo.toml", "Cargo.lock"]
+  pull_request:
+    paths: ["**/Cargo.toml", "Cargo.lock"]
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      # Vulnerabilities fail the job. Unmaintained and yanked crates are warnings only.
+      - name: Audit
+        run: cargo audit

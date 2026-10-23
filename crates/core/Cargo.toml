@@ -27,7 +27,7 @@ serde.workspace = true
 serde_json.workspace = true
 memchr.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"], optional = true }
-zip = { version = "2", default-features = false, features = ["deflate"], optional = true }
+zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 flate2 = { version = "1", optional = true }
 ureq = { version = "3", default-features = false, features = ["gzip"], optional = true }
 
