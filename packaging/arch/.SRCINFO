@@ -1,0 +1,24 @@
+pkgbase = bible-rs
+	pkgdesc = A very fast native Bible reader: typeset Scripture, instant search, highlights, notes, bookmarks
+	pkgver = 0.2.0
+	pkgrel = 1
+	url = https://github.com/michaelshimeles/bible-rs
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	license = OFL-1.1
+	makedepends = cargo
+	depends = glibc
+	depends = gcc-libs
+	depends = wayland
+	depends = libxkbcommon
+	depends = libglvnd
+	depends = hicolor-icon-theme
+	optdepends = libx11: run under X11 instead of Wayland
+	optdepends = xdg-desktop-portal: "Match System" follows the desktop colour scheme
+	options = !debug
+	options = !lto
+	source = bible-rs-0.2.0.tar.gz::https://github.com/michaelshimeles/bible-rs/archive/refs/tags/v0.2.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = bible-rs

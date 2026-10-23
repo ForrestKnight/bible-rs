@@ -1,0 +1,57 @@
+# Maintainer: Forrest Knight <forrest.knight.yt@gmail.com>
+#
+# bible-rs for the AUR, built from the release's source tarball. After tagging a release, run
+# `updpkgsums` here to fill in the checksum, then `makepkg --printsrcinfo > .SRCINFO`.
+
+pkgname=bible-rs
+pkgver=0.2.0
+pkgrel=1
+pkgdesc='A very fast native Bible reader: typeset Scripture, instant search, highlights, notes, bookmarks'
+arch=('x86_64' 'aarch64')
+url='https://github.com/michaelshimeles/bible-rs'
+license=('MIT' 'OFL-1.1')
+# Wayland, xkbcommon and OpenGL are loaded at run time (the binary links only libc); X11 is a
+# fallback for sessions without Wayland.
+depends=('glibc' 'gcc-libs' 'wayland' 'libxkbcommon' 'libglvnd' 'hicolor-icon-theme')
+optdepends=('libx11: run under X11 instead of Wayland'
+            'xdg-desktop-portal: "Match System" follows the desktop colour scheme')
+makedepends=('cargo')
+options=('!debug' '!lto')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  # Panic locations name source files; without this they would name the build directory.
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/usr/src/$pkgname"
+  cargo build --frozen --release -p bible-rs
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --release -p bible-core -p bible-rs --lib
+  BIBLE_RS_HOME="$(mktemp -d)" target/release/bible-rs search "love one another" --limit 1
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/bible-rs "$pkgdir/usr/bin/bible-rs"
+  install -Dm644 packaging/linux/bible-rs.desktop "$pkgdir/usr/share/applications/bible-rs.desktop"
+  local png size
+  for png in packaging/linux/icons/hicolor/*/apps/bible-rs.png; do
+    size="$(basename "$(dirname "$(dirname "$png")")")"
+    install -Dm644 "$png" "$pkgdir/usr/share/icons/hicolor/$size/apps/bible-rs.png"
+  done
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 LICENSES/README.md "$pkgdir/usr/share/licenses/$pkgname/TRANSLATIONS.md"
+  install -Dm644 README.md LINUX.md -t "$pkgdir/usr/share/doc/$pkgname"
+}
