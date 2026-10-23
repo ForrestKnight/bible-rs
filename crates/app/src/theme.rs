@@ -24,16 +24,30 @@ pub enum Theme {
     Light,
     Sepia,
     Dark,
+    /// The desktop's own palette on Omarchy ([`crate::omarchy`]): the default there, and the
+    /// theme the app returns to whenever the desktop's changes. Offered only where it exists.
+    Omarchy,
 }
 
 impl Theme {
+    /// The design's themes. [`Theme::choices`] adds Omarchy's where it is available.
     pub const ALL: [Theme; 3] = [Theme::Light, Theme::Sepia, Theme::Dark];
+
+    /// The themes to offer on this machine.
+    pub fn choices() -> Vec<Theme> {
+        let mut all = Theme::ALL.to_vec();
+        if crate::omarchy::available() {
+            all.push(Theme::Omarchy);
+        }
+        all
+    }
 
     pub fn label(self) -> &'static str {
         match self {
             Theme::Light => "Light",
             Theme::Sepia => "Sepia",
             Theme::Dark => "Dark",
+            Theme::Omarchy => "Omarchy",
         }
     }
 
@@ -41,20 +55,26 @@ impl Theme {
         match self {
             Theme::Light => Theme::Sepia,
             Theme::Sepia => Theme::Dark,
-            Theme::Dark => Theme::Light,
+            Theme::Dark if crate::omarchy::available() => Theme::Omarchy,
+            Theme::Dark | Theme::Omarchy => Theme::Light,
         }
     }
 
     pub fn is_dark(self) -> bool {
-        self == Theme::Dark
+        match self {
+            Theme::Omarchy => crate::omarchy::current().is_some_and(|l| l.dark),
+            t => t == Theme::Dark,
+        }
     }
 
-    /// The theme's colours, with the accent colour chosen in Settings.
+    /// The theme's colours, with the accent colour chosen in Settings. Omarchy's palette has its
+    /// own accent and ignores the setting; a machine without Omarchy reads it as Light.
     pub fn palette(self) -> &'static Palette {
         let base = match self {
             Theme::Light => &LIGHT,
             Theme::Sepia => &SEPIA,
             Theme::Dark => &DARK,
+            Theme::Omarchy => return crate::omarchy::current().map_or(&LIGHT, |l| l.palette),
         };
         match accent() {
             Accent::Ink => base,
@@ -128,7 +148,7 @@ fn accented() -> &'static [Palette] {
             let base = match theme {
                 Theme::Light => &LIGHT,
                 Theme::Sepia => &SEPIA,
-                Theme::Dark => &DARK,
+                Theme::Dark | Theme::Omarchy => &DARK,
             };
             for a in &Accent::ALL[1..] {
                 let mut p = base.clone();
@@ -433,6 +453,9 @@ pub fn font_definitions() -> FontDefinitions {
 pub fn apply(ctx: &egui::Context, theme: Theme) {
     let p = theme.palette();
     let dark = theme.is_dark();
+    if theme == Theme::Omarchy {
+        crate::omarchy::mark_applied();
+    }
     ctx.set_theme(if dark { egui::Theme::Dark } else { egui::Theme::Light });
     ctx.style_mut_of(if dark { egui::Theme::Dark } else { egui::Theme::Light }, |style| {
         style.text_styles = [

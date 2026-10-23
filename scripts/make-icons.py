@@ -121,6 +121,13 @@ def main():
     images[-1].save(path, format="ICO", sizes=[(n, n) for n in ico], append_images=images[:-1])
     print(f"{path.relative_to(ROOT)}  {', '.join(map(str, ico))}")
 
+    # Linux: the launcher's icon theme (hicolor) wants one PNG per size, named after the desktop
+    # entry. The square fills each one, as logo.png does; the launcher adds its own margins.
+    for n in (16, 24, 32, 48, 64, 128, 256, 512):
+        path = ROOT / f"packaging/linux/icons/hicolor/{n}x{n}/apps/bible-rs.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        save(square(extended, n), path)
+
     # The site's favicon, the logo in its nav, footer and hero, the reader's logo, and the
     # home-screen icon, which iOS rounds like an app icon. The Mac app's Ark page copies the favicon.
     icon = on_canvas(extended, 256, 206, 25)

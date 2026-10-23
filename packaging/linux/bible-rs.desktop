@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Bible
+Comment=A fast, native Bible reader
+Exec=bible-rs
+Icon=bible-rs
+Terminal=false
+Categories=Education;Literature;
+Keywords=Bible;Scripture;KJV;Verse;
+StartupWMClass=bible-rs
