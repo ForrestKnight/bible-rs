@@ -210,6 +210,25 @@ pub struct Startup {
     pub frames: u32,
 }
 
+/// A message toast. `id` names its area for as long as it shows, so a toast keeps its own place
+/// and size when one below it goes.
+struct Toast {
+    id: u64,
+    key: Option<String>,
+    msg: String,
+    at: f64,
+}
+
+impl Toast {
+    fn area(&self) -> Id {
+        Id::new(("toast", self.id))
+    }
+}
+
+/// How long a message toast shows, and the fade at the end of that.
+const TOAST_SECS: f64 = 4.0;
+const TOAST_FADE_SECS: f64 = 0.2;
+
 pub struct BibleApp {
     pub data_dir: PathBuf,
     pub library: Library,
@@ -237,7 +256,8 @@ pub struct BibleApp {
     /// The compact toolbar's More menu: open it next frame (demo), and its keyboard item.
     open_more: bool,
     more_highlight: Option<usize>,
-    toasts: Vec<(String, f64)>,
+    toasts: Vec<Toast>,
+    toast_seq: u64,
     /// The reading (online) translation can't load the chapter being read.
     offline: Option<crate::offline::Offline>,
     /// The main area (right of the sidebar), where toasts centre.
@@ -373,6 +393,7 @@ impl BibleApp {
             open_more: false,
             more_highlight: None,
             toasts: Vec::new(),
+            toast_seq: 0,
             offline: None,
             main_area: egui::Rect::NOTHING,
             online_gen,
@@ -445,7 +466,26 @@ impl BibleApp {
     }
 
     pub fn toast(&mut self, ctx: &egui::Context, msg: impl Into<String>) {
-        self.toasts.push((msg.into(), ctx.input(|i| i.time)));
+        self.push_toast(ctx, None, msg.into());
+    }
+
+    /// The message toasts showing, oldest (lowest) first, with the area each is drawn in.
+    pub fn toast_areas(&self) -> Vec<(&str, Id)> {
+        self.toasts.iter().map(|t| (t.msg.as_str(), t.area())).collect()
+    }
+
+    /// A toast that takes the place of one still showing with the same key, so toggling a
+    /// bookmark again and again shows its latest state once rather than a stack of them.
+    fn toast_keyed(&mut self, ctx: &egui::Context, key: String, msg: impl Into<String>) {
+        self.push_toast(ctx, Some(key), msg.into());
+    }
+
+    fn push_toast(&mut self, ctx: &egui::Context, key: Option<String>, msg: String) {
+        if key.is_some() {
+            self.toasts.retain(|t| t.key != key);
+        }
+        self.toast_seq += 1;
+        self.toasts.push(Toast { id: self.toast_seq, key, msg, at: ctx.input(|i| i.time) });
     }
 
     fn here(&self) -> (ChapterIdx, u8) {
@@ -731,8 +771,10 @@ impl BibleApp {
             Action::ToggleBookmark => {
                 let v = self.selection_or_location()[0];
                 match self.study.toggle_bookmark(v) {
-                    Ok(true) => self.toast(ctx, format!("Bookmarked {v}")),
-                    Ok(false) => self.toast(ctx, format!("Removed bookmark {v}")),
+                    Ok(true) => self.toast_keyed(ctx, format!("bookmark {v}"), format!("Bookmarked {v}")),
+                    Ok(false) => {
+                        self.toast_keyed(ctx, format!("bookmark {v}"), format!("Removed bookmark {v}"))
+                    }
                     Err(e) => self.toast(ctx, format!("Couldn't save bookmark: {e:#}")),
                 }
             }
@@ -1910,11 +1952,18 @@ impl BibleApp {
     }
 
     /// Toasts at the bottom centre of the main area, 24 pt above the window edge: inverse
-    /// capsules 40 high (design notes §7). Messages go after 4 s; the error toast of a chapter
-    /// that can't load offers Retry and stays until clicked away or the chapter loads.
+    /// capsules 40 high (design notes §7). Messages go after 4 s, fading out over the last
+    /// 0.2 s while the ones above slide down into place; the error toast of a chapter that can't
+    /// load offers Retry and stays until clicked away or the chapter loads.
+    ///
+    /// Each toast's area is keyed by the toast and placed by its left edge, measured this frame:
+    /// an area keyed by its place in the stack and pivoted on its centre is positioned with the
+    /// size of whatever toast held that place last frame, so when one went the rest zigzagged.
     fn toasts(&mut self, ctx: &egui::Context) {
         let now = ctx.input(|i| i.time);
-        self.toasts.retain(|(_, t)| now - t < 4.0);
+        self.toasts.retain(|t| now - t.at < TOAST_SECS);
+        let still =
+            self.settings.reduce_motion || crate::offscreen_still() || crate::motion::system_reduces_motion();
         let p = self.settings.theme.palette();
         let area = if self.main_area.is_positive() { self.main_area } else { ctx.content_rect() };
         // Ink on paper; in the dark a warm near-white, with the light theme's danger.
@@ -1926,34 +1975,46 @@ impl BibleApp {
         let divider = egui::Color32::from_rgba_unmultiplied(r, g, b, 0x8C);
         let danger = if dark { Theme::Light.palette().danger } else { Theme::Dark.palette().danger };
 
-        let mut msgs: Vec<(String, bool)> = Vec::new();
+        // (area id, text, is the retryable error, opacity)
+        let mut msgs: Vec<(Id, String, bool, f32)> = Vec::new();
         if let Some(o) = self.offline.as_ref().filter(|o| !o.dismissed) {
-            msgs.push((o.toast(&self.library), true));
+            msgs.push((Id::new("toast-offline"), o.toast(&self.library), true, 1.0));
         }
-        msgs.extend(self.toasts.iter().map(|(m, _)| (m.clone(), false)));
+        msgs.extend(self.toasts.iter().map(|t| {
+            let left = TOAST_SECS - (now - t.at);
+            let opacity = if still { 1.0 } else { (left / TOAST_FADE_SECS).clamp(0.0, 1.0) as f32 };
+            (t.area(), t.msg.clone(), false, opacity)
+        }));
         if let Some(b) = &self.busy {
-            msgs.push((b.clone(), false));
+            msgs.push((Id::new("toast-busy"), b.clone(), false, 1.0));
         }
+        let measure = egui::Painter::new(
+            ctx.clone(),
+            egui::LayerId::new(egui::Order::Tooltip, Id::new("toast-measure")),
+            area,
+        );
         let (mut retry, mut dismiss) = (false, false);
-        let mut y = area.bottom() - 24.0;
-        for (i, (m, error)) in msgs.iter().enumerate() {
-            let id = Id::new(("toast", i));
-            let resp = egui::Area::new(id)
+        let mut bottom = area.bottom() - 24.0;
+        for (id, m, error, opacity) in &msgs {
+            let (id, error) = (*id, *error);
+            let font = theme::ui_medium(13.0);
+            let m = crate::pages::elide(&measure, m, &font, 480.0);
+            let msg = measure.layout_no_wrap(m, font, ink);
+            let action = error.then(|| measure.layout_no_wrap("Retry".into(), theme::ui_semibold(13.0), ink));
+            let lead = if error { 14.0 + 16.0 + 10.0 } else { 16.0 };
+            let tail = action.as_ref().map_or(0.0, |a| 10.0 + 1.0 + 10.0 + a.size().x);
+            let size = vec2(lead + msg.size().x + tail + 16.0, 40.0);
+            // Slide into a place opened by a toast that went; a new toast starts where it is.
+            let top =
+                ctx.animate_value_with_time(id.with("top"), bottom - size.y, if still { 0.0 } else { 0.15 });
+            egui::Area::new(id)
                 .order(egui::Order::Tooltip)
-                .fixed_pos(egui::pos2(area.center().x, y))
-                .pivot(Align2::CENTER_BOTTOM)
-                .interactable(*error)
+                .fixed_pos(egui::pos2((area.center().x - size.x / 2.0).round(), top))
+                .interactable(error)
                 .show(ctx, |ui| {
+                    ui.multiply_opacity(*opacity);
                     let painter = ui.painter().clone();
-                    let font = theme::ui_medium(13.0);
-                    let m = crate::pages::elide(&painter, m, &font, 480.0);
-                    let msg = painter.layout_no_wrap(m, font, ink);
-                    let action =
-                        error.then(|| painter.layout_no_wrap("Retry".into(), theme::ui_semibold(13.0), ink));
-                    let lead = if *error { 14.0 + 16.0 + 10.0 } else { 16.0 };
-                    let tail = action.as_ref().map_or(0.0, |a| 10.0 + 1.0 + 10.0 + a.size().x);
-                    let (rect, bg) =
-                        ui.allocate_exact_size(vec2(lead + msg.size().x + tail + 16.0, 40.0), Sense::click());
+                    let (rect, bg) = ui.allocate_exact_size(size, Sense::click());
                     painter.add(
                         egui::epaint::RectShape::filled(
                             rect.translate(vec2(0.0, 8.0)),
@@ -1965,7 +2026,7 @@ impl BibleApp {
                     painter.rect_filled(rect, 20.0, fill);
                     let cy = rect.center().y;
                     let mut x = rect.left() + lead;
-                    if *error {
+                    if error {
                         let icon = egui::Rect::from_center_size(
                             egui::pos2(rect.left() + 22.0, cy),
                             vec2(16.0, 16.0),
@@ -1992,7 +2053,7 @@ impl BibleApp {
                         }
                     }
                 });
-            y -= resp.response.rect.height() + 8.0;
+            bottom -= size.y + 8.0;
         }
         if let Some(o) = &mut self.offline {
             if retry {
@@ -2001,8 +2062,14 @@ impl BibleApp {
             }
             o.dismissed |= dismiss;
         }
-        if !self.toasts.is_empty() {
-            ctx.request_repaint_after(Duration::from_millis(250));
+        // Wake for the next fade (every frame through one), or for the next toast to go.
+        let fade = if still { 0.0 } else { TOAST_FADE_SECS };
+        if let Some(next) = self.toasts.iter().map(|t| t.at + TOAST_SECS - fade - now).reduce(f64::min) {
+            if next <= 0.0 {
+                ctx.request_repaint();
+            } else {
+                ctx.request_repaint_after(Duration::from_secs_f64(next));
+            }
         }
     }
 

@@ -318,7 +318,9 @@ The interface follows the high-fidelity designs in the Paper file "Bible" (Scree
   disk cache still holds, as the design's frame 33. Its error toast stays until clicked away or
   the chapter loads. Parallel columns keep their one-line message.
 - **Toasts are the design's inverse capsules** at the bottom centre of the main area, 4 s for
-  messages; errors stay.
+  messages; errors stay. On the Mac a message fades out over its last 0.2 s and the toasts above
+  slide down into its place, each keeping to the centre line. Toggling a bookmark replaces the
+  verse's toast still showing, so a few quick toggles show one toast with the latest state.
 - **Menus share one frame and one text column** (`menu.rs`, the `menu` group added to the token
   file). The design system's menu sheet (ds-12) gives the radius 12, 28 pt rows with radius 6
   highlights, 24 pt section headers and 9 pt separators; its 6 pt padding felt cramped, so row

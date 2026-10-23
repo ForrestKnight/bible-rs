@@ -65,6 +65,8 @@ export interface Toast {
 	text: string;
 	/** A failure that can be tried again; it stays until it's dismissed or retried. */
 	retry?: () => void;
+	/** A newer toast with the same key takes this one's place. */
+	key?: string;
 }
 
 export type Action =
@@ -910,6 +912,16 @@ export class ReadApp {
 		setTimeout(() => this.dismissToast(id), TOAST_MS);
 	}
 
+	/**
+	 * A toast that takes the place of one still showing with the same key, so toggling a
+	 * bookmark again and again shows its latest state once rather than a stack of them.
+	 */
+	toastKeyed(key: string, text: string) {
+		const id = ++this.#toastId;
+		this.toasts = [...this.toasts.filter((t) => t.key !== key), { id, text, key }];
+		setTimeout(() => this.dismissToast(id), TOAST_MS);
+	}
+
 	dismissToast(id: number) {
 		this.toasts = this.toasts.filter((t) => t.id !== id);
 	}
@@ -1029,7 +1041,10 @@ export class ReadApp {
 			case 'toggleBookmark': {
 				const v = this.selectionOrLocation()[0];
 				const on = this.study((c) => c.bible.toggleBookmark(v), "Couldn't save bookmark");
-				if (on !== undefined) this.toastNow(`${on ? 'Bookmarked' : 'Removed bookmark'} ${this.label(v)}`);
+				if (on !== undefined) {
+					const ref = this.label(v);
+					this.toastKeyed(`bookmark ${ref}`, `${on ? 'Bookmarked' : 'Removed bookmark'} ${ref}`);
+				}
 				break;
 			}
 			case 'toggleBookmarkAt':
