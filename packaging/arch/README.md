@@ -1,19 +1,26 @@
-# Arch package
+# AUR package
 
-`PKGBUILD` builds bible-rs from source at the pinned commit and installs the binary, the desktop
+`PKGBUILD` builds bible-rs from a release's source tarball and installs the binary, the desktop
 entry and the icons from `packaging/linux/`, the way the Linux archive's `install.sh` does but
-through pacman, so `omarchy pkg drop bible-rs` removes it again.
+through pacman. It is the recipe for the [AUR](https://aur.archlinux.org), where any Arch user
+installs it with `yay -S bible-rs` (or `paru`, or by cloning the AUR repository and running
+`makepkg -si`).
+
+Publishing a release:
 
 ```sh
 cd packaging/arch
-makepkg -si          # build, then install with pacman
+# pkgver in PKGBUILD must match the tag (v0.2.0 → 0.2.0); bump pkgrel only for a rebuild of
+# the same version.
+updpkgsums                              # fetch the tarball, fill in sha256sums
+makepkg --printsrcinfo > .SRCINFO       # the AUR reads this, not the PKGBUILD
+makepkg -si                             # build and install, to make sure
 ```
 
-The directory is laid out the way [omarchy-pkgs](https://github.com/omacom/omarchy-pkgs) wants a
-recipe (`PKGBUILD` plus `.omarchy/package.json` naming where releases come from), so it can be
-copied into `pkgbuilds/bible-rs/` there as a pull request when the time comes. Their checks need
-every git source pinned (`#commit=`), which `_commit` is; bump it and `pkgrel` when the fork moves.
+Then copy `PKGBUILD` and `.SRCINFO` into a clone of `ssh://aur@aur.archlinux.org/bible-rs.git`
+and push. The AUR package has a maintainer of record: whoever first pushes it, until they
+disown it in the web interface.
 
-Once a release carries the Linux archives that `scripts/package-linux.sh` builds, the recipe can
-switch to `source_x86_64` / `source_aarch64` tarballs and drop the Rust build, as `disktree-bin`
-does there.
+The package carries nothing Omarchy-specific. The Linux app looks for Omarchy's theme files at
+run time and offers its theme only where they exist; everywhere else it offers Match System,
+as on macOS and Windows.

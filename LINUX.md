@@ -54,10 +54,11 @@ On [Omarchy](https://omarchy.org) the app is part of the desktop:
   reading theme of its own, named Omarchy, and the one a new install starts on. `omarchy theme
   set` changes the app with the rest of the desktop within half a second, even if Light, Sepia or
   Dark was chosen in Settings meanwhile; those stay a choice between desktop changes.
-- **Package.** `packaging/arch/PKGBUILD` builds and installs it through pacman (`makepkg -si` in
-  that directory), so `omarchy pkg drop bible-rs` removes it. The recipe is shaped for
+- **Package.** `packaging/omarchy/PKGBUILD` builds and installs it through pacman (`makepkg -si`
+  in that directory), so `omarchy pkg drop bible-rs` removes it. The recipe is shaped for
   [omarchy-pkgs](https://github.com/omacom/omarchy-pkgs); see
-  [packaging/arch/README.md](packaging/arch/README.md).
+  [packaging/omarchy/README.md](packaging/omarchy/README.md). The AUR recipe for any other Arch
+  system is `packaging/arch/PKGBUILD`.
 - **Menu.** `packaging/omarchy/omarchy-menu.jsonc` is an Install › Bible entry for the Omarchy
   menu, for `~/.config/omarchy/extensions/omarchy-menu.jsonc` or Omarchy's own defaults.
 - **Keybinding.** In `~/.config/hypr/bindings.lua`:
