@@ -73,7 +73,7 @@ impl Item {
 }
 
 fn command_list(settings: &Settings) -> Vec<(&'static str, IconFn, Vec<&'static str>, Action)> {
-    vec![
+    let mut commands: Vec<(&'static str, IconFn, Vec<&'static str>, Action)> = vec![
         ("Toggle parallel translations", icons::columns, vec!["⇧", "⌘", "P"], Action::ToggleParallel),
         ("Theme: Light", sun_icon, vec![], Action::SetTheme(Theme::Light)),
         ("Theme: Sepia", sun_icon, vec![], Action::SetTheme(Theme::Sepia)),
@@ -108,7 +108,12 @@ fn command_list(settings: &Settings) -> Vec<(&'static str, IconFn, Vec<&'static 
         ),
         ("Settings", icons::sidebar, vec!["⌘", ","], Action::OpenSettings(SettingsTab::Reading)),
         ("Keyboard shortcuts", icons::list, vec!["⌘", "/"], Action::ShowShortcuts),
-    ]
+    ];
+    if crate::omarchy::available() {
+        let at = commands.iter().position(|c| c.0 == "Theme: Dark").map_or(commands.len(), |i| i + 1);
+        commands.insert(at, ("Theme: Omarchy", sun_icon, vec![], Action::SetTheme(Theme::Omarchy)));
+    }
+    commands
 }
 
 fn sun_icon(p: &Painter, r: Rect, c: Color32) {

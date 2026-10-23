@@ -1521,23 +1521,26 @@ fn reading(ui: &mut Ui, library: &Library, settings: &mut Settings, actions: &mu
     }
 }
 
-/// The four theme cards: Light, Sepia, Dark, Match System (`ds-14` theme picker).
+/// The theme cards: Light, Sepia, Dark, Omarchy where the desktop has one, Match System (`ds-14`
+/// theme picker). Four cards are the design's 136 pt; a fifth shares the row.
 fn theme_cards(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
     let p = settings.theme.palette();
     let width = ui.available_width();
     let (row, _) = ui.allocate_exact_size(vec2(width, 108.0), Sense::hover());
-    let gap = (width - 4.0 * 136.0) / 3.0;
-    let options: [(Option<Theme>, &str); 4] = [
-        (Some(Theme::Light), "Light"),
-        (Some(Theme::Sepia), "Sepia"),
-        (Some(Theme::Dark), "Dark"),
-        (None, "Match System"),
-    ];
+    let mut options: Vec<(Option<Theme>, &str)> =
+        vec![(Some(Theme::Light), "Light"), (Some(Theme::Sepia), "Sepia"), (Some(Theme::Dark), "Dark")];
+    if crate::omarchy::available() {
+        options.push((Some(Theme::Omarchy), "Omarchy"));
+    }
+    options.push((None, "Match System"));
+    let n = options.len() as f32;
+    let card_w = ((width - (n - 1.0) * 12.0) / n).min(136.0);
+    let gap = (width - n * card_w) / (n - 1.0);
     for (i, (t, label)) in options.into_iter().enumerate() {
         let card =
-            Rect::from_min_size(pos2(row.left() + i as f32 * (136.0 + gap), row.top()), vec2(136.0, 84.0));
+            Rect::from_min_size(pos2(row.left() + i as f32 * (card_w + gap), row.top()), vec2(card_w, 84.0));
         let resp = ui.interact(
-            card.union(Rect::from_min_size(card.left_bottom(), vec2(136.0, 24.0))),
+            card.union(Rect::from_min_size(card.left_bottom(), vec2(card_w, 24.0))),
             ui.id().with(("theme", i)),
             Sense::click(),
         );
@@ -1621,16 +1624,26 @@ fn appearance(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
     rows_card(ui, p, &[44.0, 64.0, 44.0, 44.0], |ui, i, r| match i {
         0 => {
             row_label(ui, p, r, "Theme", None);
-            let items: [(IconFn, &str); 4] =
-                [(icons::sun, "Light"), (icons::page, "Sepia"), (icons::moon, "Dark"), (icons::auto, "Auto")];
-            let selected = if settings.theme_system { 3 } else { settings.theme as usize };
+            let themes = Theme::choices();
+            let mut items: Vec<(IconFn, &str)> =
+                vec![(icons::sun, "Light"), (icons::page, "Sepia"), (icons::moon, "Dark")];
+            if themes.contains(&Theme::Omarchy) {
+                items.push((icons::cube, "Omarchy"));
+            }
+            items.push((icons::auto, "Auto"));
+            let auto = items.len() - 1;
+            let selected = if settings.theme_system {
+                auto
+            } else {
+                themes.iter().position(|t| *t == settings.theme).unwrap_or(0)
+            };
             let right = pos2(r.right() - 16.0, r.center().y);
             if let Some(k) = icon_segmented(ui, p, right, ui.id().with("theme-seg"), &items, selected) {
-                if k == 3 {
+                if k == auto {
                     settings.theme_system = true;
                 } else {
                     settings.theme_system = false;
-                    actions.push(Action::SetTheme(Theme::ALL[k]));
+                    actions.push(Action::SetTheme(themes[k]));
                 }
             }
         }
@@ -1907,7 +1920,7 @@ fn about(ui: &mut Ui, p: &Palette) {
 /// The toolbar's "Aa" popover: the settings people change while reading.
 pub fn quick_text_settings(ui: &mut Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
-        for t in Theme::ALL {
+        for t in Theme::choices() {
             let p = t.palette();
             let (r, resp) = ui.allocate_exact_size(vec2(72.0, 44.0), egui::Sense::click());
             ui.painter().rect_filled(r, egui::CornerRadius::same(8), p.paper);

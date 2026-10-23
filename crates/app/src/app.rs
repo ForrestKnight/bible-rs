@@ -2439,6 +2439,10 @@ impl eframe::App for BibleApp {
                 actions.push(Action::SetTheme(t));
             }
         }
+        // Omarchy's theme changed under us (`omarchy theme set`): take the new palette.
+        if self.settings.theme == Theme::Omarchy && crate::omarchy::changed_since_applied() {
+            actions.push(Action::SetTheme(Theme::Omarchy));
+        }
         #[cfg(windows)]
         self.match_window_chrome(&ctx);
         let p = self.settings.theme.palette();

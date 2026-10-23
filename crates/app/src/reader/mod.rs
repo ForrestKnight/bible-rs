@@ -304,6 +304,10 @@ impl Reader {
         width.to_bits().hash(&mut h);
         serde_json::to_string(env.typo).unwrap_or_default().hash(&mut h);
         env.theme.hash(&mut h);
+        if env.theme == Theme::Omarchy {
+            // The same theme with another palette, after `omarchy theme set`.
+            crate::omarchy::generation().hash(&mut h);
+        }
         env.columns.hash(&mut h);
         h.finish()
     }
